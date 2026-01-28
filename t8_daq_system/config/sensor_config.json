@@ -1,0 +1,44 @@
+{
+    "device": {
+        "type": "T8",
+        "connection": "USB",
+        "identifier": "ANY"
+    },
+    "thermocouples": [
+        {
+            "name": "TC1_Inlet",
+            "channel": 0,
+            "type": "K",
+            "units": "C",
+            "enabled": true
+        },
+        {
+            "name": "TC2_Outlet",
+            "channel": 1,
+            "type": "K",
+            "units": "C",
+            "enabled": true
+        }
+    ],
+    "pressure_sensors": [
+        {
+            "name": "P1_Chamber",
+            "channel": 2,
+            "min_voltage": 0.5,
+            "max_voltage": 4.5,
+            "min_pressure": 0,
+            "max_pressure": 100,
+            "units": "PSI",
+            "enabled": true
+        }
+    ],
+    "logging": {
+        "interval_ms": 1000,
+        "file_prefix": "data_log",
+        "auto_start": false
+    },
+    "display": {
+        "update_rate_ms": 500,
+        "history_seconds": 60
+    }
+}
