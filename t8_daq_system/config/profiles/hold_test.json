@@ -1,0 +1,25 @@
+{
+    "name": "Hold Test",
+    "description": "Simple ramp and hold profile for extended duration testing at a constant voltage.",
+    "start_voltage": 0.0,
+    "current_limit": 15.0,
+    "steps": [
+        {
+            "type": "ramp",
+            "target_voltage": 8.0,
+            "duration_sec": 60,
+            "description": "Ramp to 8V over 1 minute"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 1800,
+            "description": "Hold at 8V for 30 minutes"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 0.0,
+            "duration_sec": 120,
+            "description": "Ramp down to 0V over 2 minutes"
+        }
+    ]
+}

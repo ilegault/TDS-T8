@@ -1,0 +1,69 @@
+{
+    "name": "Quick Cycle",
+    "description": "Fast thermal cycling profile for stress testing. Rapidly cycles between low and high voltages multiple times.",
+    "start_voltage": 0.0,
+    "current_limit": 25.0,
+    "steps": [
+        {
+            "type": "ramp",
+            "target_voltage": 15.0,
+            "duration_sec": 30,
+            "description": "Quick ramp to 15V"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 60,
+            "description": "Hold at 15V for 1 minute"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 5.0,
+            "duration_sec": 30,
+            "description": "Ramp down to 5V"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 30,
+            "description": "Hold at 5V for 30 seconds"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 15.0,
+            "duration_sec": 30,
+            "description": "Ramp back to 15V"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 60,
+            "description": "Hold at 15V for 1 minute"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 5.0,
+            "duration_sec": 30,
+            "description": "Ramp down to 5V"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 30,
+            "description": "Hold at 5V for 30 seconds"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 15.0,
+            "duration_sec": 30,
+            "description": "Ramp back to 15V"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 60,
+            "description": "Final hold at 15V"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 0.0,
+            "duration_sec": 60,
+            "description": "Cool down to 0V"
+        }
+    ]
+}

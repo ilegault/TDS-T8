@@ -321,6 +321,36 @@ class MainWindow:
         )
         self.temp_limit_label.pack(side=tk.LEFT, padx=5)
 
+        # Power Supply Output Status (right side)
+        ttk.Separator(safety_frame, orient='vertical').pack(side=tk.LEFT, padx=10, fill='y')
+        ttk.Label(safety_frame, text="PS Output:", font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+
+        self.ps_output_indicator = tk.Canvas(
+            safety_frame, width=16, height=16,
+            bg='#333333', highlightthickness=1, highlightbackground='black'
+        )
+        self.ps_output_indicator.pack(side=tk.LEFT, padx=5)
+
+        self.ps_output_label = ttk.Label(
+            safety_frame, text="OFF", font=('Arial', 9)
+        )
+        self.ps_output_label.pack(side=tk.LEFT)
+
+        # Ramp Status (far right)
+        ttk.Separator(safety_frame, orient='vertical').pack(side=tk.LEFT, padx=10, fill='y')
+        ttk.Label(safety_frame, text="Ramp:", font=('Arial', 9, 'bold')).pack(side=tk.LEFT)
+
+        self.ramp_status_indicator = tk.Canvas(
+            safety_frame, width=16, height=16,
+            bg='#333333', highlightthickness=1, highlightbackground='black'
+        )
+        self.ramp_status_indicator.pack(side=tk.LEFT, padx=5)
+
+        self.ramp_status_label = ttk.Label(
+            safety_frame, text="IDLE", font=('Arial', 9)
+        )
+        self.ramp_status_label.pack(side=tk.LEFT)
+
     def _on_config_change(self):
         """Update configuration when user changes counts or units in UI."""
         new_tc_count = int(self.tc_count_var.get())
@@ -518,6 +548,42 @@ class MainWindow:
         self.safety_indicator.config(bg=color)
         self.safety_status_label.config(text=text, foreground=fg)
 
+    def _update_ps_output_status(self):
+        """Update the power supply output status indicator."""
+        if self.ps_controller:
+            try:
+                is_on = self.ps_controller.is_output_on()
+                if is_on:
+                    self.ps_output_indicator.config(bg='#00FF00')
+                    self.ps_output_label.config(text='ON', foreground='green')
+                else:
+                    self.ps_output_indicator.config(bg='#333333')
+                    self.ps_output_label.config(text='OFF', foreground='gray')
+            except Exception:
+                self.ps_output_indicator.config(bg='#FF0000')
+                self.ps_output_label.config(text='ERROR', foreground='red')
+        else:
+            self.ps_output_indicator.config(bg='#333333')
+            self.ps_output_label.config(text='N/A', foreground='gray')
+
+    def _update_ramp_status(self):
+        """Update the ramp execution status indicator."""
+        from t8_daq_system.control.ramp_executor import ExecutorState
+
+        state = self.ramp_executor.state
+        status_info = {
+            ExecutorState.IDLE: ('#333333', 'IDLE', 'gray'),
+            ExecutorState.RUNNING: ('#00FF00', 'RUNNING', 'green'),
+            ExecutorState.PAUSED: ('#FFFF00', 'PAUSED', 'orange'),
+            ExecutorState.COMPLETED: ('#0088FF', 'DONE', 'blue'),
+            ExecutorState.ERROR: ('#FF0000', 'ERROR', 'red'),
+            ExecutorState.ABORTED: ('#FF8800', 'ABORTED', 'orange'),
+        }
+
+        color, text, fg = status_info.get(state, ('#333333', 'UNKNOWN', 'gray'))
+        self.ramp_status_indicator.config(bg=color)
+        self.ramp_status_label.config(text=text, foreground=fg)
+
     def _on_reset_safety(self):
         """Handle Reset Safety button click."""
         if messagebox.askyesno(
@@ -644,15 +710,37 @@ class MainWindow:
                 # Read power supply state if connected
                 ps_readings = {}
                 if self.ps_controller:
-                    ps_readings = self.ps_controller.get_readings()
+                    try:
+                        ps_readings = self.ps_controller.get_readings()
 
-                    # If ramp is running, update setpoint
-                    if self.ramp_executor.is_running():
-                        new_setpoint = self.ramp_executor.get_current_setpoint()
-                        try:
-                            self.ps_controller.set_voltage(new_setpoint)
-                        except Exception as e:
-                            print(f"Error setting voltage: {e}")
+                        # Check if PS connection was lost (readings return None)
+                        if ps_readings.get('PS_Voltage') is None and ps_readings.get('PS_Current') is None:
+                            # PS may have disconnected
+                            if not self.ps_connection.is_connected():
+                                print("Power supply connection lost")
+                                # Stop ramp if running - safety critical
+                                if self.ramp_executor.is_running():
+                                    self.ramp_executor.stop()
+                                    self.root.after(0, lambda: messagebox.showwarning(
+                                        "Power Supply Disconnected",
+                                        "Power supply connection lost during ramp execution.\n"
+                                        "Ramp has been stopped for safety."
+                                    ))
+                                self.ps_controller = None
+
+                        # If ramp is running, update setpoint
+                        elif self.ramp_executor.is_running():
+                            new_setpoint = self.ramp_executor.get_current_setpoint()
+                            success = self.ps_controller.set_voltage(new_setpoint)
+                            if not success:
+                                print("Warning: Failed to update voltage setpoint")
+                    except Exception as e:
+                        print(f"Error reading/setting power supply: {e}")
+                        # Check if this is a connection issue
+                        if not self.ps_connection.is_connected():
+                            if self.ramp_executor.is_running():
+                                self.ramp_executor.stop()
+                            self.ps_controller = None
 
                 # Combine readings
                 all_readings = {**tc_readings, **pressure_readings, **ps_readings}
@@ -724,6 +812,12 @@ class MainWindow:
 
         # Update ramp panel
         self.ramp_panel.update()
+
+        # Update power supply output status indicator
+        self._update_ps_output_status()
+
+        # Update ramp status indicator
+        self._update_ramp_status()
 
         # Update safety display
         if not self._safety_triggered:

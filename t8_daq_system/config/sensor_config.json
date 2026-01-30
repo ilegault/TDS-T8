@@ -1,0 +1,63 @@
+{
+    "device": {
+        "type": "T8",
+        "connection": "USB",
+        "identifier": "ANY"
+    },
+    "thermocouples": [
+        {
+            "name": "TC_1",
+            "channel": 0,
+            "type": "K",
+            "units": "C",
+            "enabled": true,
+            "scale": 1.0,
+            "offset": 0.0
+        },
+        {
+            "name": "TC_2",
+            "channel": 1,
+            "type": "K",
+            "units": "C",
+            "enabled": true,
+            "scale": 1.0,
+            "offset": 0.0
+        }
+    ],
+    "pressure_sensors": [
+        {
+            "name": "P_1",
+            "channel": 8,
+            "min_voltage": 0.5,
+            "max_voltage": 4.5,
+            "min_pressure": 0,
+            "max_pressure": 100,
+            "units": "PSI",
+            "enabled": true,
+            "scale": 1.0,
+            "offset": 0.0
+        }
+    ],
+    "power_supply": {
+        "enabled": true,
+        "visa_resource": null,
+        "default_voltage_limit": 20.0,
+        "default_current_limit": 50.0,
+        "safety": {
+            "max_temperature": 200,
+            "watchdog_sensor": "TC_1",
+            "auto_shutoff": true,
+            "warning_threshold": 0.9,
+            "debounce_count": 3
+        }
+    },
+    "logging": {
+        "interval_ms": 100,
+        "file_prefix": "data_log",
+        "auto_start": false
+    },
+    "display": {
+        "update_rate_ms": 100,
+        "history_seconds": 60
+    }
+}

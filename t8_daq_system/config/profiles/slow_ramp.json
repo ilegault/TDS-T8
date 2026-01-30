@@ -1,0 +1,47 @@
+{
+    "name": "Slow Ramp",
+    "description": "Gentle heating profile for sensitive specimens. Ramps to 10V over 5 minutes, holds for 10 minutes, then slowly cools down.",
+    "start_voltage": 0.0,
+    "current_limit": 10.0,
+    "steps": [
+        {
+            "type": "ramp",
+            "target_voltage": 5.0,
+            "duration_sec": 120,
+            "description": "Ramp to 5V over 2 minutes"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 180,
+            "description": "Hold at 5V for 3 minutes"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 10.0,
+            "duration_sec": 180,
+            "description": "Ramp to 10V over 3 minutes"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 600,
+            "description": "Hold at 10V for 10 minutes"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 5.0,
+            "duration_sec": 180,
+            "description": "Ramp down to 5V over 3 minutes"
+        },
+        {
+            "type": "hold",
+            "duration_sec": 120,
+            "description": "Hold at 5V for 2 minutes"
+        },
+        {
+            "type": "ramp",
+            "target_voltage": 0.0,
+            "duration_sec": 180,
+            "description": "Ramp down to 0V over 3 minutes"
+        }
+    ]
+}
