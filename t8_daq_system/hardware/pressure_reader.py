@@ -63,6 +63,8 @@ class PressureReader:
             pressure = pressure * 0.0689476
         elif units == 'kPa':
             pressure = pressure * 6.89476
+        elif units == 'Torr':
+            pressure = pressure * 51.7149
             
         # Apply scale and offset if configured
         scale = sensor_config.get('scale', 1.0)
