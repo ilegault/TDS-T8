@@ -22,14 +22,18 @@ from t8_daq_system.hardware.power_supply_controller import PowerSupplyController
 from t8_daq_system.control.ramp_executor import RampExecutor
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
 from t8_daq_system.data.data_buffer import DataBuffer
-from t8_daq_system.data.data_logger import DataLogger
+from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
 from t8_daq_system.gui.live_plot import LivePlot
 from t8_daq_system.gui.sensor_panel import SensorPanel
 from t8_daq_system.gui.power_supply_panel import PowerSupplyPanel
 from t8_daq_system.gui.ramp_panel import RampPanel
+from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog, AxisScaleDialog
 
 
 class MainWindow:
+    # Available sampling rates in milliseconds
+    SAMPLE_RATES = [50, 100, 200, 500, 1000, 2000]
+
     def __init__(self, config_path=None):
         """
         Initialize the main application window.
@@ -95,15 +99,17 @@ class MainWindow:
 
         # Set up log folder path
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_folder = os.path.join(base_dir, 'logs')
+        self.log_folder = os.path.join(base_dir, 'logs')
         self.profiles_folder = os.path.join(base_dir, 'config', 'profiles')
 
-        # Create profiles folder if it doesn't exist
+        # Create folders if they don't exist
         if not os.path.exists(self.profiles_folder):
             os.makedirs(self.profiles_folder)
+        if not os.path.exists(self.log_folder):
+            os.makedirs(self.log_folder)
 
         self.logger = DataLogger(
-            log_folder=log_folder,
+            log_folder=self.log_folder,
             file_prefix=self.config['logging']['file_prefix']
         )
 
@@ -112,6 +118,15 @@ class MainWindow:
         self.is_logging = False
         self.read_thread = None
         self._safety_triggered = False
+
+        # Axis scale settings
+        self._use_absolute_scales = True  # Default to absolute scales
+        self._temp_range = (0, 300)  # Default temp range
+        self._pressure_range = (0, 100)  # Default pressure range
+
+        # Mode tracking (live vs viewing historical data)
+        self._viewing_historical = False
+        self._loaded_data = None
 
         # Build the GUI
         self._build_gui()
@@ -170,7 +185,7 @@ class MainWindow:
         self.p_count_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
 
         # Pressure Type (PSI Range)
-        ttk.Label(config_area, text="PSI:").pack(side=tk.LEFT, padx=2)
+        ttk.Label(config_area, text="P-Max:").pack(side=tk.LEFT, padx=2)
         p_max = "100"
         if self.config['pressure_sensors']:
             p_max = str(int(self.config['pressure_sensors'][0]['max_pressure']))
@@ -202,11 +217,24 @@ class MainWindow:
         self.p_unit_var = tk.StringVar(value=p_unit)
         self.p_unit_combo = ttk.Combobox(
             config_area, textvariable=self.p_unit_var,
-            values=["PSI", "Bar", "kPa"], width=5
+            values=["PSI", "Bar", "kPa", "Torr"], width=5
         )
         self.p_unit_combo.pack(side=tk.LEFT, padx=2)
         self.p_unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
 
+        # Sampling rate dropdown
+        ttk.Label(config_area, text="Rate:").pack(side=tk.LEFT, padx=2)
+        current_rate = self.config['logging']['interval_ms']
+        self.sample_rate_var = tk.StringVar(value=f"{current_rate}ms")
+        rate_values = [f"{r}ms" for r in self.SAMPLE_RATES]
+        self.sample_rate_combo = ttk.Combobox(
+            config_area, textvariable=self.sample_rate_var,
+            values=rate_values, width=6
+        )
+        self.sample_rate_combo.pack(side=tk.LEFT, padx=2)
+        self.sample_rate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_sample_rate_change())
+
+        # Control buttons
         self.start_btn = ttk.Button(
             control_frame, text="Start", command=self._on_start, state='disabled'
         )
@@ -222,6 +250,18 @@ class MainWindow:
             state='disabled'
         )
         self.log_btn.pack(side=tk.LEFT, padx=5)
+
+        # Load CSV button
+        self.load_csv_btn = ttk.Button(
+            control_frame, text="Load CSV", command=self._on_load_csv
+        )
+        self.load_csv_btn.pack(side=tk.LEFT, padx=5)
+
+        # Axis Scale button
+        self.scale_btn = ttk.Button(
+            control_frame, text="Axis Scales", command=self._on_axis_scales
+        )
+        self.scale_btn.pack(side=tk.LEFT, padx=5)
 
         # Separator
         ttk.Separator(control_frame, orient='vertical').pack(
@@ -260,19 +300,22 @@ class MainWindow:
         # Build initial panel
         self._rebuild_sensor_panel()
 
-        # Live plots (Full run and 1 min)
-        plot_container = ttk.Frame(left_frame)
-        plot_container.pack(fill=tk.BOTH, expand=True)
+        # Live plots - Use PanedWindow for resizable dual windows
+        plot_paned = ttk.PanedWindow(left_frame, orient=tk.HORIZONTAL)
+        plot_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Full run plot
-        full_frame = ttk.LabelFrame(plot_container, text="Full Run History (TC/P)")
-        full_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=2)
+        full_frame = ttk.LabelFrame(plot_paned, text="Full Run History")
+        plot_paned.add(full_frame, weight=1)
         self.full_plot = LivePlot(full_frame, self.data_buffer)
 
         # Recent plot (1 min)
-        recent_frame = ttk.LabelFrame(plot_container, text="Last 1 Minute (TC/P)")
-        recent_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=2)
+        recent_frame = ttk.LabelFrame(plot_paned, text="Last 1 Minute")
+        plot_paned.add(recent_frame, weight=1)
         self.recent_plot = LivePlot(recent_frame, self.data_buffer)
+
+        # Configure plots with units and scales
+        self._update_plot_settings()
 
         # Right side - Power Supply Control
         right_frame = ttk.Frame(main_paned)
@@ -328,6 +371,163 @@ class MainWindow:
             font=('Arial', 8)
         )
         self.temp_limit_label.pack(side=tk.LEFT, padx=5)
+
+        # Historical data indicator (initially hidden)
+        self.historical_label = ttk.Label(
+            safety_frame, text="[VIEWING HISTORICAL DATA]",
+            font=('Arial', 9, 'bold'), foreground='blue'
+        )
+        # Don't pack initially
+
+    def _on_sample_rate_change(self):
+        """Handle change in sampling rate."""
+        rate_str = self.sample_rate_var.get()
+        rate_ms = int(rate_str.replace('ms', ''))
+
+        self.config['logging']['interval_ms'] = rate_ms
+        self.config['display']['update_rate_ms'] = rate_ms
+
+        # Update data buffer sample rate
+        self.data_buffer.sample_rate_ms = rate_ms
+
+    def _update_plot_settings(self):
+        """Update plot settings (units, scales) based on current config."""
+        # Get current units
+        t_unit = self.t_unit_var.get() if hasattr(self, 't_unit_var') else 'C'
+        p_unit = self.p_unit_var.get() if hasattr(self, 'p_unit_var') else 'PSI'
+
+        # Map unit codes to display symbols
+        temp_symbols = {'C': '°C', 'F': '°F', 'K': 'K'}
+        temp_unit_display = temp_symbols.get(t_unit, '°C')
+
+        # Update plot units
+        self.full_plot.set_units(temp_unit_display, p_unit)
+        self.recent_plot.set_units(temp_unit_display, p_unit)
+
+        # Update pressure range based on max pressure setting
+        p_max = float(self.p_type_var.get()) if hasattr(self, 'p_type_var') else 100
+        self._pressure_range = (0, p_max)
+
+        # Update axis scales
+        self.full_plot.set_absolute_scales(
+            self._use_absolute_scales,
+            self._temp_range,
+            self._pressure_range
+        )
+        self.recent_plot.set_absolute_scales(
+            self._use_absolute_scales,
+            self._temp_range,
+            self._pressure_range
+        )
+
+    def _on_axis_scales(self):
+        """Open dialog to configure axis scales."""
+        dialog = AxisScaleDialog(
+            self.root,
+            self._temp_range,
+            self._pressure_range,
+            self._use_absolute_scales
+        )
+        self.root.wait_window(dialog)
+
+        if dialog.result:
+            self._use_absolute_scales = dialog.result['use_absolute']
+            self._temp_range = dialog.result['temp_range']
+            self._pressure_range = dialog.result['pressure_range']
+            self._update_plot_settings()
+
+    def _on_load_csv(self):
+        """Open dialog to load historical CSV data."""
+        dialog = LoadCSVDialog(self.root, self.log_folder)
+        self.root.wait_window(dialog)
+
+        if dialog.result:
+            self._load_historical_data(dialog.result)
+
+    def _load_historical_data(self, filepath):
+        """Load and display historical data from a CSV file."""
+        try:
+            metadata, data = DataLogger.load_csv_with_metadata(filepath)
+
+            if not data.get('timestamps'):
+                messagebox.showerror("Error", "No data found in file.")
+                return
+
+            self._loaded_data = data
+            self._viewing_historical = True
+
+            # Update GUI to reflect loaded settings
+            if metadata:
+                # Update config displays based on metadata
+                if 'tc_count' in metadata:
+                    self.tc_count_var.set(str(metadata['tc_count']))
+                if 'tc_type' in metadata:
+                    self.tc_type_var.set(metadata['tc_type'])
+                if 'tc_unit' in metadata:
+                    self.t_unit_var.set(metadata['tc_unit'])
+                if 'p_count' in metadata:
+                    self.p_count_var.set(str(metadata['p_count']))
+                if 'p_unit' in metadata:
+                    self.p_unit_var.set(metadata['p_unit'])
+                if 'p_max' in metadata:
+                    self.p_type_var.set(str(int(metadata['p_max'])))
+                if 'sample_rate_ms' in metadata:
+                    self.sample_rate_var.set(f"{metadata['sample_rate_ms']}ms")
+
+            # Update plot settings based on loaded metadata
+            self._update_plot_settings()
+
+            # Show historical data indicator
+            self.historical_label.pack(side=tk.RIGHT, padx=10)
+
+            # Update status
+            filename = os.path.basename(filepath)
+            self.status_var.set(f"Viewing: {filename}")
+
+            # Update plots with loaded data
+            self.full_plot.update_from_loaded_data(data)
+            self.recent_plot.update_from_loaded_data(data, window_seconds=60)
+
+            # Disable live controls
+            self.start_btn.config(state='disabled')
+            self.stop_btn.config(state='disabled')
+            self.log_btn.config(state='disabled')
+
+            # Add "Return to Live" button if not exists
+            if not hasattr(self, 'return_live_btn'):
+                self.return_live_btn = ttk.Button(
+                    self.root,
+                    text="Return to Live View",
+                    command=self._return_to_live
+                )
+            self.return_live_btn.pack(pady=5)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load file: {e}")
+
+    def _return_to_live(self):
+        """Return to live data view from historical view."""
+        self._viewing_historical = False
+        self._loaded_data = None
+
+        # Hide historical indicator
+        self.historical_label.pack_forget()
+
+        # Hide return button
+        if hasattr(self, 'return_live_btn'):
+            self.return_live_btn.pack_forget()
+
+        # Clear plots
+        self.full_plot.clear()
+        self.recent_plot.clear()
+        self.data_buffer.clear()
+
+        # Re-enable controls if connected
+        if self.connection and self.connection.is_connected():
+            self.start_btn.config(state='normal')
+            self.status_var.set("Connected")
+        else:
+            self.status_var.set("Disconnected")
 
     def _on_config_change(self):
         """Update configuration when user changes counts or units in UI."""
@@ -393,6 +593,9 @@ class MainWindow:
         self._configure_safety_monitor()
 
         self._rebuild_sensor_panel()
+
+        # Update plot settings
+        self._update_plot_settings()
 
     def _build_indicators(self):
         """Build the small light-up boxes for connection status."""
@@ -606,7 +809,28 @@ class MainWindow:
     def _on_toggle_logging(self):
         """Start or stop logging to file."""
         if not self.is_logging:
-            # Start logging - include power supply data
+            # Show logging dialog
+            dialog = LoggingDialog(self.root)
+            self.root.wait_window(dialog)
+
+            if dialog.result is None:
+                return  # User cancelled
+
+            custom_name, notes = dialog.result
+
+            # Build metadata
+            metadata = create_metadata_dict(
+                tc_count=int(self.tc_count_var.get()),
+                tc_type=self.tc_type_var.get(),
+                tc_unit=self.t_unit_var.get(),
+                p_count=int(self.p_count_var.get()),
+                p_unit=self.p_unit_var.get(),
+                p_max=float(self.p_type_var.get()),
+                sample_rate_ms=int(self.sample_rate_var.get().replace('ms', '')),
+                notes=notes or ""
+            )
+
+            # Start logging
             sensor_names = [tc['name'] for tc in self.config['thermocouples']
                           if tc.get('enabled', True)]
             sensor_names += [p['name'] for p in self.config['pressure_sensors']
@@ -616,7 +840,7 @@ class MainWindow:
             if self.ps_controller:
                 sensor_names += ['PS_Voltage', 'PS_Current']
 
-            filepath = self.logger.start_logging(sensor_names)
+            filepath = self.logger.start_logging(sensor_names, custom_name, metadata)
             self.is_logging = True
             self.log_btn.config(text="Stop Logging")
             self.status_var.set(f"Running - Logging to {os.path.basename(filepath)}")
@@ -682,6 +906,11 @@ class MainWindow:
 
     def _update_gui(self):
         """Update the GUI (called periodically)."""
+
+        # Skip GUI updates if viewing historical data
+        if self._viewing_historical:
+            self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
+            return
 
         # Auto-connect LabJack
         lj_connected = self.connection.is_connected()
