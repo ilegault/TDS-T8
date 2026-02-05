@@ -49,7 +49,7 @@ class ThermocoupleReader:
 
             try:
                 # Set the voltage range (thermocouples use small voltages)
-                ljm.eWriteName(self.handle, range_name, 0.075)  # +/-75mV range
+                ljm.eWriteName(self.handle, range_name, 0.1)  # ±100mV range
 
                 # Set the thermocouple type
                 ljm.eWriteName(self.handle, index_name, self.TC_TYPES[tc_type])
@@ -80,6 +80,7 @@ class ThermocoupleReader:
 
             try:
                 temp = ljm.eReadName(self.handle, read_name)
+                # print(f"DEBUG {tc['name']}: Temp={temp}°C")
 
                 # -9999 means the thermocouple isn't connected
                 if temp == -9999:

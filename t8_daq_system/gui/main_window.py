@@ -52,7 +52,7 @@ class MainWindow:
                 "default_voltage_limit": 20.0,
                 "default_current_limit": 50.0,
                 "safety": {
-                    "max_temperature": 200,
+                    "max_temperature": 2300,
                     "watchdog_sensor": "TC_1",
                     "auto_shutoff": True,
                     "warning_threshold": 0.9
@@ -124,7 +124,7 @@ class MainWindow:
 
         # Axis scale settings
         self._use_absolute_scales = True  # Default to absolute scales
-        self._temp_range = (0, 300)  # Default temp range
+        self._temp_range = (0, 2500)  # Default temp range
         self._pressure_range = (0, 100)  # Default pressure range
 
         # Mode tracking (live vs viewing historical data)
@@ -818,7 +818,7 @@ class MainWindow:
         safety_config = self.config.get('power_supply', {}).get('safety', {})
 
         # Set temperature limits for all thermocouples
-        max_temp = safety_config.get('max_temperature', 200)
+        max_temp = safety_config.get('max_temperature', 2300)
         for tc in self.config['thermocouples']:
             self.safety_monitor.set_temperature_limit(tc['name'], max_temp)
 

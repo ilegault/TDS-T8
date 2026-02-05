@@ -511,7 +511,7 @@ class SafetyMonitor:
         {
             "enabled": true,
             "auto_shutoff": true,
-            "max_temperature": 200,  # Global default
+            "max_temperature": 2300,  # Global default
             "warning_threshold": 0.9,
             "watchdog_sensor": "TC_1",
             "sensor_limits": {
