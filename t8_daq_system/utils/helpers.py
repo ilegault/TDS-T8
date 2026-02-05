@@ -49,21 +49,24 @@ def convert_temperature(value, from_unit, to_unit):
     Returns:
         Converted temperature value
     """
-    if from_unit == to_unit:
+    f = from_unit.upper()[0] if from_unit else 'C'
+    t = to_unit.upper()[0] if to_unit else 'C'
+
+    if f == t:
         return value
 
     # Convert to Celsius first
-    if from_unit == 'F':
+    if f == 'F':
         celsius = (value - 32) * 5/9
-    elif from_unit == 'K':
+    elif f == 'K':
         celsius = value - 273.15
     else:
         celsius = value
 
     # Convert from Celsius to target
-    if to_unit == 'F':
+    if t == 'F':
         return celsius * 9/5 + 32
-    elif to_unit == 'K':
+    elif t == 'K':
         return celsius + 273.15
     else:
         return celsius
@@ -75,8 +78,8 @@ def convert_pressure(value, from_unit, to_unit):
 
     Args:
         value: Pressure value to convert
-        from_unit: Source unit ('PSI', 'BAR', 'KPA', 'ATM')
-        to_unit: Target unit ('PSI', 'BAR', 'KPA', 'ATM')
+        from_unit: Source unit ('PSI', 'Bar', 'kPa', 'Torr')
+        to_unit: Target unit ('PSI', 'Bar', 'kPa', 'Torr')
 
     Returns:
         Converted pressure value
@@ -84,17 +87,24 @@ def convert_pressure(value, from_unit, to_unit):
     if from_unit == to_unit:
         return value
 
+    # Normalize units to uppercase for comparison
+    f = from_unit.lower()
+    t = to_unit.lower()
+
+    if f == t:
+        return value
+
     # Conversion factors to PSI
     to_psi = {
-        'PSI': 1.0,
-        'BAR': 14.5038,
-        'KPA': 0.145038,
-        'ATM': 14.6959
+        'psi': 1.0,
+        'bar': 14.5038,
+        'kpa': 0.145038,
+        'torr': 0.0193368
     }
 
     # Convert to PSI first, then to target
-    psi_value = value * to_psi.get(from_unit, 1.0)
-    return psi_value / to_psi.get(to_unit, 1.0)
+    psi_value = value * to_psi.get(f, 1.0)
+    return psi_value / to_psi.get(t, 1.0)
 
 
 def linear_scale(value, in_min, in_max, out_min, out_max):

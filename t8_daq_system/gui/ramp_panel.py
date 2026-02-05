@@ -95,7 +95,7 @@ class RampPanel:
 
         self.profile_info = ttk.Label(
             info_frame, text="No profile loaded",
-            font=('Arial', 9), wraplength=350
+            font=('Arial', 8), wraplength=350
         )
         self.profile_info.pack(fill=tk.X, padx=10, pady=5)
 
@@ -109,11 +109,11 @@ class RampPanel:
 
         ttk.Label(status_row, text="Status:").pack(side=tk.LEFT)
         self.state_label = ttk.Label(
-            status_row, text="IDLE", font=('Arial', 9, 'bold')
+            status_row, text="IDLE", font=('Arial', 8, 'bold')
         )
         self.state_label.pack(side=tk.LEFT, padx=5)
 
-        self.step_label = ttk.Label(status_row, text="Step: --/--", font=('Arial', 9))
+        self.step_label = ttk.Label(status_row, text="Step: --/--", font=('Arial', 8))
         self.step_label.pack(side=tk.RIGHT)
 
         # Progress bar
@@ -128,15 +128,15 @@ class RampPanel:
         time_row = ttk.Frame(progress_frame)
         time_row.pack(fill=tk.X, padx=10, pady=(0, 5))
 
-        self.elapsed_label = ttk.Label(time_row, text="Elapsed: 00:00", font=('Arial', 9))
+        self.elapsed_label = ttk.Label(time_row, text="Elapsed: 00:00", font=('Arial', 8))
         self.elapsed_label.pack(side=tk.LEFT)
 
         self.setpoint_label = ttk.Label(
-            time_row, text="Setpoint: 0.00 V", font=('Arial', 9, 'bold')
+            time_row, text="Setpoint: 0.00 V", font=('Arial', 8, 'bold')
         )
         self.setpoint_label.pack(side=tk.LEFT, padx=20)
 
-        self.remaining_label = ttk.Label(time_row, text="Remaining: 00:00", font=('Arial', 9))
+        self.remaining_label = ttk.Label(time_row, text="Remaining: 00:00", font=('Arial', 8))
         self.remaining_label.pack(side=tk.RIGHT)
 
         # Control buttons
@@ -145,21 +145,21 @@ class RampPanel:
 
         self.start_btn = tk.Button(
             button_frame, text="Start Ramp", command=self._on_start,
-            bg='#4CAF50', fg='white', font=('Arial', 10, 'bold'),
+            bg='#4CAF50', fg='white', font=('Arial', 9, 'bold'),
             width=12, height=1
         )
         self.start_btn.pack(side=tk.LEFT, expand=True, padx=5)
 
         self.pause_btn = tk.Button(
             button_frame, text="Pause", command=self._on_pause,
-            bg='#FF9800', fg='white', font=('Arial', 10, 'bold'),
+            bg='#FF9800', fg='white', font=('Arial', 9, 'bold'),
             width=12, height=1, state='disabled'
         )
         self.pause_btn.pack(side=tk.LEFT, expand=True, padx=5)
 
         self.stop_btn = tk.Button(
             button_frame, text="Stop Ramp", command=self._on_stop,
-            bg='#f44336', fg='white', font=('Arial', 10, 'bold'),
+            bg='#f44336', fg='white', font=('Arial', 9, 'bold'),
             width=12, height=1, state='disabled'
         )
         self.stop_btn.pack(side=tk.LEFT, expand=True, padx=5)

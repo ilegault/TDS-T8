@@ -57,20 +57,8 @@ class PressureReader:
         # Linear interpolation (PSI)
         pressure = (voltage - v_min) / (v_max - v_min) * (p_max - p_min) + p_min
         
-        # Convert units if necessary
-        units = sensor_config.get('units', 'PSI')
-        if units == 'Bar':
-            pressure = pressure * 0.0689476
-        elif units == 'kPa':
-            pressure = pressure * 6.89476
-        elif units == 'Torr':
-            pressure = pressure * 51.7149
-            
-        # Apply scale and offset if configured
-        scale = sensor_config.get('scale', 1.0)
-        offset = sensor_config.get('offset', 0.0)
-        pressure = (pressure * scale) + offset
-
+        # Internal consistency: Always return PSI. 
+        # Conversion for display is handled in the GUI.
         return round(pressure, 2)
 
     def read_all(self):

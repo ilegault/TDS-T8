@@ -14,6 +14,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
 from datetime import datetime
+from t8_daq_system.utils.helpers import convert_temperature, convert_pressure
 
 
 class LivePlot:
@@ -33,8 +34,12 @@ class LivePlot:
         self.parent = parent_frame
 
         # Create matplotlib figure
-        self.fig = Figure(figsize=(10, 6), dpi=100)
+        self.fig = Figure(figsize=(8, 4), dpi=100)
+        self.fig.patch.set_facecolor('#f0f0f0')  # Match tkinter background if needed
         self.ax = self.fig.add_subplot(111)
+        
+        # Maximize space
+        self.fig.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.15)
 
         # Create secondary axis for pressure data
         self.ax2 = None  # Created on demand
@@ -54,13 +59,9 @@ class LivePlot:
         # Format x-axis to show time nicely
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
 
-        # Color cycle for temperature sensors (left axis) - warm colors
-        self.temp_colors = ['#d62728', '#ff7f0e', '#e377c2', '#bcbd22',
-                           '#8c564b', '#9467bd', '#17becf']
-
-        # Color cycle for pressure sensors (right axis) - cool colors
-        self.pressure_colors = ['#1f77b4', '#2ca02c', '#17becf', '#7f7f7f',
-                               '#9467bd', '#8c564b', '#e377c2']
+        # Standard color cycle
+        self.colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                      '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
         # Power supply colors
         self.ps_colors = {
@@ -97,212 +98,106 @@ class LivePlot:
         """Set the unit labels for the axes."""
         self._temp_unit = temp_unit
         self._pressure_unit = pressure_unit
+        
+    def _prepare_data(self, timestamps, values, window_seconds=None, now=None):
+        """Filter data by window and remove Nones."""
+        if not timestamps or not values:
+            return [], []
+            
+        valid_times = []
+        valid_vals = []
+        
+        for t, v in zip(timestamps, values):
+            if v is None:
+                continue
+            if window_seconds and now and (now - t).total_seconds() > window_seconds:
+                continue
+            valid_times.append(t)
+            valid_vals.append(v)
+            
+        return valid_times, valid_vals
 
     def update(self, sensor_names, ps_names=None, window_seconds=None):
         """
-        Refresh the plot with current data.
-        Call this periodically (e.g., every 500ms).
-
-        Args:
-            sensor_names: List of sensor names to plot (TC and pressure)
-            ps_names: Optional list of power supply sensor names
-            window_seconds: If provided, only show data from the last X seconds
+        Refresh the plot with current data from the buffer.
         """
-        self.ax.clear()
-        self.ax.grid(True, alpha=0.3)
-        self.ax.set_xlabel('Time')
-
-        # Check what types of data we have
-        tc_names = [name for name in sensor_names if name.startswith('TC_')]
-        p_names = [name for name in sensor_names if name.startswith('P_')]
-        has_tc = len(tc_names) > 0
-        has_p = len(p_names) > 0
-        has_ps = bool(ps_names)
-
-        # Determine axis configuration:
-        # - If TC selected: show left axis for temperature
-        # - If P selected: show right axis for pressure
-        # - If only one type: show only that axis
-        # - PS data goes on whichever axis is available (prefer right if both)
-
-        show_left_axis = has_tc
-        show_right_axis = has_p or (has_ps and not has_tc)
-
-        # Configure Left Axis (Temperature) - only if TC sensors selected
-        if show_left_axis:
-            self.ax.set_ylabel(f'Temperature ({self._temp_unit})', color='#d62728')
-            self.ax.tick_params(axis='y', labelcolor='#d62728', labelleft=True)
-            self.ax.yaxis.set_visible(True)
-            if self._use_absolute_scales and self._temp_range:
-                self.ax.set_ylim(self._temp_range)
-        else:
-            # Hide left axis completely
-            self.ax.set_ylabel('')
-            self.ax.tick_params(axis='y', labelleft=False)
-            self.ax.yaxis.set_visible(False)
-
-        # Configure Right Axis (Pressure) - only if P sensors or PS data selected
-        if show_right_axis:
-            if self.ax2 is None:
-                self.ax2 = self.ax.twinx()
-            self.ax2.clear()
-            self.ax2.yaxis.set_visible(True)
-
-            label_parts = []
-            if has_p:
-                label_parts.append(f'Pressure ({self._pressure_unit})')
-            if has_ps and not has_p:
-                label_parts.append('Power Supply')
-
-            self.ax2.set_ylabel(' / '.join(label_parts), color='#1f77b4')
-            self.ax2.tick_params(axis='y', labelcolor='#1f77b4')
-
-            if self._use_absolute_scales and self._pressure_range and has_p:
-                self.ax2.set_ylim(self._pressure_range)
-        elif self.ax2 is not None:
-            self.ax2.yaxis.set_visible(False)
-
-        self._showing_ps = has_ps
-
-        # Plot sensors
-        legend_handles = []
-        legend_labels = []
-
-        now = datetime.now() if window_seconds else None
-
-        # Plot temperature sensors on LEFT axis
-        for i, name in enumerate(tc_names):
-            timestamps, values = self.data_buffer.get_sensor_data(name)
-            if not timestamps or not values:
-                continue
-
-            # Filter data
-            valid_data = []
-            for t, v in zip(timestamps, values):
-                if v is None:
-                    continue
-                if window_seconds and (now - t).total_seconds() > window_seconds:
-                    continue
-                valid_data.append((t, v))
-
-            if valid_data:
-                times, vals = zip(*valid_data)
-                color = self.temp_colors[i % len(self.temp_colors)]
-                line, = self.ax.plot(times, vals, label=name, linewidth=2, color=color)
-                legend_handles.append(line)
-                legend_labels.append(name)
-
-        # Plot pressure sensors on RIGHT axis
-        for i, name in enumerate(p_names):
-            timestamps, values = self.data_buffer.get_sensor_data(name)
-            if not timestamps or not values:
-                continue
-
-            valid_data = []
-            for t, v in zip(timestamps, values):
-                if v is None:
-                    continue
-                if window_seconds and (now - t).total_seconds() > window_seconds:
-                    continue
-                valid_data.append((t, v))
-
-            if valid_data:
-                times, vals = zip(*valid_data)
-                color = self.pressure_colors[i % len(self.pressure_colors)]
-
-                if self.ax2:
-                    line, = self.ax2.plot(times, vals, label=name, linewidth=2,
-                                         color=color, linestyle='--')
-                else:
-                    # Fallback: use left axis if right not available
-                    line, = self.ax.plot(times, vals, label=name, linewidth=2,
-                                        color=color, linestyle='--')
-                legend_handles.append(line)
-                legend_labels.append(name)
-
-        # Plot power supply data
+        # Get data from buffer and format it for the core update method
+        plot_data = {}
+        all_timestamps = []
+        
+        for name in sensor_names:
+            ts, vals = self.data_buffer.get_sensor_data(name)
+            plot_data[name] = vals
+            if ts and not all_timestamps: # Use first available timestamps as reference
+                all_timestamps = ts
+                
         if ps_names:
-            # Determine which axis to use for PS data
-            ps_axis = self.ax2 if self.ax2 and self.ax2.yaxis.get_visible() else self.ax
-
             for name in ps_names:
-                timestamps, values = self.data_buffer.get_sensor_data(name)
-                if not timestamps or not values:
-                    continue
+                ts, vals = self.data_buffer.get_sensor_data(name)
+                plot_data[name] = vals
+                if ts and not all_timestamps:
+                    all_timestamps = ts
+                    
+        # Live data from buffer is always in base units (C, PSI)
+        # Force conversion by passing 'C' and 'PSI' as data_units
+        self._core_update(all_timestamps, plot_data, window_seconds, data_units={'temp': 'C', 'press': 'PSI'})
 
-                valid_data = []
-                for t, v in zip(timestamps, values):
-                    if v is None:
-                        continue
-                    if window_seconds and (now - t).total_seconds() > window_seconds:
-                        continue
-                    valid_data.append((t, v))
-
-                if valid_data:
-                    times, vals = zip(*valid_data)
-                    color = self.ps_colors.get(name, '#d62728')
-
-                    if name == 'PS_Voltage':
-                        label = 'Voltage (V)'
-                        linestyle = ':'
-                    elif name == 'PS_Current':
-                        label = 'Current (A)'
-                        linestyle = '-.'
-                    else:
-                        label = name
-                        linestyle = '-'
-
-                    line, = ps_axis.plot(times, vals, label=label,
-                                        linewidth=2, color=color,
-                                        linestyle=linestyle)
-                    legend_handles.append(line)
-                    legend_labels.append(label)
-
-        # Combined legend
-        if legend_handles:
-            self.ax.legend(legend_handles, legend_labels, loc='upper left', fontsize=8)
-
-        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        self.fig.autofmt_xdate()  # Angle the time labels
-
-        # Ensure proper layout
-        self.fig.tight_layout()
-
-        self.canvas.draw()
-
-    def update_from_loaded_data(self, loaded_data, window_seconds=None):
+    def update_from_loaded_data(self, loaded_data, sensor_names=None, ps_names=None, window_seconds=None, data_units=None):
         """
         Update plot with pre-loaded data (from CSV file).
-
+        
         Args:
             loaded_data: Dict with 'timestamps' list and sensor data dicts
+            sensor_names: Optional list of sensor names to filter by
+            ps_names: Optional list of power supply names to filter by
             window_seconds: If provided, only show data from the last X seconds
+            data_units: Dict like {'temp': 'C', 'press': 'PSI'} indicating units in loaded_data
         """
+        timestamps = loaded_data.get('timestamps', [])
+        
+        if sensor_names is not None or ps_names is not None:
+            # Filter data by provided names
+            plot_data = {}
+            names_to_plot = (sensor_names or []) + (ps_names or [])
+            for name in names_to_plot:
+                if name in loaded_data:
+                    plot_data[name] = loaded_data[name]
+        else:
+            # Pass everything except timestamps as data
+            plot_data = {k: v for k, v in loaded_data.items() if k != 'timestamps'}
+        
+        self._core_update(timestamps, plot_data, window_seconds, data_units=data_units)
+
+    def _core_update(self, timestamps, plot_data, window_seconds=None, data_units=None):
+        """Core plotting logic used by both live and historical updates."""
         self.ax.clear()
         self.ax.grid(True, alpha=0.3)
         self.ax.set_xlabel('Time')
 
-        timestamps = loaded_data.get('timestamps', [])
         if not timestamps:
+            if self.ax2 is not None:
+                self.ax2.clear()
+                self.ax2.set_visible(False)
             self.canvas.draw()
             return
 
-        # Separate TC and P sensors
-        tc_names = [k for k in loaded_data.keys() if k.startswith('TC_')]
-        p_names = [k for k in loaded_data.keys() if k.startswith('P_')]
-        ps_names = [k for k in loaded_data.keys() if k.startswith('PS_')]
-
+        # Separate sensor types
+        tc_names = [name for name in plot_data.keys() if name.startswith('TC_')]
+        p_names = [name for name in plot_data.keys() if name.startswith('P_')]
+        ps_names = [name for name in plot_data.keys() if name.startswith('PS_')]
+        
         has_tc = len(tc_names) > 0
         has_p = len(p_names) > 0
         has_ps = len(ps_names) > 0
 
         show_left_axis = has_tc
+        # Show right axis if we have pressure OR if we have PS data and no TC (PS takes right)
         show_right_axis = has_p or (has_ps and not has_tc)
 
-        # Configure axes
+        # Configure Left Axis (Temperature)
         if show_left_axis:
-            self.ax.set_ylabel(f'Temperature ({self._temp_unit})', color='#d62728')
-            self.ax.tick_params(axis='y', labelcolor='#d62728', labelleft=True)
+            self.ax.set_ylabel(f'Temperature ({self._temp_unit})', color='black')
+            self.ax.tick_params(axis='y', labelcolor='black', labelleft=True)
             self.ax.yaxis.set_visible(True)
             if self._use_absolute_scales and self._temp_range:
                 self.ax.set_ylim(self._temp_range)
@@ -311,113 +206,117 @@ class LivePlot:
             self.ax.tick_params(axis='y', labelleft=False)
             self.ax.yaxis.set_visible(False)
 
+        # Configure Right Axis (Pressure / PS)
         if show_right_axis:
             if self.ax2 is None:
                 self.ax2 = self.ax.twinx()
+            
             self.ax2.clear()
+            self.ax2.set_visible(True)
             self.ax2.yaxis.set_visible(True)
+
             label_parts = []
             if has_p:
                 label_parts.append(f'Pressure ({self._pressure_unit})')
             if has_ps and not has_p:
                 label_parts.append('Power Supply')
-            self.ax2.set_ylabel(' / '.join(label_parts), color='#1f77b4')
-            self.ax2.tick_params(axis='y', labelcolor='#1f77b4')
+
+            # Ensure pressure title is on the right side
+            self.ax2.set_ylabel(' / '.join(label_parts), color='black', rotation=270, labelpad=20)
+            self.ax2.yaxis.set_label_position('right')
+            self.ax2.tick_params(axis='y', labelcolor='black')
+
             if self._use_absolute_scales and self._pressure_range and has_p:
                 self.ax2.set_ylim(self._pressure_range)
-        elif self.ax2 is not None:
-            self.ax2.yaxis.set_visible(False)
+        else:
+            if self.ax2 is not None:
+                self.ax2.clear()
+                self.ax2.set_visible(False)
 
+        # Plotting
         legend_handles = []
         legend_labels = []
+        
+        # Color index to keep colors consistent across axes
+        color_idx = 0
 
+        # Reference time for windowing - always use last timestamp if available
         now = timestamps[-1] if timestamps and window_seconds else None
 
-        # Plot TC data
+        # Plot TC data on LEFT axis
+        data_temp_unit = data_units.get('temp', 'C') if data_units else 'C'
         for i, name in enumerate(tc_names):
-            values = loaded_data.get(name, [])
-            if not values:
-                continue
-
-            valid_data = []
-            for t, v in zip(timestamps, values):
-                if v is None:
-                    continue
-                if window_seconds and now and (now - t).total_seconds() > window_seconds:
-                    continue
-                valid_data.append((t, v))
-
-            if valid_data:
-                times, vals = zip(*valid_data)
-                color = self.temp_colors[i % len(self.temp_colors)]
+            values = plot_data.get(name, [])
+            
+            # Convert units if needed
+            if data_temp_unit != self._temp_unit:
+                # Use C, F, K directly for comparison
+                display_unit = self._temp_unit.replace('°', '')
+                source_unit = data_temp_unit.replace('°', '')
+                values = [convert_temperature(v, source_unit, display_unit) if v is not None else None for v in values]
+                
+            times, vals = self._prepare_data(timestamps, values, window_seconds, now)
+            
+            if times:
+                color = self.colors[color_idx % len(self.colors)]
+                color_idx += 1
                 line, = self.ax.plot(times, vals, label=name, linewidth=2, color=color)
                 legend_handles.append(line)
                 legend_labels.append(name)
 
-        # Plot P data
+        # Plot P data on RIGHT axis
+        data_press_unit = data_units.get('press', 'PSI') if data_units else 'PSI'
         for i, name in enumerate(p_names):
-            values = loaded_data.get(name, [])
-            if not values:
-                continue
-
-            valid_data = []
-            for t, v in zip(timestamps, values):
-                if v is None:
-                    continue
-                if window_seconds and now and (now - t).total_seconds() > window_seconds:
-                    continue
-                valid_data.append((t, v))
-
-            if valid_data:
-                times, vals = zip(*valid_data)
-                color = self.pressure_colors[i % len(self.pressure_colors)]
-                target_ax = self.ax2 if self.ax2 and self.ax2.yaxis.get_visible() else self.ax
+            values = plot_data.get(name, [])
+            
+            # Convert units if needed
+            if data_press_unit != self._pressure_unit:
+                values = [convert_pressure(v, data_press_unit, self._pressure_unit) if v is not None else None for v in values]
+                
+            times, vals = self._prepare_data(timestamps, values, window_seconds, now)
+            
+            if times:
+                color = self.colors[color_idx % len(self.colors)]
+                color_idx += 1
+                # Use ax2 if visible, else fallback to ax
+                target_ax = self.ax2 if self.ax2 and self.ax2.get_visible() else self.ax
                 line, = target_ax.plot(times, vals, label=name, linewidth=2,
-                                       color=color, linestyle='--')
+                                       color=color)
                 legend_handles.append(line)
                 legend_labels.append(name)
 
         # Plot PS data
-        for name in ps_names:
-            values = loaded_data.get(name, [])
-            if not values:
-                continue
-
-            valid_data = []
-            for t, v in zip(timestamps, values):
-                if v is None:
-                    continue
-                if window_seconds and now and (now - t).total_seconds() > window_seconds:
-                    continue
-                valid_data.append((t, v))
-
-            if valid_data:
-                times, vals = zip(*valid_data)
-                color = self.ps_colors.get(name, '#d62728')
-
-                if name == 'PS_Voltage':
-                    label = 'Voltage (V)'
-                    linestyle = ':'
-                elif name == 'PS_Current':
-                    label = 'Current (A)'
-                    linestyle = '-.'
-                else:
-                    label = name
-                    linestyle = '-'
-
-                ps_axis = self.ax2 if self.ax2 and self.ax2.yaxis.get_visible() else self.ax
-                line, = ps_axis.plot(times, vals, label=label,
-                                    linewidth=2, color=color, linestyle=linestyle)
-                legend_handles.append(line)
-                legend_labels.append(label)
+        if ps_names:
+            ps_axis = self.ax2 if self.ax2 and self.ax2.get_visible() else self.ax
+            for name in ps_names:
+                values = plot_data.get(name, [])
+                times, vals = self._prepare_data(timestamps, values, window_seconds, now)
+                
+                if times:
+                    color = self.ps_colors.get(name, '#d62728')
+                    if name == 'PS_Voltage':
+                        label, linestyle = 'Voltage (V)', ':'
+                    elif name == 'PS_Current':
+                        label, linestyle = 'Current (A)', '-.'
+                    else:
+                        label, linestyle = name, '-'
+                        
+                    line, = ps_axis.plot(times, vals, label=label,
+                                        linewidth=2, color=color, linestyle=linestyle)
+                    legend_handles.append(line)
+                    legend_labels.append(label)
 
         if legend_handles:
             self.ax.legend(legend_handles, legend_labels, loc='upper left', fontsize=8)
 
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        self.fig.autofmt_xdate()
-        self.fig.tight_layout()
+        # Manual adjustment for x-axis labels to save space
+        for label in self.ax.get_xticklabels():
+            label.set_rotation(0)
+            label.set_fontsize(8)
+            
         self.canvas.draw()
+
 
     def clear(self):
         """Clear the plot."""

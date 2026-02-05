@@ -87,7 +87,7 @@ class PowerSupplyPanel:
         v_frame.pack(side=tk.LEFT, expand=True)
         ttk.Label(v_frame, text="Voltage", font=('Arial', 8)).pack()
         self.voltage_display = ttk.Label(
-            v_frame, text="---.--", font=('Arial', 20, 'bold')
+            v_frame, text="---.--", font=('Arial', 16, 'bold')
         )
         self.voltage_display.pack()
         ttk.Label(v_frame, text="V", font=('Arial', 10)).pack()
@@ -97,7 +97,7 @@ class PowerSupplyPanel:
         a_frame.pack(side=tk.LEFT, expand=True)
         ttk.Label(a_frame, text="Current", font=('Arial', 8)).pack()
         self.current_display = ttk.Label(
-            a_frame, text="---.--", font=('Arial', 20, 'bold')
+            a_frame, text="---.--", font=('Arial', 16, 'bold')
         )
         self.current_display.pack()
         ttk.Label(a_frame, text="A", font=('Arial', 10)).pack()
@@ -158,15 +158,15 @@ class PowerSupplyPanel:
 
         self.output_on_btn = tk.Button(
             output_frame, text="OUTPUT ON", command=self._on_output_on,
-            bg='#4CAF50', fg='white', font=('Arial', 12, 'bold'),
-            width=12, height=2, activebackground='#45a049'
+            bg='#4CAF50', fg='white', font=('Arial', 11, 'bold'),
+            width=12, height=1, activebackground='#45a049'
         )
         self.output_on_btn.pack(side=tk.LEFT, expand=True, padx=10, pady=5)
 
         self.output_off_btn = tk.Button(
             output_frame, text="OUTPUT OFF", command=self._on_output_off,
-            bg='#f44336', fg='white', font=('Arial', 12, 'bold'),
-            width=12, height=2, activebackground='#da190b'
+            bg='#f44336', fg='white', font=('Arial', 11, 'bold'),
+            width=12, height=1, activebackground='#da190b'
         )
         self.output_off_btn.pack(side=tk.LEFT, expand=True, padx=10, pady=5)
 

@@ -25,6 +25,7 @@ from t8_daq_system.data.data_buffer import DataBuffer
 from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
 from t8_daq_system.gui.live_plot import LivePlot
 from t8_daq_system.gui.sensor_panel import SensorPanel
+from t8_daq_system.utils.helpers import convert_temperature, convert_pressure
 from t8_daq_system.gui.power_supply_panel import PowerSupplyPanel
 from t8_daq_system.gui.ramp_panel import RampPanel
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog, AxisScaleDialog
@@ -41,8 +42,8 @@ class MainWindow:
         # Default configuration
         self.config = {
             "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
-            "thermocouples": [{"name": "TC_1", "channel": 0, "type": "C", "units": "C", "enabled": True, "scale": 1.0, "offset": 0}],
-            "pressure_sensors": [{"name": "P_1", "channel": 8, "min_voltage": 0.5, "max_voltage": 4.5, "min_pressure": 0, "max_pressure": 100, "units": "PSI", "enabled": True, "scale": 1.0, "offset": 0.0}],
+            "thermocouples": [{"name": "TC_1", "channel": 0, "type": "C", "units": "C", "enabled": True}],
+            "pressure_sensors": [{"name": "P_1", "channel": 8, "min_voltage": 0.5, "max_voltage": 4.5, "min_pressure": 0, "max_pressure": 100, "units": "PSI", "enabled": True}],
             "power_supply": {
                 "enabled": True,
                 "visa_resource": None,  # Auto-detect if None
@@ -71,7 +72,7 @@ class MainWindow:
         # Create main window
         self.root = tk.Tk()
         self.root.title("T8 DAQ System with Power Supply Control")
-        self.root.geometry("1400x900")
+        self.root.geometry("1200x800")
 
         # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -127,6 +128,7 @@ class MainWindow:
         # Mode tracking (live vs viewing historical data)
         self._viewing_historical = False
         self._loaded_data = None
+        self._loaded_data_units = {'temp': 'C', 'press': 'PSI'}
 
         # Build the GUI
         self._build_gui()
@@ -263,6 +265,12 @@ class MainWindow:
         )
         self.scale_btn.pack(side=tk.LEFT, padx=5)
 
+        # Dual Display button
+        self.dual_btn = ttk.Button(
+            control_frame, text="Dual Display", command=self._toggle_dual_display
+        )
+        self.dual_btn.pack(side=tk.LEFT, padx=5)
+
         # Separator
         ttk.Separator(control_frame, orient='vertical').pack(
             side=tk.LEFT, padx=10, fill='y'
@@ -291,7 +299,7 @@ class MainWindow:
 
         # Left side - Monitoring
         left_frame = ttk.Frame(main_paned)
-        main_paned.add(left_frame, weight=3)
+        main_paned.add(left_frame, weight=1)
 
         # Current readings panel
         self.panel_container = ttk.LabelFrame(left_frame, text="Current Readings")
@@ -300,26 +308,16 @@ class MainWindow:
         # Build initial panel
         self._rebuild_sensor_panel()
 
-        # Live plots - Use PanedWindow for resizable dual windows
-        plot_paned = ttk.PanedWindow(left_frame, orient=tk.HORIZONTAL)
-        plot_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Live plots container
+        self.plot_container_main = ttk.Frame(left_frame)
+        self.plot_container_main.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Full run plot
-        full_frame = ttk.LabelFrame(plot_paned, text="Full Run History")
-        plot_paned.add(full_frame, weight=1)
-        self.full_plot = LivePlot(full_frame, self.data_buffer)
-
-        # Recent plot (1 min)
-        recent_frame = ttk.LabelFrame(plot_paned, text="Last 1 Minute")
-        plot_paned.add(recent_frame, weight=1)
-        self.recent_plot = LivePlot(recent_frame, self.data_buffer)
-
-        # Configure plots with units and scales
-        self._update_plot_settings()
+        # Build initial plots
+        self._build_plots(self.plot_container_main)
 
         # Right side - Power Supply Control
         right_frame = ttk.Frame(main_paned)
-        main_paned.add(right_frame, weight=2)
+        main_paned.add(right_frame, weight=1)
 
         # Power Supply Panel
         ps_frame = ttk.LabelFrame(right_frame, text="Power Supply Control")
@@ -379,6 +377,28 @@ class MainWindow:
         )
         # Don't pack initially
 
+        # Dual window tracking
+        self.dual_window = None
+
+    def _build_plots(self, parent):
+        """Create the live plots in the specified parent widget."""
+        # Use PanedWindow for resizable dual windows
+        plot_paned = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
+        plot_paned.pack(fill=tk.BOTH, expand=True)
+
+        # Full run plot
+        full_frame = ttk.LabelFrame(plot_paned, text="Full Run History")
+        plot_paned.add(full_frame, weight=1)
+        self.full_plot = LivePlot(full_frame, self.data_buffer)
+
+        # Recent plot (1 min)
+        recent_frame = ttk.LabelFrame(plot_paned, text="Last 1 Minute")
+        plot_paned.add(recent_frame, weight=1)
+        self.recent_plot = LivePlot(recent_frame, self.data_buffer)
+
+        # Configure plots with units and scales
+        self._update_plot_settings()
+
     def _on_sample_rate_change(self):
         """Handle change in sampling rate."""
         rate_str = self.sample_rate_var.get()
@@ -399,26 +419,118 @@ class MainWindow:
         # Map unit codes to display symbols
         temp_symbols = {'C': '°C', 'F': '°F', 'K': 'K'}
         temp_unit_display = temp_symbols.get(t_unit, '°C')
+        
+        # Update temperature range (base range is 0-300C)
+        t_min_display = convert_temperature(0, 'C', t_unit)
+        t_max_display = convert_temperature(300, 'C', t_unit)
+        self._temp_range = (t_min_display, t_max_display)
 
         # Update plot units
-        self.full_plot.set_units(temp_unit_display, p_unit)
-        self.recent_plot.set_units(temp_unit_display, p_unit)
+        if hasattr(self, 'full_plot'):
+            self.full_plot.set_units(temp_unit_display, p_unit)
+        if hasattr(self, 'recent_plot'):
+            self.recent_plot.set_units(temp_unit_display, p_unit)
 
-        # Update pressure range based on max pressure setting
-        p_max = float(self.p_type_var.get()) if hasattr(self, 'p_type_var') else 100
-        self._pressure_range = (0, p_max)
+        # Update pressure range based on max pressure setting (dropdown is in PSI)
+        p_max_str = self.p_type_var.get() if hasattr(self, 'p_type_var') else "100"
+        try:
+            p_max_psi = float(p_max_str)
+        except ValueError:
+            p_max_psi = 100
+            
+        # Convert max pressure to current display units for the plot scale
+        p_max_display = convert_pressure(p_max_psi, 'PSI', p_unit)
+        self._pressure_range = (0, p_max_display)
 
         # Update axis scales
-        self.full_plot.set_absolute_scales(
-            self._use_absolute_scales,
-            self._temp_range,
-            self._pressure_range
-        )
-        self.recent_plot.set_absolute_scales(
-            self._use_absolute_scales,
-            self._temp_range,
-            self._pressure_range
-        )
+        if hasattr(self, 'full_plot'):
+            self.full_plot.set_absolute_scales(
+                self._use_absolute_scales,
+                self._temp_range,
+                self._pressure_range
+            )
+        if hasattr(self, 'recent_plot'):
+            self.recent_plot.set_absolute_scales(
+                self._use_absolute_scales,
+                self._temp_range,
+                self._pressure_range
+            )
+            
+        # Calculate names to plot based on current config
+        sensor_names = [tc['name'] for tc in self.config['thermocouples'] if tc.get('enabled', True)]
+        sensor_names += [p['name'] for p in self.config['pressure_sensors'] if p.get('enabled', True)]
+        
+        # Power supply names to show (if enabled in config or present in loaded data)
+        ps_names = []
+        if self.config.get('power_supply', {}).get('enabled', True):
+            ps_names = ['PS_Voltage', 'PS_Current']
+
+        # Trigger redraw if viewing historical data or if running
+        if self._viewing_historical and self._loaded_data:
+            if hasattr(self, 'full_plot'):
+                self.full_plot.update_from_loaded_data(
+                    self._loaded_data, sensor_names, ps_names, 
+                    data_units=self._loaded_data_units
+                )
+            if hasattr(self, 'recent_plot'):
+                self.recent_plot.update_from_loaded_data(
+                    self._loaded_data, sensor_names, ps_names, 
+                    window_seconds=60, data_units=self._loaded_data_units
+                )
+            
+            # Update sensor panel with converted last row of data
+            if self._loaded_data.get('timestamps'):
+                last_readings = {name: self._loaded_data[name][-1] 
+                                for name in self._loaded_data if name != 'timestamps'}
+                display_last = {}
+                source_t_unit = self._loaded_data_units.get('temp', 'C')
+                source_p_unit = self._loaded_data_units.get('press', 'PSI')
+                
+                for name, value in last_readings.items():
+                    if value is None:
+                        display_last[name] = None
+                    elif name.startswith('TC_'):
+                        display_last[name] = convert_temperature(value, source_t_unit, t_unit)
+                    elif name.startswith('P_'):
+                        display_last[name] = convert_pressure(value, source_p_unit, p_unit)
+                    else:
+                        display_last[name] = value
+                self.sensor_panel.update(display_last)
+                
+        elif self.is_running:
+            if hasattr(self, 'full_plot'):
+                self.full_plot.update(sensor_names, ps_names)
+            if hasattr(self, 'recent_plot'):
+                self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
+
+    def _toggle_dual_display(self):
+        """Toggle between single window and dual window (for 2 displays)."""
+        if self.dual_window is None or not self.dual_window.winfo_exists():
+            # Create dual window
+            self.dual_window = tk.Toplevel(self.root)
+            self.dual_window.title("T8 DAQ System - Live Plots")
+            self.dual_window.geometry("800x600")
+            
+            # Handle closure
+            self.dual_window.protocol("WM_DELETE_WINDOW", self._toggle_dual_display)
+
+            # Move plots to dual window
+            for widget in self.plot_container_main.winfo_children():
+                widget.destroy()
+            
+            self._build_plots(self.dual_window)
+            self.dual_btn.config(text="Single Display")
+        else:
+            # Return to single window
+            self.dual_window.destroy()
+            self.dual_window = None
+            
+            # Rebuild in main window
+            for widget in self.plot_container_main.winfo_children():
+                widget.destroy()
+                
+            self._build_plots(self.plot_container_main)
+            self.dual_btn.config(text="Dual Display")
 
     def _on_axis_scales(self):
         """Open dialog to configure axis scales."""
@@ -458,6 +570,12 @@ class MainWindow:
 
             # Update GUI to reflect loaded settings
             if metadata:
+                # Store original units for conversion
+                self._loaded_data_units = {
+                    'temp': metadata.get('tc_unit', 'C'),
+                    'press': metadata.get('p_unit', 'PSI')
+                }
+                
                 # Update config displays based on metadata
                 if 'tc_count' in metadata:
                     self.tc_count_var.set(str(metadata['tc_count']))
@@ -480,13 +598,36 @@ class MainWindow:
             # Show historical data indicator
             self.historical_label.pack(side=tk.RIGHT, padx=10)
 
+            # Update sensor panel with last row of data
+            if data['timestamps']:
+                last_readings = {}
+                for name in data:
+                    if name != 'timestamps':
+                        last_readings[name] = data[name][-1]
+                
+                # Convert last readings for display
+                display_last = {}
+                t_unit = self.t_unit_var.get()
+                p_unit = self.p_unit_var.get()
+                source_t_unit = self._loaded_data_units.get('temp', 'C')
+                source_p_unit = self._loaded_data_units.get('press', 'PSI')
+                
+                for name, value in last_readings.items():
+                    if value is None:
+                        display_last[name] = None
+                        continue
+                    if name.startswith('TC_'):
+                        display_last[name] = convert_temperature(value, source_t_unit, t_unit)
+                    elif name.startswith('P_'):
+                        display_last[name] = convert_pressure(value, source_p_unit, p_unit)
+                    else:
+                        display_last[name] = value
+                
+                self.sensor_panel.update(display_last)
+
             # Update status
             filename = os.path.basename(filepath)
             self.status_var.set(f"Viewing: {filename}")
-
-            # Update plots with loaded data
-            self.full_plot.update_from_loaded_data(data)
-            self.recent_plot.update_from_loaded_data(data, window_seconds=60)
 
             # Disable live controls
             self.start_btn.config(state='disabled')
@@ -518,8 +659,10 @@ class MainWindow:
             self.return_live_btn.pack_forget()
 
         # Clear plots
-        self.full_plot.clear()
-        self.recent_plot.clear()
+        if hasattr(self, 'full_plot'):
+            self.full_plot.clear()
+        if hasattr(self, 'recent_plot'):
+            self.recent_plot.clear()
         self.data_buffer.clear()
 
         # Re-enable controls if connected
@@ -561,9 +704,7 @@ class MainWindow:
                 "channel": i,
                 "type": new_tc_type,
                 "units": new_tc_unit,
-                "enabled": True,
-                "scale": old_tc.get('scale', 1.0),
-                "offset": old_tc.get('offset', 0.0)
+                "enabled": True
             })
 
         # Update pressure sensors
@@ -580,9 +721,7 @@ class MainWindow:
                 "min_pressure": 0,
                 "max_pressure": new_p_max,
                 "units": new_p_unit,
-                "enabled": True,
-                "scale": old_p.get('scale', 1.0),
-                "offset": old_p.get('offset', 0.0)
+                "enabled": True
             })
 
         # If already connected, update the readers
@@ -889,12 +1028,27 @@ class MainWindow:
                 # Combine readings
                 all_readings = {**tc_readings, **pressure_readings, **ps_readings}
 
-                # Add to buffer
+                # Add to buffer (stays in base units)
                 self.data_buffer.add_reading(all_readings)
 
-                # Log if enabled
+                # Log if enabled (convert to selected units)
                 if self.is_logging:
-                    self.logger.log_reading(all_readings)
+                    log_readings = {}
+                    t_unit = self.t_unit_var.get()
+                    p_unit = self.p_unit_var.get()
+                    
+                    for name, value in all_readings.items():
+                        if value is None:
+                            log_readings[name] = None
+                            continue
+                        if name.startswith('TC_'):
+                            log_readings[name] = convert_temperature(value, 'C', t_unit)
+                        elif name.startswith('P_'):
+                            log_readings[name] = convert_pressure(value, 'PSI', p_unit)
+                        else:
+                            log_readings[name] = value
+                            
+                    self.logger.log_reading(log_readings)
 
             except Exception as e:
                 print(f"Error in read loop: {e}")
@@ -975,7 +1129,25 @@ class MainWindow:
 
         # Get current readings and update panel (when running)
         current = self.data_buffer.get_all_current()
-        self.sensor_panel.update(current)
+        
+        # Convert readings for display and logging
+        display_readings = {}
+        t_unit = self.t_unit_var.get()
+        p_unit = self.p_unit_var.get()
+        
+        for name, value in current.items():
+            if value is None:
+                display_readings[name] = None
+                continue
+                
+            if name.startswith('TC_'):
+                display_readings[name] = convert_temperature(value, 'C', t_unit)
+            elif name.startswith('P_'):
+                display_readings[name] = convert_pressure(value, 'PSI', p_unit)
+            else:
+                display_readings[name] = value
+
+        self.sensor_panel.update(display_readings)
 
         # Update indicators (when running)
         for name, value in current.items():
@@ -995,10 +1167,12 @@ class MainWindow:
             ps_names = ['PS_Voltage', 'PS_Current']
 
         # Update full run plot (no window)
-        self.full_plot.update(sensor_names, ps_names)
-
+        if hasattr(self, 'full_plot'):
+            self.full_plot.update(sensor_names, ps_names)
+        
         # Update recent plot (last 60 seconds)
-        self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
+        if hasattr(self, 'recent_plot'):
+            self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
 
         # Schedule next update
         self.root.after(self.config['display']['update_rate_ms'], self._update_gui)

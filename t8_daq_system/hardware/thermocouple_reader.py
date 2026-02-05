@@ -54,9 +54,9 @@ class ThermocoupleReader:
                 # Set the thermocouple type
                 ljm.eWriteName(self.handle, index_name, self.TC_TYPES[tc_type])
 
-                # Set output units: 0=Kelvin, 1=Celsius, 2=Fahrenheit
-                units_code = {'K': 0, 'C': 1, 'F': 2}.get(tc['units'], 1)
-                ljm.eWriteName(self.handle, config_name, units_code)
+                # Set output units: always Celsius (1) for internal consistency
+                # Conversion for display is handled in the GUI
+                ljm.eWriteName(self.handle, config_name, 1)
             except ljm.LJMError as e:
                 print(f"Error configuring thermocouple {tc['name']} on AIN{channel}: {e}")
                 raise e
@@ -85,10 +85,7 @@ class ThermocoupleReader:
                 if temp == -9999:
                     readings[tc['name']] = None
                 else:
-                    # Apply scale and offset if configured
-                    scale = tc.get('scale', 1.0)
-                    offset = tc.get('offset', 0.0)
-                    readings[tc['name']] = round((temp * scale) + offset, 3)
+                    readings[tc['name']] = round(temp, 3)
 
             except ljm.LJMError as e:
                 print(f"Error reading {tc['name']}: {e}")
@@ -114,10 +111,7 @@ class ThermocoupleReader:
                     if temp == -9999:
                         return None
                     
-                    # Apply scale and offset if configured
-                    scale = tc.get('scale', 1.0)
-                    offset = tc.get('offset', 0.0)
-                    return round((temp * scale) + offset, 3)
+                    return round(temp, 3)
                 except ljm.LJMError as e:
                     print(f"Error reading {channel_name}: {e}")
                     return None

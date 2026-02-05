@@ -22,10 +22,6 @@ class SensorPanel:
         self.frames = {}          # sensor_name: LabelFrame widget
         self.precisions = {}      # sensor_name: decimal places to show
 
-        # Configure grid weights for even distribution
-        for i in range(4):
-            parent_frame.columnconfigure(i, weight=1)
-
         # Create a label for each sensor
         for i, sensor in enumerate(sensor_configs):
             if not sensor.get('enabled', True):
@@ -42,65 +38,35 @@ class SensorPanel:
                 self.precisions[name] = 1
                 placeholder = "--.-"
 
-            # Create frame for this sensor
-            frame = ttk.LabelFrame(parent_frame, text=name)
-            frame.grid(row=i//4, column=i%4, padx=5, pady=5, sticky='nsew')
+            # Create frame for this sensor with fixed size
+            frame = ttk.LabelFrame(parent_frame, text=name, width=206, height=90)
+            frame.grid(row=i//7, column=i%7, padx=6, pady=5)
+            frame.pack_propagate(False)
             self.frames[name] = frame
 
             # Large number display
             value_label = ttk.Label(
                 frame,
                 text=placeholder,
-                font=('Arial', 24, 'bold')
+                font=('Arial', 14, 'bold')
             )
-            value_label.pack(padx=10, pady=0)
+            value_label.pack(padx=5, pady=1)
 
             # Units label
             units_label = ttk.Label(frame, text=units)
-            units_label.pack(pady=(0, 5))
+            units_label.pack(pady=(0, 1))
 
             # Status indicator
             status_label = ttk.Label(
                 frame,
                 text="WAITING",
-                font=('Arial', 8, 'italic'),
+                font=('Arial', 6, 'italic'),
                 foreground='gray'
             )
-            status_label.pack(side=tk.BOTTOM, pady=2)
+            status_label.pack(side=tk.BOTTOM, pady=1)
 
             self.displays[name] = value_label
             self.status_labels[name] = status_label
-
-            # Calibration controls (Scale and Offset)
-            cal_frame = ttk.Frame(frame)
-            cal_frame.pack(fill=tk.X, padx=5, pady=5)
-
-            ttk.Label(cal_frame, text="S:", font=('Arial', 7)).grid(row=0, column=0)
-            scale_var = tk.StringVar(value=str(sensor.get('scale', 1.0)))
-            scale_entry = ttk.Entry(cal_frame, textvariable=scale_var, width=5, font=('Arial', 7))
-            scale_entry.grid(row=0, column=1, padx=2)
-
-            ttk.Label(cal_frame, text="O:", font=('Arial', 7)).grid(row=0, column=2)
-            offset_var = tk.StringVar(value=str(sensor.get('offset', 0.0)))
-            offset_entry = ttk.Entry(cal_frame, textvariable=offset_var, width=5, font=('Arial', 7))
-            offset_entry.grid(row=0, column=3, padx=2)
-
-            # Trace the variables to update the sensor config
-            def make_update_callback(s=sensor, sv=scale_var, ov=offset_var):
-                def update_cal(*args):
-                    try:
-                        s['scale'] = float(sv.get())
-                    except ValueError:
-                        pass
-                    try:
-                        s['offset'] = float(ov.get())
-                    except ValueError:
-                        pass
-                return update_cal
-
-            callback = make_update_callback()
-            scale_var.trace_add("write", callback)
-            offset_var.trace_add("write", callback)
 
     def update(self, readings):
         """
