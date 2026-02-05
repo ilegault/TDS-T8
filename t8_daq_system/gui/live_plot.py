@@ -174,13 +174,6 @@ class LivePlot:
         self.ax.grid(True, alpha=0.3)
         self.ax.set_xlabel('Time')
 
-        if not timestamps:
-            if self.ax2 is not None:
-                self.ax2.clear()
-                self.ax2.set_visible(False)
-            self.canvas.draw()
-            return
-
         # Separate sensor types
         tc_names = [name for name in plot_data.keys() if name.startswith('TC_')]
         p_names = [name for name in plot_data.keys() if name.startswith('P_')]
@@ -232,6 +225,11 @@ class LivePlot:
             if self.ax2 is not None:
                 self.ax2.clear()
                 self.ax2.set_visible(False)
+
+        if not timestamps:
+            self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            self.canvas.draw()
+            return
 
         # Plotting
         legend_handles = []

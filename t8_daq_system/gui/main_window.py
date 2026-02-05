@@ -12,6 +12,8 @@ import json
 import threading
 import time
 import os
+import random
+import math
 
 # Import our modules
 from t8_daq_system.hardware.labjack_connection import LabJackConnection
@@ -127,6 +129,7 @@ class MainWindow:
 
         # Mode tracking (live vs viewing historical data)
         self._viewing_historical = False
+        self._practice_mode = False
         self._loaded_data = None
         self._loaded_data_units = {'temp': 'C', 'press': 'PSI'}
 
@@ -271,6 +274,12 @@ class MainWindow:
         )
         self.dual_btn.pack(side=tk.LEFT, padx=5)
 
+        # Practice Mode button
+        self.practice_btn = ttk.Button(
+            control_frame, text="Practice Mode: OFF", command=self._toggle_practice_mode
+        )
+        self.practice_btn.pack(side=tk.LEFT, padx=5)
+
         # Separator
         ttk.Separator(control_frame, orient='vertical').pack(
             side=tk.LEFT, padx=10, fill='y'
@@ -399,6 +408,24 @@ class MainWindow:
         # Configure plots with units and scales
         self._update_plot_settings()
 
+    def _toggle_practice_mode(self):
+        """Toggle practice mode on/off."""
+        self._practice_mode = not self._practice_mode
+        if self._practice_mode:
+            self.practice_btn.config(text="Practice Mode: ON")
+            self.start_btn.config(state='normal')
+            self.status_var.set("Practice Mode Active")
+        else:
+            self.practice_btn.config(text="Practice Mode: OFF")
+            if not self.connection or not self.connection.is_connected():
+                self.start_btn.config(state='disabled')
+                self.status_var.set("Disconnected")
+            else:
+                self.status_var.set("Connected")
+        
+        self._rebuild_sensor_panel()
+        self._update_plot_settings()
+
     def _on_sample_rate_change(self):
         """Handle change in sampling rate."""
         rate_str = self.sample_rate_var.get()
@@ -497,7 +524,8 @@ class MainWindow:
                         display_last[name] = value
                 self.sensor_panel.update(display_last)
                 
-        elif self.is_running:
+        else:
+            # Not viewing historical and not running - force a redraw with empty data to update units/axes
             if hasattr(self, 'full_plot'):
                 self.full_plot.update(sensor_names, ps_names)
             if hasattr(self, 'recent_plot'):
@@ -995,29 +1023,55 @@ class MainWindow:
 
         while self.is_running:
             # Check if still connected
-            if not self.connection or not self.connection.is_connected():
-                print("Connection lost in read loop")
-                self.is_running = False
-                break
+            if not self._practice_mode:
+                if not self.connection or not self.connection.is_connected():
+                    print("Connection lost in read loop")
+                    self.is_running = False
+                    break
 
             try:
-                # Read all sensors
-                tc_readings = self.tc_reader.read_all()
-                pressure_readings = self.pressure_reader.read_all()
+                if self._practice_mode:
+                    # Generate simulated data
+                    tc_readings = {}
+                    for tc in self.config['thermocouples']:
+                        if tc.get('enabled', True):
+                            # Base temp 20C + sine wave + noise
+                            t = time.time()
+                            val = 20.0 + 5.0 * math.sin(t / 10.0) + random.uniform(-0.5, 0.5)
+                            tc_readings[tc['name']] = val
+                    
+                    pressure_readings = {}
+                    for p in self.config['pressure_sensors']:
+                        if p.get('enabled', True):
+                            # Base pressure 50PSI + sine wave + noise
+                            t = time.time()
+                            val = 50.0 + 10.0 * math.cos(t / 15.0) + random.uniform(-1.0, 1.0)
+                            pressure_readings[p['name']] = val
+                    
+                    ps_readings = {}
+                    if self.config.get('power_supply', {}).get('enabled', True):
+                        ps_readings = {
+                            'PS_Voltage': 12.0 + random.uniform(-0.1, 0.1),
+                            'PS_Current': 2.0 + random.uniform(-0.05, 0.05)
+                        }
+                else:
+                    # Read all sensors from hardware
+                    tc_readings = self.tc_reader.read_all()
+                    pressure_readings = self.pressure_reader.read_all()
+                    
+                    # Read power supply state if connected
+                    ps_readings = {}
+                    if self.ps_controller:
+                        ps_readings = self.ps_controller.get_readings()
 
-                # SAFETY CHECK FIRST - before any other processing
+                # SAFETY CHECK FIRST
                 if not self._safety_triggered:
                     if not self.safety_monitor.check_limits(tc_readings):
-                        # Shutdown triggered - stop the loop
                         self.is_running = False
                         break
 
-                # Read power supply state if connected
-                ps_readings = {}
-                if self.ps_controller:
-                    ps_readings = self.ps_controller.get_readings()
-
-                    # If ramp is running, update setpoint
+                # If ramp is running and not in practice mode, update setpoint
+                if self.ps_controller and not self._practice_mode:
                     if self.ramp_executor.is_running():
                         new_setpoint = self.ramp_executor.get_current_setpoint()
                         try:
