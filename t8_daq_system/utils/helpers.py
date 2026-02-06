@@ -72,41 +72,6 @@ def convert_temperature(value, from_unit, to_unit):
         return celsius
 
 
-def convert_pressure(value, from_unit, to_unit):
-    """
-    Convert pressure between units.
-
-    Args:
-        value: Pressure value to convert
-        from_unit: Source unit ('PSI', 'Bar', 'kPa', 'Torr')
-        to_unit: Target unit ('PSI', 'Bar', 'kPa', 'Torr')
-
-    Returns:
-        Converted pressure value
-    """
-    if from_unit == to_unit:
-        return value
-
-    # Normalize units to uppercase for comparison
-    f = from_unit.lower()
-    t = to_unit.lower()
-
-    if f == t:
-        return value
-
-    # Conversion factors to PSI
-    to_psi = {
-        'psi': 1.0,
-        'bar': 14.5038,
-        'kpa': 0.145038,
-        'torr': 0.0193368
-    }
-
-    # Convert to PSI first, then to target
-    psi_value = value * to_psi.get(f, 1.0)
-    return psi_value / to_psi.get(t, 1.0)
-
-
 def linear_scale(value, in_min, in_max, out_min, out_max):
     """
     Scale a value from one range to another using linear interpolation.

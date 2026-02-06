@@ -9,7 +9,6 @@ mock_labjack.ljm = mock_ljm
 sys.modules['labjack'] = mock_labjack
 sys.modules['labjack.ljm'] = mock_ljm
 
-from t8_daq_system.hardware.pressure_reader import PressureReader
 from t8_daq_system.hardware.thermocouple_reader import ThermocoupleReader
 from t8_daq_system.hardware.labjack_connection import LabJackConnection
 import json
@@ -19,17 +18,6 @@ import tempfile
 class TestHardware(unittest.TestCase):
     def setUp(self):
         self.mock_handle = 1
-        self.pressure_config = [
-            {
-                "name": "P1",
-                "channel": 0,
-                "min_voltage": 0.5,
-                "max_voltage": 4.5,
-                "min_pressure": 0,
-                "max_pressure": 100,
-                "enabled": True
-            }
-        ]
         self.tc_config = [
             {
                 "name": "TC1",
@@ -45,8 +33,7 @@ class TestHardware(unittest.TestCase):
                 "connection": "USB",
                 "identifier": "ANY"
             },
-            "thermocouples": self.tc_config,
-            "pressure_sensors": self.pressure_config
+            "thermocouples": self.tc_config
         }
         self.temp_config = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json')
         json.dump(self.full_config, self.temp_config)
@@ -72,18 +59,6 @@ class TestHardware(unittest.TestCase):
         conn.disconnect()
         mock_ljm.close.assert_called_with(self.mock_handle)
         self.assertFalse(conn.is_connected())
-
-    def test_pressure_reader_init(self):
-        reader = PressureReader(self.mock_handle, self.pressure_config)
-        mock_ljm.eWriteName.assert_called_with(self.mock_handle, "AIN0_RANGE", 10.0)
-
-    def test_pressure_reader_read_all(self):
-        mock_ljm.eReadName.return_value = 2.5 # Midpoint for 0-100 PSI (0.5-4.5V)
-        reader = PressureReader(self.mock_handle, self.pressure_config)
-        readings = reader.read_all()
-        
-        self.assertEqual(readings['P1'], 50.0)
-        mock_ljm.eReadName.assert_called_with(self.mock_handle, "AIN0")
 
     def test_tc_reader_init(self):
         reader = ThermocoupleReader(self.mock_handle, self.tc_config)

@@ -5,7 +5,7 @@ A Python-based data acquisition system for the LabJack T8, designed for real-tim
 ## Features
 
 - **Real-time Thermocouple Readings** - Support for Type B, E, J, K, N, R, S, T thermocouples
-- **Pressure Transducer Support** - Configurable voltage-to-pressure scaling
+- **FRG-702 Vacuum Gauge Support** - Logarithmic voltage-to-pressure conversion for Inficon FRG-702
 - **Live Plotting** - Real-time matplotlib graphs with scrolling history
 - **CSV Data Logging** - Timestamped data export for analysis
 - **JSON Configuration** - Easy sensor setup without code changes
@@ -19,7 +19,7 @@ A Python-based data acquisition system for the LabJack T8, designed for real-tim
 |-----------|-------------|
 | **LabJack T8** | USB or Ethernet connected DAQ device |
 | **Thermocouples** | Type K, J, T, B, E, N, R, or S sensors |
-| **Pressure Transducers** | 0-5V or 0-10V output sensors |
+| **FRG-702 Gauge** | Inficon FRG-702 Pirani/Cold Cathode Gauge |
 | **USB Cable** | For T8 connection (or Ethernet) |
 
 ---
@@ -113,30 +113,34 @@ python main.py
     └─────────┴─────────┴─────────┘
 ```
 
-### Pressure Transducer Wiring (Single-Ended Input)
+### FRG-702 Gauge Wiring (Single-Ended Input)
 
 ```
     ┌──────────────────┐           ┌────────────────────────────┐
-    │    Pressure      │           │        LabJack T8          │
-    │   Transducer     │           │                            │
-    │  (0.5-4.5V out)  │           │                            │
+    │    Inficon       │           │        LabJack T8          │
+    │    FRG-702       │           │                            │
+    │    Vacuum Gauge  │           │                            │
     │                  │           │                            │
-    │  Signal ●────────┼───────────┼──────────► AIN2            │
+    │  Signal ●────────┼───────────┼──────────► AIN4            │
     │                  │           │                            │
     │  Ground ●────────┼───────────┼──────────► GND             │
     │                  │           │                            │
-    │  Power  ●────────┼───(+V Supply as required by sensor)    │
+    │  Status ●────────┼───────────┼──────────► AIN5 (Optional) │
     └──────────────────┘           └────────────────────────────┘
 
-    Voltage-to-Pressure Mapping:
-    ┌───────────────┬───────────────┬───────────────┐
-    │   Voltage     │   Pressure    │    Notes      │
-    ├───────────────┼───────────────┼───────────────┤
-    │   0.5V        │   0 PSI       │   min_voltage │
-    │   2.5V        │   50 PSI      │   midpoint    │
-    │   4.5V        │   100 PSI     │   max_voltage │
-    └───────────────┴───────────────┴───────────────┘
+    Pressure Calculation (Logarithmic):
+    P [mbar] = 10^(U - 5.5)
 ```
+
+---
+
+## Usage
+
+1. Click **Connect** to establish connection with the T8
+2. Click **Start** to begin reading sensors
+3. Click **Start Logging** to save data to CSV files
+4. Click **Stop** to pause data acquisition
+5. Close the window to disconnect and exit
 
 ---
 
@@ -148,7 +152,35 @@ python main.py
 t8_daq_system/config/sensor_config.json
 ```
 
-### Thermocouple Configuration
+### Adding New Sensors
+
+#### Add a Thermocouple
+
+Add to the `thermocouples` array in `sensor_config.json`:
+```json
+{
+    "name": "TC3_NewLocation",
+    "channel": 3,
+    "type": "K",
+    "units": "C",
+    "enabled": true
+}
+```
+
+#### Add an FRG-702 Gauge
+
+Add to the `frg702_gauges` array in `sensor_config.json`:
+```json
+{
+    "name": "FRG702_New",
+    "channel": 6,
+    "status_channel": 7,
+    "units": "mbar",
+    "enabled": true
+}
+```
+
+### Thermocouple Configuration Details
 
 ```json
 {
@@ -168,17 +200,14 @@ t8_daq_system/config/sensor_config.json
 | `units` | K, C, F | Kelvin, Celsius, Fahrenheit |
 | `enabled` | true/false | Enable/disable sensor |
 
-### Pressure Sensor Configuration
+### FRG-702 Gauge Configuration
 
 ```json
 {
-    "name": "P1_Chamber",
-    "channel": 2,
-    "min_voltage": 0.5,
-    "max_voltage": 4.5,
-    "min_pressure": 0,
-    "max_pressure": 100,
-    "units": "PSI",
+    "name": "FRG702_Chamber",
+    "channel": 4,
+    "status_channel": 5,
+    "units": "mbar",
     "enabled": true
 }
 ```
@@ -187,11 +216,8 @@ t8_daq_system/config/sensor_config.json
 |-------|--------|-------------|
 | `name` | string | Unique sensor identifier |
 | `channel` | 0-7 | T8 analog input channel |
-| `min_voltage` | float | Voltage at minimum pressure |
-| `max_voltage` | float | Voltage at maximum pressure |
-| `min_pressure` | float | Minimum pressure value |
-| `max_pressure` | float | Maximum pressure value |
-| `units` | PSI, BAR, KPA, ATM | Pressure units |
+| `status_channel` | 0-7, null | Optional status voltage channel |
+| `units` | mbar, torr, Pa | Pressure units (informational) |
 | `enabled` | true/false | Enable/disable sensor |
 
 ### Complete Configuration Example
@@ -207,9 +233,8 @@ t8_daq_system/config/sensor_config.json
         {"name": "TC1_Inlet", "channel": 0, "type": "K", "units": "C", "enabled": true},
         {"name": "TC2_Outlet", "channel": 1, "type": "K", "units": "C", "enabled": true}
     ],
-    "pressure_sensors": [
-        {"name": "P1_Chamber", "channel": 2, "min_voltage": 0.5, "max_voltage": 4.5,
-         "min_pressure": 0, "max_pressure": 100, "units": "PSI", "enabled": true}
+    "frg702_gauges": [
+        {"name": "FRG702_Chamber", "channel": 4, "status_channel": 5, "units": "mbar", "enabled": true}
     ],
     "logging": {
         "interval_ms": 1000,
@@ -234,8 +259,8 @@ t8_daq_system/config/sensor_config.json
 | "Device not found" | Wrong identifier | Set `"identifier": "ANY"` in config |
 | Temperature shows `-9999` | Thermocouple disconnected | Check wiring at AIN+/AIN- terminals |
 | Temperature shows `-9999` | Open circuit | Verify thermocouple continuity |
-| Pressure reads 0 | Transducer not powered | Verify power supply to sensor |
-| Pressure reads wrong | Wrong scaling | Adjust min/max voltage and pressure |
+| Pressure reads 1000 mbar | Gauge not connected | Check signal cable at AIN channel |
+| Pressure reads wrong | Gauge not on or warming | Check LED on FRG-702 gauge |
 | No data logging | Permission denied | Check write permissions on logs/ folder |
 | GUI not updating | Thread crashed | Check console for error messages |
 | Import error | Missing packages | Run `pip install -r requirements.txt` |
@@ -247,7 +272,7 @@ t8_daq_system/config/sensor_config.json
 
 ```
 TDS-T8/
-├── README.md                      # This file
+├── README.md                      # Main documentation
 ├── repo.md                        # AI/Developer reference
 └── t8_daq_system/
     ├── main.py                    # Application entry point
@@ -257,7 +282,7 @@ TDS-T8/
     ├── hardware/                  # Device communication
     │   ├── labjack_connection.py  # Connection manager
     │   ├── thermocouple_reader.py # TC reading logic
-    │   └── pressure_reader.py     # Pressure reading logic
+    │   └── frg702_reader.py       # FRG-702 vacuum gauge logic
     ├── data/                      # Data handling
     │   ├── data_buffer.py         # In-memory circular buffer
     │   └── data_logger.py         # CSV file logging

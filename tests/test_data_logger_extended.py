@@ -28,14 +28,13 @@ class TestDataLoggerMetadata(unittest.TestCase):
 
     def test_start_logging_with_metadata(self):
         """Test starting logging with metadata."""
-        sensor_names = ['TC_1', 'P_1']
+        sensor_names = ['TC_1', 'FRG702_1']
         metadata = create_metadata_dict(
             tc_count=1,
             tc_type="K",
             tc_unit="C",
-            p_count=1,
-            p_unit="PSI",
-            p_max=100,
+            frg702_count=1,
+            frg702_unit="mbar",
             sample_rate_ms=100,
             notes="Test run"
         )
@@ -153,22 +152,21 @@ class TestDataLoggerCSVLoading(unittest.TestCase):
     def test_load_csv_with_metadata(self):
         """Test loading CSV with metadata."""
         # Create a test file
-        sensor_names = ['TC_1', 'P_1']
+        sensor_names = ['TC_1', 'FRG702_1']
         metadata = create_metadata_dict(
             tc_count=1,
             tc_type="K",
             tc_unit="C",
-            p_count=1,
-            p_unit="PSI",
-            p_max=100
+            frg702_count=1,
+            frg702_unit="mbar"
         )
 
         filepath = self.logger.start_logging(sensor_names, metadata=metadata)
 
         # Log some data
-        self.logger.log_reading({'TC_1': 25.0, 'P_1': 50.0})
-        self.logger.log_reading({'TC_1': 26.0, 'P_1': 51.0})
-        self.logger.log_reading({'TC_1': 27.0, 'P_1': 52.0})
+        self.logger.log_reading({'TC_1': 25.0, 'FRG702_1': 1.0e-5})
+        self.logger.log_reading({'TC_1': 26.0, 'FRG702_1': 1.1e-5})
+        self.logger.log_reading({'TC_1': 27.0, 'FRG702_1': 1.2e-5})
         self.logger.stop_logging()
 
         # Load the file
@@ -184,9 +182,9 @@ class TestDataLoggerCSVLoading(unittest.TestCase):
         # Verify data
         self.assertEqual(len(loaded_data['timestamps']), 3)
         self.assertEqual(len(loaded_data['TC_1']), 3)
-        self.assertEqual(len(loaded_data['P_1']), 3)
+        self.assertEqual(len(loaded_data['FRG702_1']), 3)
         self.assertEqual(loaded_data['TC_1'][0], 25.0)
-        self.assertEqual(loaded_data['P_1'][2], 52.0)
+        self.assertAlmostEqual(loaded_data['FRG702_1'][2], 1.2e-5)
 
     def test_load_csv_without_metadata(self):
         """Test loading CSV without metadata (legacy format)."""
@@ -194,9 +192,9 @@ class TestDataLoggerCSVLoading(unittest.TestCase):
         filepath = os.path.join(self.test_dir, 'legacy.csv')
         with open(filepath, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['Timestamp', 'TC_1', 'P_1'])
-            writer.writerow(['2024-01-01T12:00:00', '25.0', '50.0'])
-            writer.writerow(['2024-01-01T12:00:01', '26.0', '51.0'])
+            writer.writerow(['Timestamp', 'TC_1', 'FRG702_1'])
+            writer.writerow(['2024-01-01T12:00:00', '25.0', '1.0e-5'])
+            writer.writerow(['2024-01-01T12:00:01', '26.0', '1.1e-5'])
 
         # Load the file
         metadata, data = DataLogger.load_csv_with_metadata(filepath)
@@ -210,17 +208,17 @@ class TestDataLoggerCSVLoading(unittest.TestCase):
         filepath = os.path.join(self.test_dir, 'with_gaps.csv')
         with open(filepath, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['Timestamp', 'TC_1', 'P_1'])
-            writer.writerow(['2024-01-01T12:00:00', '25.0', ''])  # Missing P_1
-            writer.writerow(['2024-01-01T12:00:01', '', '51.0'])  # Missing TC_1
+            writer.writerow(['Timestamp', 'TC_1', 'FRG702_1'])
+            writer.writerow(['2024-01-01T12:00:00', '25.0', ''])  # Missing FRG702_1
+            writer.writerow(['2024-01-01T12:00:01', '', '1.1e-5'])  # Missing TC_1
 
         metadata, data = DataLogger.load_csv_with_metadata(filepath)
 
         self.assertEqual(len(data['timestamps']), 2)
         self.assertEqual(data['TC_1'][0], 25.0)
-        self.assertIsNone(data['P_1'][0])
+        self.assertIsNone(data['FRG702_1'][0])
         self.assertIsNone(data['TC_1'][1])
-        self.assertEqual(data['P_1'][1], 51.0)
+        self.assertAlmostEqual(data['FRG702_1'][1], 1.1e-5)
 
 
 class TestDataLoggerGetCSVInfo(unittest.TestCase):
@@ -238,12 +236,12 @@ class TestDataLoggerGetCSVInfo(unittest.TestCase):
 
     def test_get_csv_info_basic(self):
         """Test getting basic CSV info."""
-        sensor_names = ['TC_1', 'TC_2', 'P_1']
-        metadata = create_metadata_dict(tc_count=2, p_count=1, notes="Test notes")
+        sensor_names = ['TC_1', 'TC_2', 'FRG702_1']
+        metadata = create_metadata_dict(tc_count=2, frg702_count=1, notes="Test notes")
 
         filepath = self.logger.start_logging(sensor_names, custom_name="info_test", metadata=metadata)
-        self.logger.log_reading({'TC_1': 25.0, 'TC_2': 26.0, 'P_1': 50.0})
-        self.logger.log_reading({'TC_1': 25.5, 'TC_2': 26.5, 'P_1': 50.5})
+        self.logger.log_reading({'TC_1': 25.0, 'TC_2': 26.0, 'FRG702_1': 1.0e-5})
+        self.logger.log_reading({'TC_1': 25.5, 'TC_2': 26.5, 'FRG702_1': 1.1e-5})
         self.logger.stop_logging()
 
         info = DataLogger.get_csv_info(filepath)
@@ -287,9 +285,8 @@ class TestCreateMetadataDict(unittest.TestCase):
             tc_count=3,
             tc_type="J",
             tc_unit="F",
-            p_count=2,
-            p_unit="Torr",
-            p_max=500,
+            frg702_count=1,
+            frg702_unit="torr",
             sample_rate_ms=200,
             notes="Test notes"
         )
@@ -297,9 +294,8 @@ class TestCreateMetadataDict(unittest.TestCase):
         self.assertEqual(metadata['tc_count'], 3)
         self.assertEqual(metadata['tc_type'], "J")
         self.assertEqual(metadata['tc_unit'], "F")
-        self.assertEqual(metadata['p_count'], 2)
-        self.assertEqual(metadata['p_unit'], "Torr")
-        self.assertEqual(metadata['p_max'], 500)
+        self.assertEqual(metadata['frg702_count'], 1)
+        self.assertEqual(metadata['frg702_unit'], "torr")
         self.assertEqual(metadata['sample_rate_ms'], 200)
         self.assertEqual(metadata['notes'], "Test notes")
 
@@ -310,9 +306,8 @@ class TestCreateMetadataDict(unittest.TestCase):
         self.assertEqual(metadata['tc_count'], 0)
         self.assertEqual(metadata['tc_type'], "K")
         self.assertEqual(metadata['tc_unit'], "C")
-        self.assertEqual(metadata['p_count'], 0)
-        self.assertEqual(metadata['p_unit'], "PSI")
-        self.assertEqual(metadata['p_max'], 100)
+        self.assertEqual(metadata['frg702_count'], 0)
+        self.assertEqual(metadata['frg702_unit'], "mbar")
         self.assertEqual(metadata['sample_rate_ms'], 100)
         self.assertEqual(metadata['notes'], "")
 

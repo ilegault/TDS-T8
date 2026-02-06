@@ -41,21 +41,18 @@ class TestLivePlotAxesConfiguration(unittest.TestCase):
     def test_default_units(self):
         """Test that default units are set correctly."""
         self.assertEqual(self.plot._temp_unit, "°C")
-        self.assertEqual(self.plot._pressure_unit, "PSI")
 
     def test_set_units(self):
         """Test setting custom units."""
-        self.plot.set_units("°F", "Torr")
+        self.plot.set_units("°F")
         self.assertEqual(self.plot._temp_unit, "°F")
-        self.assertEqual(self.plot._pressure_unit, "Torr")
 
     def test_set_absolute_scales_enabled(self):
         """Test enabling absolute scales."""
-        self.plot.set_absolute_scales(True, (0, 500), (0, 200))
+        self.plot.set_absolute_scales(True, (0, 500))
 
         self.assertTrue(self.plot._use_absolute_scales)
         self.assertEqual(self.plot._temp_range, (0, 500))
-        self.assertEqual(self.plot._pressure_range, (0, 200))
 
     def test_set_absolute_scales_with_defaults(self):
         """Test setting absolute scales with default ranges."""
@@ -63,7 +60,6 @@ class TestLivePlotAxesConfiguration(unittest.TestCase):
 
         self.assertTrue(self.plot._use_absolute_scales)
         self.assertEqual(self.plot._temp_range, self.plot.DEFAULT_TEMP_RANGE)
-        self.assertEqual(self.plot._pressure_range, self.plot.DEFAULT_PRESSURE_RANGE)
 
     def test_set_absolute_scales_disabled(self):
         """Test disabling absolute scales."""
@@ -108,23 +104,14 @@ class TestLivePlotDynamicAxes(unittest.TestCase):
         call_args = self.mock_ax.set_ylabel.call_args[0][0]
         self.assertIn('Temperature', call_args)
 
-    def test_pressure_only_shows_right_axis(self):
-        """Test that selecting only pressure sensors shows right axis."""
-        sensor_names = ['P_1', 'P_2']
-
-        self.plot.update(sensor_names)
-
-        # Should have created secondary axis
-        self.assertIsNotNone(self.plot.ax2) or self.mock_ax.twinx.assert_called()
-
 
 class TestLivePlotColorCycles(unittest.TestCase):
     """Test color cycles for different sensor types."""
 
     @patch('t8_daq_system.gui.live_plot.FigureCanvasTkAgg')
     @patch('t8_daq_system.gui.live_plot.Figure')
-    def test_temp_colors_defined(self, mock_figure, mock_canvas):
-        """Test that temperature color cycle is defined."""
+    def test_standard_colors_defined(self, mock_figure, mock_canvas):
+        """Test that standard color cycle is defined."""
         mock_frame = MagicMock()
         mock_buffer = MagicMock()
 
@@ -140,31 +127,8 @@ class TestLivePlotColorCycles(unittest.TestCase):
         from t8_daq_system.gui.live_plot import LivePlot
         plot = LivePlot(mock_frame, mock_buffer)
 
-        self.assertEqual(len(plot.temp_colors), 7)
-        for color in plot.temp_colors:
-            self.assertTrue(color.startswith('#'))
-
-    @patch('t8_daq_system.gui.live_plot.FigureCanvasTkAgg')
-    @patch('t8_daq_system.gui.live_plot.Figure')
-    def test_pressure_colors_defined(self, mock_figure, mock_canvas):
-        """Test that pressure color cycle is defined."""
-        mock_frame = MagicMock()
-        mock_buffer = MagicMock()
-
-        mock_ax = MagicMock()
-        mock_fig = MagicMock()
-        mock_fig.add_subplot.return_value = mock_ax
-        mock_figure.return_value = mock_fig
-
-        mock_canvas_instance = MagicMock()
-        mock_canvas_instance.get_tk_widget.return_value = MagicMock()
-        mock_canvas.return_value = mock_canvas_instance
-
-        from t8_daq_system.gui.live_plot import LivePlot
-        plot = LivePlot(mock_frame, mock_buffer)
-
-        self.assertEqual(len(plot.pressure_colors), 7)
-        for color in plot.pressure_colors:
+        self.assertGreaterEqual(len(plot.colors), 7)
+        for color in plot.colors:
             self.assertTrue(color.startswith('#'))
 
     @patch('t8_daq_system.gui.live_plot.FigureCanvasTkAgg')

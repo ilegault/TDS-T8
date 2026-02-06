@@ -19,7 +19,7 @@ class SensorPanel:
 
         Args:
             parent_frame: tkinter frame to put displays in
-            sensor_configs: combined list of thermocouple and pressure configs
+            sensor_configs: list of thermocouple configs
             frg702_configs: optional list of FRG-702 gauge configs
         """
         self.parent = parent_frame
@@ -35,7 +35,7 @@ class SensorPanel:
 
         i = 0  # grid index counter
 
-        # Create a label for each standard sensor
+        # Create a label for each standard sensor (Thermocouples)
         for sensor in sensor_configs:
             if not sensor.get('enabled', True):
                 continue
@@ -43,13 +43,9 @@ class SensorPanel:
             name = sensor['name']
             units = sensor.get('units', '')
 
-            # Determine precision and placeholder
-            if name.startswith('TC'):
-                self.precisions[name] = 2
-                placeholder = "--.--"
-            else:
-                self.precisions[name] = 1
-                placeholder = "--.-"
+            # Thermocouple precision and placeholder
+            self.precisions[name] = 2
+            placeholder = "--.--"
 
             # Create frame for this sensor with fixed size
             frame = ttk.LabelFrame(parent_frame, text=name, width=206, height=90)
@@ -156,7 +152,7 @@ class SensorPanel:
         Update displayed values and status.
 
         Args:
-            readings: dict like {'TC1': 25.3, 'P1': 45.2, 'FRG702_Chamber': 1.5e-6}
+            readings: dict like {'TC1': 25.3, 'FRG702_Chamber': 1.5e-6}
         """
         for name, value in readings.items():
             if name in self.displays:

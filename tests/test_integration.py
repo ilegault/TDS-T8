@@ -34,7 +34,7 @@ class TestIntegration(unittest.TestCase):
         self.config = {
             "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
             "thermocouples": [{"name": "TC1", "channel": 0, "type": "K", "units": "C", "enabled": True}],
-            "pressure_sensors": [{"name": "P1", "channel": 0, "min_voltage": 0.5, "max_voltage": 4.5, "min_pressure": 0, "max_pressure": 100, "units": "PSI", "enabled": True}],
+            "frg702_gauges": [{"name": "Gauge1", "channel": 0, "enabled": True}],
             "logging": {"interval_ms": 100, "file_prefix": "test_log", "auto_start": False},
             "display": {"update_rate_ms": 100, "history_seconds": 10}
         }

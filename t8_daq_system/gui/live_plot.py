@@ -14,13 +14,12 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
 from datetime import datetime
-from t8_daq_system.utils.helpers import convert_temperature, convert_pressure
+from t8_daq_system.utils.helpers import convert_temperature
 
 
 class LivePlot:
     # Default axis ranges (absolute scales)
     DEFAULT_TEMP_RANGE = (0, 300)  # Celsius
-    DEFAULT_PRESSURE_RANGE = (0, 100)  # PSI
 
     def __init__(self, parent_frame, data_buffer):
         """
@@ -78,30 +77,25 @@ class LivePlot:
 
         # Axis scale settings (for absolute scaling)
         self._temp_range = None  # None = auto, tuple = (min, max)
-        self._pressure_range = None
         self._use_absolute_scales = False
 
         # Unit labels
         self._temp_unit = "°C"
-        self._pressure_unit = "PSI"
 
-    def set_absolute_scales(self, enabled=True, temp_range=None, pressure_range=None):
+    def set_absolute_scales(self, enabled=True, temp_range=None):
         """
         Enable or disable absolute (fixed) axis scales.
 
         Args:
             enabled: Whether to use absolute scales
             temp_range: Tuple (min, max) for temperature axis, or None for default
-            pressure_range: Tuple (min, max) for pressure axis, or None for default
         """
         self._use_absolute_scales = enabled
         self._temp_range = temp_range if temp_range else self.DEFAULT_TEMP_RANGE
-        self._pressure_range = pressure_range if pressure_range else self.DEFAULT_PRESSURE_RANGE
 
-    def set_units(self, temp_unit="°C", pressure_unit="PSI"):
+    def set_units(self, temp_unit="°C"):
         """Set the unit labels for the axes."""
         self._temp_unit = temp_unit
-        self._pressure_unit = pressure_unit
         
     def _prepare_data(self, timestamps, values, window_seconds=None, now=None):
         """Filter data by window and remove Nones."""
@@ -142,9 +136,9 @@ class LivePlot:
                 if ts and not all_timestamps:
                     all_timestamps = ts
                     
-        # Live data from buffer is always in base units (C, PSI)
-        # Force conversion by passing 'C' and 'PSI' as data_units
-        self._core_update(all_timestamps, plot_data, window_seconds, data_units={'temp': 'C', 'press': 'PSI'})
+        # Live data from buffer is always in base units (C)
+        # Force conversion by passing 'C' as data_units
+        self._core_update(all_timestamps, plot_data, window_seconds, data_units={'temp': 'C'})
 
     def update_from_loaded_data(self, loaded_data, sensor_names=None, ps_names=None, window_seconds=None, data_units=None):
         """
@@ -196,7 +190,6 @@ class LivePlot:
         """Core plotting logic used by both live and historical updates."""
         # Separate sensor types
         tc_names = [name for name in plot_data.keys() if name.startswith('TC_')]
-        p_names = [name for name in plot_data.keys() if name.startswith('P_')]
         ps_names = [name for name in plot_data.keys() if name.startswith('PS_')]
         frg702_names = [name for name in plot_data.keys() if name.startswith('FRG702_')]
 
@@ -208,12 +201,11 @@ class LivePlot:
         self.ax.set_xlabel('Time')
         
         has_tc = len(tc_names) > 0
-        has_p = len(p_names) > 0
         has_ps = len(ps_names) > 0
 
         show_left_axis = has_tc
-        # Show right axis if we have pressure OR if we have PS data and no TC (PS takes right)
-        show_right_axis = has_p or (has_ps and not has_tc)
+        # Show right axis if we have PS data and no TC (PS takes right)
+        show_right_axis = has_ps and not has_tc
 
         # Configure Left Axis (Temperature)
         if show_left_axis:
@@ -227,7 +219,7 @@ class LivePlot:
             self.ax.tick_params(axis='y', labelleft=False)
             self.ax.yaxis.set_visible(False)
 
-        # Configure Right Axis (Pressure / PS)
+        # Configure Right Axis (PS)
         if show_right_axis:
             if self.ax2 is None:
                 self.ax2 = self.ax.twinx()
@@ -236,19 +228,12 @@ class LivePlot:
             self.ax2.set_visible(True)
             self.ax2.yaxis.set_visible(True)
 
-            label_parts = []
-            if has_p:
-                label_parts.append(f'Pressure ({self._pressure_unit})')
-            if has_ps and not has_p:
-                label_parts.append('Power Supply')
+            label_parts = ['Power Supply']
 
-            # Ensure pressure title is on the right side
+            # Ensure PS title is on the right side
             self.ax2.set_ylabel(' / '.join(label_parts), color='black', rotation=270, labelpad=20)
             self.ax2.yaxis.set_label_position('right')
             self.ax2.tick_params(axis='y', labelcolor='black')
-
-            if self._use_absolute_scales and self._pressure_range and has_p:
-                self.ax2.set_ylim(self._pressure_range)
         else:
             if self.ax2 is not None:
                 self.ax2.clear()
@@ -287,27 +272,6 @@ class LivePlot:
                 color = self.colors[color_idx % len(self.colors)]
                 color_idx += 1
                 line, = self.ax.plot(times, vals, label=name, linewidth=2, color=color)
-                legend_handles.append(line)
-                legend_labels.append(name)
-
-        # Plot P data on RIGHT axis
-        data_press_unit = data_units.get('press', 'PSI') if data_units else 'PSI'
-        for i, name in enumerate(p_names):
-            values = plot_data.get(name, [])
-            
-            # Convert units if needed
-            if data_press_unit != self._pressure_unit:
-                values = [convert_pressure(v, data_press_unit, self._pressure_unit) if v is not None else None for v in values]
-                
-            times, vals = self._prepare_data(timestamps, values, window_seconds, now)
-            
-            if times:
-                color = self.colors[color_idx % len(self.colors)]
-                color_idx += 1
-                # Use ax2 if visible, else fallback to ax
-                target_ax = self.ax2 if self.ax2 and self.ax2.get_visible() else self.ax
-                line, = target_ax.plot(times, vals, label=name, linewidth=2,
-                                       color=color)
                 legend_handles.append(line)
                 legend_labels.append(name)
 

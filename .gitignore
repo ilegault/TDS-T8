@@ -254,5 +254,5 @@ fabric.properties
 Thumbs.db
 
 # Project specific
-repo.md
+.zencoder/rules/repo.md
 

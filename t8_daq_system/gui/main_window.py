@@ -18,7 +18,6 @@ import math
 # Import our modules
 from t8_daq_system.hardware.labjack_connection import LabJackConnection
 from t8_daq_system.hardware.thermocouple_reader import ThermocoupleReader
-from t8_daq_system.hardware.pressure_reader import PressureReader
 from t8_daq_system.hardware.frg702_reader import FRG702Reader
 from t8_daq_system.hardware.keysight_connection import KeysightConnection
 from t8_daq_system.hardware.power_supply_controller import PowerSupplyController
@@ -28,7 +27,7 @@ from t8_daq_system.data.data_buffer import DataBuffer
 from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
 from t8_daq_system.gui.live_plot import LivePlot
 from t8_daq_system.gui.sensor_panel import SensorPanel
-from t8_daq_system.utils.helpers import convert_temperature, convert_pressure
+from t8_daq_system.utils.helpers import convert_temperature
 from t8_daq_system.gui.power_supply_panel import PowerSupplyPanel
 from t8_daq_system.gui.ramp_panel import RampPanel
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog, AxisScaleDialog
@@ -46,7 +45,6 @@ class MainWindow:
         self.config = {
             "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
             "thermocouples": [{"name": "TC_1", "channel": 0, "type": "C", "units": "C", "enabled": True}],
-            "pressure_sensors": [{"name": "P_1", "channel": 8, "min_voltage": 0.5, "max_voltage": 4.5, "min_pressure": 0, "max_pressure": 100, "units": "PSI", "enabled": True}],
             "power_supply": {
                 "enabled": True,
                 "visa_resource": None,  # Auto-detect if None
@@ -83,7 +81,6 @@ class MainWindow:
         # Initialize LabJack hardware
         self.connection = LabJackConnection()
         self.tc_reader = None
-        self.pressure_reader = None
         self.frg702_reader = None
 
         # Initialize Keysight power supply components
@@ -127,7 +124,6 @@ class MainWindow:
         # Axis scale settings
         self._use_absolute_scales = True  # Default to absolute scales
         self._temp_range = (0, 2500)  # Default temp range
-        self._pressure_range = (0, 100)  # Default pressure range
 
         # FRG-702 detail readings for GUI status
         self._latest_frg702_details = {}
@@ -184,29 +180,6 @@ class MainWindow:
         self.tc_type_combo.pack(side=tk.LEFT, padx=2)
         self.tc_type_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
 
-        # Pressure count
-        ttk.Label(config_area, text="Press:").pack(side=tk.LEFT, padx=2)
-        self.p_count_var = tk.StringVar(value=str(len(self.config['pressure_sensors'])))
-        self.p_count_combo = ttk.Combobox(
-            config_area, textvariable=self.p_count_var,
-            values=["0", "1", "2", "3", "4", "5", "6", "7"], width=3
-        )
-        self.p_count_combo.pack(side=tk.LEFT, padx=2)
-        self.p_count_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
-
-        # Pressure Type (PSI Range)
-        ttk.Label(config_area, text="P-Max:").pack(side=tk.LEFT, padx=2)
-        p_max = "100"
-        if self.config['pressure_sensors']:
-            p_max = str(int(self.config['pressure_sensors'][0]['max_pressure']))
-        self.p_type_var = tk.StringVar(value=p_max)
-        self.p_type_combo = ttk.Combobox(
-            config_area, textvariable=self.p_type_var,
-            values=["50", "100", "250", "500", "1000"], width=4
-        )
-        self.p_type_combo.pack(side=tk.LEFT, padx=2)
-        self.p_type_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
-
         # Units Selection
         ttk.Label(config_area, text="T-Unit:").pack(side=tk.LEFT, padx=2)
         t_unit = "C"
@@ -219,18 +192,6 @@ class MainWindow:
         )
         self.t_unit_combo.pack(side=tk.LEFT, padx=2)
         self.t_unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
-
-        ttk.Label(config_area, text="P-Unit:").pack(side=tk.LEFT, padx=2)
-        p_unit = "PSI"
-        if self.config['pressure_sensors']:
-            p_unit = self.config['pressure_sensors'][0]['units']
-        self.p_unit_var = tk.StringVar(value=p_unit)
-        self.p_unit_combo = ttk.Combobox(
-            config_area, textvariable=self.p_unit_var,
-            values=["PSI", "Bar", "kPa", "Torr"], width=5
-        )
-        self.p_unit_combo.pack(side=tk.LEFT, padx=2)
-        self.p_unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
 
         # Sampling rate dropdown
         ttk.Label(config_area, text="Rate:").pack(side=tk.LEFT, padx=2)
@@ -446,7 +407,6 @@ class MainWindow:
         """Update plot settings (units, scales) based on current config."""
         # Get current units
         t_unit = self.t_unit_var.get() if hasattr(self, 't_unit_var') else 'C'
-        p_unit = self.p_unit_var.get() if hasattr(self, 'p_unit_var') else 'PSI'
 
         # Map unit codes to display symbols
         temp_symbols = {'C': '°C', 'F': '°F', 'K': 'K'}
@@ -459,38 +419,24 @@ class MainWindow:
 
         # Update plot units
         if hasattr(self, 'full_plot'):
-            self.full_plot.set_units(temp_unit_display, p_unit)
+            self.full_plot.set_units(temp_unit_display)
         if hasattr(self, 'recent_plot'):
-            self.recent_plot.set_units(temp_unit_display, p_unit)
-
-        # Update pressure range based on max pressure setting (dropdown is in PSI)
-        p_max_str = self.p_type_var.get() if hasattr(self, 'p_type_var') else "100"
-        try:
-            p_max_psi = float(p_max_str)
-        except ValueError:
-            p_max_psi = 100
-            
-        # Convert max pressure to current display units for the plot scale
-        p_max_display = convert_pressure(p_max_psi, 'PSI', p_unit)
-        self._pressure_range = (0, p_max_display)
+            self.recent_plot.set_units(temp_unit_display)
 
         # Update axis scales
         if hasattr(self, 'full_plot'):
             self.full_plot.set_absolute_scales(
                 self._use_absolute_scales,
-                self._temp_range,
-                self._pressure_range
+                self._temp_range
             )
         if hasattr(self, 'recent_plot'):
             self.recent_plot.set_absolute_scales(
                 self._use_absolute_scales,
-                self._temp_range,
-                self._pressure_range
+                self._temp_range
             )
             
         # Calculate names to plot based on current config
         sensor_names = [tc['name'] for tc in self.config['thermocouples'] if tc.get('enabled', True)]
-        sensor_names += [p['name'] for p in self.config['pressure_sensors'] if p.get('enabled', True)]
         sensor_names += [g['name'] for g in self.config.get('frg702_gauges', []) if g.get('enabled', True)]
         
         # Power supply names to show (if enabled in config or present in loaded data)
@@ -524,8 +470,6 @@ class MainWindow:
                         display_last[name] = None
                     elif name.startswith('TC_'):
                         display_last[name] = convert_temperature(value, source_t_unit, t_unit)
-                    elif name.startswith('P_'):
-                        display_last[name] = convert_pressure(value, source_p_unit, p_unit)
                     else:
                         display_last[name] = value
                 self.sensor_panel.update(display_last)
@@ -571,7 +515,6 @@ class MainWindow:
         dialog = AxisScaleDialog(
             self.root,
             self._temp_range,
-            self._pressure_range,
             self._use_absolute_scales
         )
         self.root.wait_window(dialog)
@@ -579,7 +522,6 @@ class MainWindow:
         if dialog.result:
             self._use_absolute_scales = dialog.result['use_absolute']
             self._temp_range = dialog.result['temp_range']
-            self._pressure_range = dialog.result['pressure_range']
             self._update_plot_settings()
 
     def _on_load_csv(self):
@@ -617,12 +559,6 @@ class MainWindow:
                     self.tc_type_var.set(metadata['tc_type'])
                 if 'tc_unit' in metadata:
                     self.t_unit_var.set(metadata['tc_unit'])
-                if 'p_count' in metadata:
-                    self.p_count_var.set(str(metadata['p_count']))
-                if 'p_unit' in metadata:
-                    self.p_unit_var.set(metadata['p_unit'])
-                if 'p_max' in metadata:
-                    self.p_type_var.set(str(int(metadata['p_max'])))
                 if 'sample_rate_ms' in metadata:
                     self.sample_rate_var.set(f"{metadata['sample_rate_ms']}ms")
 
@@ -642,9 +578,7 @@ class MainWindow:
                 # Convert last readings for display
                 display_last = {}
                 t_unit = self.t_unit_var.get()
-                p_unit = self.p_unit_var.get()
                 source_t_unit = self._loaded_data_units.get('temp', 'C')
-                source_p_unit = self._loaded_data_units.get('press', 'PSI')
                 
                 for name, value in last_readings.items():
                     if value is None:
@@ -652,8 +586,6 @@ class MainWindow:
                         continue
                     if name.startswith('TC_'):
                         display_last[name] = convert_temperature(value, source_t_unit, t_unit)
-                    elif name.startswith('P_'):
-                        display_last[name] = convert_pressure(value, source_p_unit, p_unit)
                     else:
                         display_last[name] = value
                 
@@ -711,21 +643,12 @@ class MainWindow:
         new_tc_count = int(self.tc_count_var.get())
         new_tc_type = self.tc_type_var.get()
         new_tc_unit = self.t_unit_var.get()
-        new_p_count = int(self.p_count_var.get())
-        new_p_max = float(self.p_type_var.get())
-        new_p_unit = self.p_unit_var.get()
 
         # Enforce total limit of 7 sensors
-        if new_tc_count + new_p_count > 7:
+        if new_tc_count > 7:
             messagebox.showwarning("Config Limit", "Maximum total sensors allowed is 7.\nAdjusting counts to fit limit.")
-            if new_tc_count > 7:
-                new_tc_count = 7
-                new_p_count = 0
-            else:
-                new_p_count = 7 - new_tc_count
-
+            new_tc_count = 7
             self.tc_count_var.set(str(new_tc_count))
-            self.p_count_var.set(str(new_p_count))
 
         # Update thermocouples
         old_tcs = {tc['name']: tc for tc in self.config['thermocouples']}
@@ -738,23 +661,6 @@ class MainWindow:
                 "channel": i,
                 "type": new_tc_type,
                 "units": new_tc_unit,
-                "enabled": True
-            })
-
-        # Update pressure sensors
-        old_ps = {p['name']: p for p in self.config['pressure_sensors']}
-        self.config['pressure_sensors'] = []
-        for i in range(new_p_count):
-            name = f"P_{i+1}"
-            old_p = old_ps.get(name, {})
-            self.config['pressure_sensors'].append({
-                "name": name,
-                "channel": 8 + i,
-                "min_voltage": 0.5,
-                "max_voltage": 4.5,
-                "min_pressure": 0,
-                "max_pressure": new_p_max,
-                "units": new_p_unit,
                 "enabled": True
             })
 
@@ -801,15 +707,6 @@ class MainWindow:
             self.indicators[name] = tk.Canvas(f, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
             self.indicators[name].pack()
 
-        # PG Indicators
-        for i, pg in enumerate(self.config['pressure_sensors']):
-            name = pg['name']
-            f = ttk.Frame(self.indicator_frame)
-            f.pack(side=tk.LEFT, padx=2)
-            ttk.Label(f, text=f"P{i+1}", font=lbl_font).pack()
-            self.indicators[name] = tk.Canvas(f, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
-            self.indicators[name].pack()
-
         # FRG-702 Indicators
         for i, gauge in enumerate(self.config.get('frg702_gauges', [])):
             name = gauge['name']
@@ -824,7 +721,7 @@ class MainWindow:
         for widget in self.panel_container.winfo_children():
             widget.destroy()
 
-        all_sensors = self.config['thermocouples'] + self.config['pressure_sensors']
+        all_sensors = self.config['thermocouples']
         frg702_configs = self.config.get('frg702_gauges', [])
         self.sensor_panel = SensorPanel(self.panel_container, all_sensors, frg702_configs)
         self._build_indicators()
@@ -945,13 +842,12 @@ class MainWindow:
 
     def _check_connections(self):
         """Do a one-time read to update connection indicators."""
-        if not self.tc_reader or not self.pressure_reader:
+        if not self.tc_reader:
             return
 
         try:
             tc_readings = self.tc_reader.read_all()
-            p_readings = self.pressure_reader.read_all()
-            all_readings = {**tc_readings, **p_readings}
+            all_readings = {**tc_readings}
 
             # Include FRG-702 readings if available
             if self.frg702_reader:
@@ -1015,9 +911,6 @@ class MainWindow:
                 tc_count=int(self.tc_count_var.get()),
                 tc_type=self.tc_type_var.get(),
                 tc_unit=self.t_unit_var.get(),
-                p_count=int(self.p_count_var.get()),
-                p_unit=self.p_unit_var.get(),
-                p_max=float(self.p_type_var.get()),
                 frg702_count=frg702_count,
                 frg702_unit=frg702_unit,
                 sample_rate_ms=int(self.sample_rate_var.get().replace('ms', '')),
@@ -1027,8 +920,6 @@ class MainWindow:
             # Start logging
             sensor_names = [tc['name'] for tc in self.config['thermocouples']
                           if tc.get('enabled', True)]
-            sensor_names += [p['name'] for p in self.config['pressure_sensors']
-                            if p.get('enabled', True)]
             sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
                             if g.get('enabled', True)]
 
@@ -1069,14 +960,6 @@ class MainWindow:
                             val = 20.0 + 5.0 * math.sin(t / 10.0) + random.uniform(-0.5, 0.5)
                             tc_readings[tc['name']] = val
 
-                    pressure_readings = {}
-                    for p in self.config['pressure_sensors']:
-                        if p.get('enabled', True):
-                            # Base pressure 50PSI + sine wave + noise
-                            t = time.time()
-                            val = 50.0 + 10.0 * math.cos(t / 15.0) + random.uniform(-1.0, 1.0)
-                            pressure_readings[p['name']] = val
-
                     # Simulate FRG-702 data (logarithmic sweep in mbar)
                     frg702_readings = {}
                     for gauge in self.config.get('frg702_gauges', []):
@@ -1105,7 +988,6 @@ class MainWindow:
                 else:
                     # Read all sensors from hardware
                     tc_readings = self.tc_reader.read_all()
-                    pressure_readings = self.pressure_reader.read_all()
 
                     # Read FRG-702 gauges if configured
                     frg702_readings = {}
@@ -1135,7 +1017,7 @@ class MainWindow:
                             print(f"Error setting voltage: {e}")
 
                 # Combine readings (FRG-702 stored in mbar internally)
-                all_readings = {**tc_readings, **pressure_readings, **frg702_readings, **ps_readings}
+                all_readings = {**tc_readings, **frg702_readings, **ps_readings}
 
                 # Store FRG-702 detail readings for GUI status update
                 self._latest_frg702_details = frg702_detail_readings
@@ -1147,7 +1029,6 @@ class MainWindow:
                 if self.is_logging:
                     log_readings = {}
                     t_unit = self.t_unit_var.get()
-                    p_unit = self.p_unit_var.get()
 
                     for name, value in all_readings.items():
                         if value is None:
@@ -1155,8 +1036,6 @@ class MainWindow:
                             continue
                         if name.startswith('TC_'):
                             log_readings[name] = convert_temperature(value, 'C', t_unit)
-                        elif name.startswith('P_'):
-                            log_readings[name] = convert_pressure(value, 'PSI', p_unit)
                         else:
                             # FRG-702 and PS values stored as-is (mbar for FRG-702)
                             log_readings[name] = value
@@ -1246,7 +1125,6 @@ class MainWindow:
         # Convert readings for display and logging
         display_readings = {}
         t_unit = self.t_unit_var.get()
-        p_unit = self.p_unit_var.get()
 
         for name, value in current.items():
             if value is None:
@@ -1255,8 +1133,6 @@ class MainWindow:
 
             if name.startswith('TC_'):
                 display_readings[name] = convert_temperature(value, 'C', t_unit)
-            elif name.startswith('P_'):
-                display_readings[name] = convert_pressure(value, 'PSI', p_unit)
             else:
                 # FRG-702 and PS values passed through as-is (mbar for FRG-702)
                 display_readings[name] = value
@@ -1276,8 +1152,6 @@ class MainWindow:
         # Update plots - include power supply data and FRG-702
         sensor_names = [tc['name'] for tc in self.config['thermocouples']
                        if tc.get('enabled', True)]
-        sensor_names += [p['name'] for p in self.config['pressure_sensors']
-                        if p.get('enabled', True)]
         sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
                         if g.get('enabled', True)]
 
@@ -1302,7 +1176,6 @@ class MainWindow:
         try:
             handle = self.connection.get_handle()
             self.tc_reader = ThermocoupleReader(handle, self.config['thermocouples'])
-            self.pressure_reader = PressureReader(handle, self.config['pressure_sensors'])
 
             # Initialize FRG-702 reader if configured
             frg702_config = self.config.get('frg702_gauges', [])

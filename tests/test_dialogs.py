@@ -135,34 +135,18 @@ class TestAxisScaleDialogLogic(unittest.TestCase):
         for min_val, max_val in valid_ranges:
             self.assertLess(min_val, max_val)
 
-    def test_pressure_range_validation(self):
-        """Test pressure range validation."""
-        # Valid ranges
-        valid_ranges = [
-            (0, 100),
-            (0, 500),
-            (0, 1000),
-            (0, 51.7149 * 14.7)  # 1 atm in Torr
-        ]
-
-        for min_val, max_val in valid_ranges:
-            self.assertLess(min_val, max_val)
-
     def test_scale_result_structure(self):
         """Test that scale result has correct structure."""
         # Simulate the result structure
         result = {
             'use_absolute': True,
-            'temp_range': (0, 300),
-            'pressure_range': (0, 100)
+            'temp_range': (0, 300)
         }
 
         self.assertIn('use_absolute', result)
         self.assertIn('temp_range', result)
-        self.assertIn('pressure_range', result)
         self.assertIsInstance(result['use_absolute'], bool)
         self.assertIsInstance(result['temp_range'], tuple)
-        self.assertIsInstance(result['pressure_range'], tuple)
 
 
 class TestSamplingRateLogic(unittest.TestCase):
@@ -203,9 +187,8 @@ class TestHistoricalDataLoadingLogic(unittest.TestCase):
             'tc_count': 3,
             'tc_type': 'K',
             'tc_unit': 'C',
-            'p_count': 2,
-            'p_unit': 'Torr',
-            'p_max': 1000,
+            'frg702_count': 1,
+            'frg702_unit': 'mbar',
             'sample_rate_ms': 200
         }
 
@@ -218,18 +201,16 @@ class TestHistoricalDataLoadingLogic(unittest.TestCase):
             gui_values['tc_type'] = metadata['tc_type']
         if 'tc_unit' in metadata:
             gui_values['t_unit'] = metadata['tc_unit']
-        if 'p_count' in metadata:
-            gui_values['p_count'] = str(metadata['p_count'])
-        if 'p_unit' in metadata:
-            gui_values['p_unit'] = metadata['p_unit']
-        if 'p_max' in metadata:
-            gui_values['p_max'] = str(int(metadata['p_max']))
+        if 'frg702_count' in metadata:
+            gui_values['frg702_count'] = str(metadata['frg702_count'])
+        if 'frg702_unit' in metadata:
+            gui_values['frg702_unit'] = metadata['frg702_unit']
         if 'sample_rate_ms' in metadata:
             gui_values['sample_rate'] = f"{metadata['sample_rate_ms']}ms"
 
         self.assertEqual(gui_values['tc_count'], '3')
         self.assertEqual(gui_values['tc_type'], 'K')
-        self.assertEqual(gui_values['p_unit'], 'Torr')
+        self.assertEqual(gui_values['frg702_unit'], 'mbar')
         self.assertEqual(gui_values['sample_rate'], '200ms')
 
     def test_data_structure_for_plotting(self):
@@ -238,17 +219,17 @@ class TestHistoricalDataLoadingLogic(unittest.TestCase):
             'timestamps': [datetime.now()],
             'TC_1': [25.0],
             'TC_2': [26.0],
-            'P_1': [50.0]
+            'FRG702_1': [1.0e-5]
         }
 
         # Extract sensor types
         tc_names = [k for k in data.keys() if k.startswith('TC_')]
-        p_names = [k for k in data.keys() if k.startswith('P_')]
+        frg702_names = [k for k in data.keys() if k.startswith('FRG702_')]
 
         self.assertEqual(len(tc_names), 2)
-        self.assertEqual(len(p_names), 1)
+        self.assertEqual(len(frg702_names), 1)
         self.assertIn('TC_1', tc_names)
-        self.assertIn('P_1', p_names)
+        self.assertIn('FRG702_1', frg702_names)
 
 
 if __name__ == '__main__':

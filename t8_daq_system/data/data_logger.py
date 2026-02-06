@@ -268,9 +268,8 @@ class DataLogger:
                         'tc_count': metadata.get('tc_count'),
                         'tc_type': metadata.get('tc_type'),
                         'tc_unit': metadata.get('tc_unit'),
-                        'p_count': metadata.get('p_count'),
-                        'p_unit': metadata.get('p_unit'),
-                        'p_max': metadata.get('p_max'),
+                        'frg702_count': metadata.get('frg702_count'),
+                        'frg702_unit': metadata.get('frg702_unit'),
                         'sample_rate_ms': metadata.get('sample_rate_ms'),
                         'notes': metadata.get('notes')
                     }
@@ -304,7 +303,6 @@ class DataLogger:
 
 
 def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
-                         p_count=0, p_unit="PSI", p_max=100,
                          frg702_count=0, frg702_unit="mbar",
                          sample_rate_ms=100, notes=""):
     """
@@ -314,9 +312,8 @@ def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
         tc_count: Number of thermocouples
         tc_type: Thermocouple type (K, J, T, etc.)
         tc_unit: Temperature unit (C, F, K)
-        p_count: Number of pressure sensors
-        p_unit: Pressure unit (PSI, Bar, kPa, Torr)
-        p_max: Maximum pressure range
+        frg702_count: Number of FRG-702 gauges
+        frg702_unit: Pressure unit (mbar, torr, Pa)
         sample_rate_ms: Sampling rate in milliseconds
         notes: User notes about the run
 
@@ -327,9 +324,6 @@ def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
         'tc_count': tc_count,
         'tc_type': tc_type,
         'tc_unit': tc_unit,
-        'p_count': p_count,
-        'p_unit': p_unit,
-        'p_max': p_max,
         'frg702_count': frg702_count,
         'frg702_unit': frg702_unit,
         'sample_rate_ms': sample_rate_ms,
