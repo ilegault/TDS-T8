@@ -4,5 +4,8 @@
     ],
     "pressure_sensors": [
         {"name": "P_1", "channel": 8, "min_voltage": 0.5, "max_voltage": 4.5, "min_pressure": 0, "max_pressure": 100, "units": "PSI", "enabled": true}
+    ],
+    "frg702_gauges": [
+        {"name": "FRG702_Chamber", "channel": 4, "status_channel": null, "units": "mbar", "enabled": true}
     ]
 }

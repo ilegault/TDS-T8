@@ -103,7 +103,14 @@ class DataLogger:
             return
 
         timestamp = datetime.now().isoformat()
-        row = [timestamp] + [sensor_readings.get(name, '') for name in self.sensor_names]
+        row = [timestamp]
+        for name in self.sensor_names:
+            value = sensor_readings.get(name, '')
+            # Use scientific notation for FRG-702 gauge values (very small floats)
+            if name.startswith('FRG702_') and isinstance(value, float):
+                row.append(f"{value:.2e}")
+            else:
+                row.append(value)
         self.writer.writerow(row)
         self.file.flush()  # Ensure data is written immediately
 
@@ -298,6 +305,7 @@ class DataLogger:
 
 def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
                          p_count=0, p_unit="PSI", p_max=100,
+                         frg702_count=0, frg702_unit="mbar",
                          sample_rate_ms=100, notes=""):
     """
     Helper function to create a metadata dictionary for logging.
@@ -322,6 +330,8 @@ def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
         'p_count': p_count,
         'p_unit': p_unit,
         'p_max': p_max,
+        'frg702_count': frg702_count,
+        'frg702_unit': frg702_unit,
         'sample_rate_ms': sample_rate_ms,
         'notes': notes
     }

@@ -33,16 +33,20 @@ class LivePlot:
         self.data_buffer = data_buffer
         self.parent = parent_frame
 
-        # Create matplotlib figure
+        # Create matplotlib figure with space for FRG-702 subplot
         self.fig = Figure(figsize=(8, 4), dpi=100)
         self.fig.patch.set_facecolor('#f0f0f0')  # Match tkinter background if needed
         self.ax = self.fig.add_subplot(111)
-        
+
         # Maximize space
         self.fig.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.15)
 
         # Create secondary axis for pressure data
         self.ax2 = None  # Created on demand
+
+        # FRG-702 logarithmic subplot (created on demand)
+        self.ax_frg702 = None
+        self._has_frg702 = False
 
         # Embed in tkinter
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent_frame)
@@ -168,16 +172,40 @@ class LivePlot:
         
         self._core_update(timestamps, plot_data, window_seconds, data_units=data_units)
 
+    def _ensure_frg702_subplot(self, has_frg702_data):
+        """Create or remove the FRG-702 logarithmic subplot as needed."""
+        if has_frg702_data and not self._has_frg702:
+            # Need to add FRG-702 subplot — reconfigure figure layout
+            self.fig.clear()
+            self.ax = self.fig.add_subplot(211)
+            self.ax_frg702 = self.fig.add_subplot(212)
+            self.ax_frg702.set_yscale('log')
+            self.ax2 = None  # Will be recreated on demand
+            self._has_frg702 = True
+            self.fig.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.1, hspace=0.35)
+        elif not has_frg702_data and self._has_frg702:
+            # Remove FRG-702 subplot
+            self.fig.clear()
+            self.ax = self.fig.add_subplot(111)
+            self.ax_frg702 = None
+            self.ax2 = None
+            self._has_frg702 = False
+            self.fig.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.15)
+
     def _core_update(self, timestamps, plot_data, window_seconds=None, data_units=None):
         """Core plotting logic used by both live and historical updates."""
-        self.ax.clear()
-        self.ax.grid(True, alpha=0.3)
-        self.ax.set_xlabel('Time')
-
         # Separate sensor types
         tc_names = [name for name in plot_data.keys() if name.startswith('TC_')]
         p_names = [name for name in plot_data.keys() if name.startswith('P_')]
         ps_names = [name for name in plot_data.keys() if name.startswith('PS_')]
+        frg702_names = [name for name in plot_data.keys() if name.startswith('FRG702_')]
+
+        # Create/remove FRG-702 subplot as needed
+        self._ensure_frg702_subplot(len(frg702_names) > 0)
+
+        self.ax.clear()
+        self.ax.grid(True, alpha=0.3)
+        self.ax.set_xlabel('Time')
         
         has_tc = len(tc_names) > 0
         has_p = len(p_names) > 0
@@ -312,7 +340,31 @@ class LivePlot:
         for label in self.ax.get_xticklabels():
             label.set_rotation(0)
             label.set_fontsize(8)
-            
+
+        # Plot FRG-702 data on separate logarithmic subplot
+        if self.ax_frg702 and frg702_names:
+            self.ax_frg702.clear()
+            self.ax_frg702.grid(True, alpha=0.3, which='both')
+            self.ax_frg702.set_xlabel('Time')
+            self.ax_frg702.set_ylabel('Pressure (mbar)')
+            self.ax_frg702.set_yscale('log')
+
+            frg702_color_idx = 0
+            for name in frg702_names:
+                values = plot_data.get(name, [])
+                times, vals = self._prepare_data(timestamps, values, window_seconds, now)
+
+                if times:
+                    color = self.colors[frg702_color_idx % len(self.colors)]
+                    frg702_color_idx += 1
+                    self.ax_frg702.plot(times, vals, label=name, linewidth=2, color=color)
+
+            self.ax_frg702.legend(loc='upper left', fontsize=8)
+            self.ax_frg702.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+            for label in self.ax_frg702.get_xticklabels():
+                label.set_rotation(0)
+                label.set_fontsize(8)
+
         self.canvas.draw()
 
 
@@ -325,6 +377,12 @@ class LivePlot:
 
         if self.ax2 is not None:
             self.ax2.clear()
+
+        if self.ax_frg702 is not None:
+            self.ax_frg702.clear()
+            self.ax_frg702.grid(True, alpha=0.3, which='both')
+            self.ax_frg702.set_yscale('log')
+            self.ax_frg702.set_ylabel('Pressure (mbar)')
 
         self.canvas.draw()
 

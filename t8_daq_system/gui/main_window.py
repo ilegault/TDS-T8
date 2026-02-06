@@ -19,6 +19,7 @@ import math
 from t8_daq_system.hardware.labjack_connection import LabJackConnection
 from t8_daq_system.hardware.thermocouple_reader import ThermocoupleReader
 from t8_daq_system.hardware.pressure_reader import PressureReader
+from t8_daq_system.hardware.frg702_reader import FRG702Reader
 from t8_daq_system.hardware.keysight_connection import KeysightConnection
 from t8_daq_system.hardware.power_supply_controller import PowerSupplyController
 from t8_daq_system.control.ramp_executor import RampExecutor
@@ -83,6 +84,7 @@ class MainWindow:
         self.connection = LabJackConnection()
         self.tc_reader = None
         self.pressure_reader = None
+        self.frg702_reader = None
 
         # Initialize Keysight power supply components
         self.ps_connection = KeysightConnection(
@@ -126,6 +128,9 @@ class MainWindow:
         self._use_absolute_scales = True  # Default to absolute scales
         self._temp_range = (0, 2500)  # Default temp range
         self._pressure_range = (0, 100)  # Default pressure range
+
+        # FRG-702 detail readings for GUI status
+        self._latest_frg702_details = {}
 
         # Mode tracking (live vs viewing historical data)
         self._viewing_historical = False
@@ -486,6 +491,7 @@ class MainWindow:
         # Calculate names to plot based on current config
         sensor_names = [tc['name'] for tc in self.config['thermocouples'] if tc.get('enabled', True)]
         sensor_names += [p['name'] for p in self.config['pressure_sensors'] if p.get('enabled', True)]
+        sensor_names += [g['name'] for g in self.config.get('frg702_gauges', []) if g.get('enabled', True)]
         
         # Power supply names to show (if enabled in config or present in loaded data)
         ps_names = []
@@ -804,13 +810,23 @@ class MainWindow:
             self.indicators[name] = tk.Canvas(f, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
             self.indicators[name].pack()
 
+        # FRG-702 Indicators
+        for i, gauge in enumerate(self.config.get('frg702_gauges', [])):
+            name = gauge['name']
+            f = ttk.Frame(self.indicator_frame)
+            f.pack(side=tk.LEFT, padx=2)
+            ttk.Label(f, text=f"FRG{i+1}", font=lbl_font).pack()
+            self.indicators[name] = tk.Canvas(f, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
+            self.indicators[name].pack()
+
     def _rebuild_sensor_panel(self):
         """Re-create the sensor panel with current configuration."""
         for widget in self.panel_container.winfo_children():
             widget.destroy()
 
         all_sensors = self.config['thermocouples'] + self.config['pressure_sensors']
-        self.sensor_panel = SensorPanel(self.panel_container, all_sensors)
+        frg702_configs = self.config.get('frg702_gauges', [])
+        self.sensor_panel = SensorPanel(self.panel_container, all_sensors, frg702_configs)
         self._build_indicators()
 
     def _configure_safety_monitor(self):
@@ -937,6 +953,11 @@ class MainWindow:
             p_readings = self.pressure_reader.read_all()
             all_readings = {**tc_readings, **p_readings}
 
+            # Include FRG-702 readings if available
+            if self.frg702_reader:
+                frg702_readings = self.frg702_reader.read_all()
+                all_readings.update(frg702_readings)
+
             for name, value in all_readings.items():
                 if name in self.indicators:
                     color = '#00FF00' if value is not None else '#333333'
@@ -986,6 +1007,10 @@ class MainWindow:
             custom_name, notes = dialog.result
 
             # Build metadata
+            frg702_gauges = self.config.get('frg702_gauges', [])
+            frg702_count = len([g for g in frg702_gauges if g.get('enabled', True)])
+            frg702_unit = frg702_gauges[0].get('units', 'mbar') if frg702_gauges else 'mbar'
+
             metadata = create_metadata_dict(
                 tc_count=int(self.tc_count_var.get()),
                 tc_type=self.tc_type_var.get(),
@@ -993,6 +1018,8 @@ class MainWindow:
                 p_count=int(self.p_count_var.get()),
                 p_unit=self.p_unit_var.get(),
                 p_max=float(self.p_type_var.get()),
+                frg702_count=frg702_count,
+                frg702_unit=frg702_unit,
                 sample_rate_ms=int(self.sample_rate_var.get().replace('ms', '')),
                 notes=notes or ""
             )
@@ -1002,6 +1029,8 @@ class MainWindow:
                           if tc.get('enabled', True)]
             sensor_names += [p['name'] for p in self.config['pressure_sensors']
                             if p.get('enabled', True)]
+            sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
+                            if g.get('enabled', True)]
 
             # Add power supply channels if connected
             if self.ps_controller:
@@ -1039,7 +1068,7 @@ class MainWindow:
                             t = time.time()
                             val = 20.0 + 5.0 * math.sin(t / 10.0) + random.uniform(-0.5, 0.5)
                             tc_readings[tc['name']] = val
-                    
+
                     pressure_readings = {}
                     for p in self.config['pressure_sensors']:
                         if p.get('enabled', True):
@@ -1047,7 +1076,26 @@ class MainWindow:
                             t = time.time()
                             val = 50.0 + 10.0 * math.cos(t / 15.0) + random.uniform(-1.0, 1.0)
                             pressure_readings[p['name']] = val
-                    
+
+                    # Simulate FRG-702 data (logarithmic sweep in mbar)
+                    frg702_readings = {}
+                    for gauge in self.config.get('frg702_gauges', []):
+                        if gauge.get('enabled', True):
+                            t = time.time()
+                            # Sweep through decades: 1e-6 to 1e-3 mbar with sine wave
+                            exponent = -6.0 + 1.5 * math.sin(t / 20.0) + random.uniform(-0.1, 0.1)
+                            frg702_readings[gauge['name']] = 10 ** exponent
+
+                    frg702_detail_readings = {}
+                    for gauge in self.config.get('frg702_gauges', []):
+                        if gauge.get('enabled', True):
+                            frg702_detail_readings[gauge['name']] = {
+                                'pressure': frg702_readings.get(gauge['name']),
+                                'status': 'valid',
+                                'mode': 'Combined Pirani/Cold Cathode',
+                                'voltage': 5.0,
+                            }
+
                     ps_readings = {}
                     if self.config.get('power_supply', {}).get('enabled', True):
                         ps_readings = {
@@ -1058,7 +1106,14 @@ class MainWindow:
                     # Read all sensors from hardware
                     tc_readings = self.tc_reader.read_all()
                     pressure_readings = self.pressure_reader.read_all()
-                    
+
+                    # Read FRG-702 gauges if configured
+                    frg702_readings = {}
+                    frg702_detail_readings = {}
+                    if self.frg702_reader:
+                        frg702_readings = self.frg702_reader.read_all()
+                        frg702_detail_readings = self.frg702_reader.read_all_with_status()
+
                     # Read power supply state if connected
                     ps_readings = {}
                     if self.ps_controller:
@@ -1079,8 +1134,11 @@ class MainWindow:
                         except Exception as e:
                             print(f"Error setting voltage: {e}")
 
-                # Combine readings
-                all_readings = {**tc_readings, **pressure_readings, **ps_readings}
+                # Combine readings (FRG-702 stored in mbar internally)
+                all_readings = {**tc_readings, **pressure_readings, **frg702_readings, **ps_readings}
+
+                # Store FRG-702 detail readings for GUI status update
+                self._latest_frg702_details = frg702_detail_readings
 
                 # Add to buffer (stays in base units)
                 self.data_buffer.add_reading(all_readings)
@@ -1090,7 +1148,7 @@ class MainWindow:
                     log_readings = {}
                     t_unit = self.t_unit_var.get()
                     p_unit = self.p_unit_var.get()
-                    
+
                     for name, value in all_readings.items():
                         if value is None:
                             log_readings[name] = None
@@ -1100,8 +1158,9 @@ class MainWindow:
                         elif name.startswith('P_'):
                             log_readings[name] = convert_pressure(value, 'PSI', p_unit)
                         else:
+                            # FRG-702 and PS values stored as-is (mbar for FRG-702)
                             log_readings[name] = value
-                            
+
                     self.logger.log_reading(log_readings)
 
             except Exception as e:
@@ -1183,25 +1242,30 @@ class MainWindow:
 
         # Get current readings and update panel (when running)
         current = self.data_buffer.get_all_current()
-        
+
         # Convert readings for display and logging
         display_readings = {}
         t_unit = self.t_unit_var.get()
         p_unit = self.p_unit_var.get()
-        
+
         for name, value in current.items():
             if value is None:
                 display_readings[name] = None
                 continue
-                
+
             if name.startswith('TC_'):
                 display_readings[name] = convert_temperature(value, 'C', t_unit)
             elif name.startswith('P_'):
                 display_readings[name] = convert_pressure(value, 'PSI', p_unit)
             else:
+                # FRG-702 and PS values passed through as-is (mbar for FRG-702)
                 display_readings[name] = value
 
         self.sensor_panel.update(display_readings)
+
+        # Update FRG-702 detailed status (status indicator, mode label)
+        if hasattr(self, '_latest_frg702_details') and self._latest_frg702_details:
+            self.sensor_panel.update_frg702_status(self._latest_frg702_details)
 
         # Update indicators (when running)
         for name, value in current.items():
@@ -1209,11 +1273,13 @@ class MainWindow:
                 color = '#00FF00' if value is not None else '#333333'
                 self.indicators[name].config(bg=color)
 
-        # Update plots - include power supply data
+        # Update plots - include power supply data and FRG-702
         sensor_names = [tc['name'] for tc in self.config['thermocouples']
                        if tc.get('enabled', True)]
         sensor_names += [p['name'] for p in self.config['pressure_sensors']
                         if p.get('enabled', True)]
+        sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
+                        if g.get('enabled', True)]
 
         # Add PS data to plot if available
         ps_names = []
@@ -1223,7 +1289,7 @@ class MainWindow:
         # Update full run plot (no window)
         if hasattr(self, 'full_plot'):
             self.full_plot.update(sensor_names, ps_names)
-        
+
         # Update recent plot (last 60 seconds)
         if hasattr(self, 'recent_plot'):
             self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
@@ -1237,6 +1303,12 @@ class MainWindow:
             handle = self.connection.get_handle()
             self.tc_reader = ThermocoupleReader(handle, self.config['thermocouples'])
             self.pressure_reader = PressureReader(handle, self.config['pressure_sensors'])
+
+            # Initialize FRG-702 reader if configured
+            frg702_config = self.config.get('frg702_gauges', [])
+            if frg702_config:
+                self.frg702_reader = FRG702Reader(handle, frg702_config)
+
             self._check_connections()
             return True
         except Exception as e:
