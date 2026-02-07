@@ -15,6 +15,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.dates as mdates
 from datetime import datetime
 from t8_daq_system.utils.helpers import convert_temperature
+from t8_daq_system.hardware.frg702_reader import FRG702Reader
 
 
 class LivePlot:
@@ -81,6 +82,7 @@ class LivePlot:
 
         # Unit labels
         self._temp_unit = "°C"
+        self._press_unit = "mbar"
 
     def set_absolute_scales(self, enabled=True, temp_range=None):
         """
@@ -93,9 +95,10 @@ class LivePlot:
         self._use_absolute_scales = enabled
         self._temp_range = temp_range if temp_range else self.DEFAULT_TEMP_RANGE
 
-    def set_units(self, temp_unit="°C"):
+    def set_units(self, temp_unit="°C", press_unit="mbar"):
         """Set the unit labels for the axes."""
         self._temp_unit = temp_unit
+        self._press_unit = press_unit
         
     def _prepare_data(self, timestamps, values, window_seconds=None, now=None):
         """Filter data by window and remove Nones."""
@@ -198,7 +201,7 @@ class LivePlot:
 
         self.ax.clear()
         self.ax.grid(True, alpha=0.3)
-        self.ax.set_xlabel('Time')
+        self.ax.set_xlabel('Time (HH:MM:SS)')
         
         has_tc = len(tc_names) > 0
         has_ps = len(ps_names) > 0
@@ -309,13 +312,19 @@ class LivePlot:
         if self.ax_frg702 and frg702_names:
             self.ax_frg702.clear()
             self.ax_frg702.grid(True, alpha=0.3, which='both')
-            self.ax_frg702.set_xlabel('Time')
-            self.ax_frg702.set_ylabel('Pressure (mbar)')
+            self.ax_frg702.set_xlabel('Time (HH:MM:SS)')
+            self.ax_frg702.set_ylabel(f'Pressure ({self._press_unit})')
             self.ax_frg702.set_yscale('log')
 
             frg702_color_idx = 0
+            data_press_unit = data_units.get('press', 'mbar') if data_units else 'mbar'
             for name in frg702_names:
                 values = plot_data.get(name, [])
+                
+                # Convert units if needed
+                if data_press_unit != self._press_unit:
+                    values = [FRG702Reader.convert_pressure(v, self._press_unit) if v is not None else None for v in values]
+                
                 times, vals = self._prepare_data(timestamps, values, window_seconds, now)
 
                 if times:
@@ -336,7 +345,7 @@ class LivePlot:
         """Clear the plot."""
         self.ax.clear()
         self.ax.grid(True, alpha=0.3)
-        self.ax.set_xlabel('Time')
+        self.ax.set_xlabel('Time (HH:MM:SS)')
         self.ax.set_ylabel(f'Temperature ({self._temp_unit})')
 
         if self.ax2 is not None:
@@ -346,7 +355,8 @@ class LivePlot:
             self.ax_frg702.clear()
             self.ax_frg702.grid(True, alpha=0.3, which='both')
             self.ax_frg702.set_yscale('log')
-            self.ax_frg702.set_ylabel('Pressure (mbar)')
+            self.ax_frg702.set_ylabel(f'Pressure ({self._press_unit})')
+            self.ax_frg702.set_xlabel('Time (HH:MM:SS)')
 
         self.canvas.draw()
 

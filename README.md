@@ -15,12 +15,12 @@ A Python-based data acquisition system for the LabJack T8, designed for real-tim
 
 ## Hardware Requirements
 
-| Component | Description |
-|-----------|-------------|
-| **LabJack T8** | USB or Ethernet connected DAQ device |
-| **Thermocouples** | Type K, J, T, B, E, N, R, or S sensors |
+| Component | Description                               |
+|-----------|-------------------------------------------|
+| **LabJack T8** | USB or Ethernet connected DAQ device      |
+| **Thermocouples** | Type K, J, T, B, E, N, R, S, or C sensors |
 | **FRG-702 Gauge** | Inficon FRG-702 Pirani/Cold Cathode Gauge |
-| **USB Cable** | For T8 connection (or Ethernet) |
+| **USB Cable** | For T8 connection (or Ethernet)           |
 
 ---
 

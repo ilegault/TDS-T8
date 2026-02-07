@@ -306,10 +306,6 @@ class MainWindow:
         self.ps_panel = PowerSupplyPanel(ps_frame, self.ps_controller)
         self.ps_panel.on_output_change(self._on_ps_output_change)
 
-        # Turbo Pump Panel
-        self.turbo_panel = TurboPumpPanel(right_frame)
-        self.turbo_panel.pack(fill=tk.X, padx=5, pady=5)
-
         # Ramp Profile Panel
         ramp_frame = ttk.LabelFrame(right_frame, text="Ramp Profile Control")
         ramp_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -321,6 +317,10 @@ class MainWindow:
         )
         self.ramp_panel.on_ramp_start(self._on_ramp_start)
         self.ramp_panel.on_ramp_stop(self._on_ramp_stop)
+
+        # Turbo Pump Panel
+        self.turbo_panel = TurboPumpPanel(right_frame)
+        self.turbo_panel.pack(fill=tk.X, padx=5, pady=5)
 
         # Safety Status Bar at bottom
         safety_frame = ttk.Frame(self.root)
@@ -427,10 +427,18 @@ class MainWindow:
         self._temp_range = (t_min_display, t_max_display)
 
         # Update plot units
+        press_unit = 'mbar'
+        if hasattr(self, 'sensor_panel') and self.sensor_panel.frg702_unit_vars:
+            # Use the unit from the first FRG gauge in the panel
+            first_gauge = list(self.sensor_panel.frg702_unit_vars.keys())[0]
+            press_unit = self.sensor_panel.frg702_unit_vars[first_gauge].get()
+        elif self.config.get('frg702_gauges'):
+            press_unit = self.config['frg702_gauges'][0].get('units', 'mbar')
+
         if hasattr(self, 'full_plot'):
-            self.full_plot.set_units(temp_unit_display)
+            self.full_plot.set_units(temp_unit_display, press_unit)
         if hasattr(self, 'recent_plot'):
-            self.recent_plot.set_units(temp_unit_display)
+            self.recent_plot.set_units(temp_unit_display, press_unit)
 
         # Update axis scales
         if hasattr(self, 'full_plot'):
@@ -707,6 +715,13 @@ class MainWindow:
         self.indicators['PowerSupply'] = tk.Canvas(ps_frame, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
         self.indicators['PowerSupply'].pack()
 
+        # Turbo Pump Indicator
+        turbo_frame = ttk.Frame(self.indicator_frame)
+        turbo_frame.pack(side=tk.LEFT, padx=5)
+        ttk.Label(turbo_frame, text="Turbo", font=lbl_font).pack()
+        self.indicators['Turbo'] = tk.Canvas(turbo_frame, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
+        self.indicators['Turbo'].pack()
+
         # TC Indicators
         for i, tc in enumerate(self.config['thermocouples']):
             name = tc['name']
@@ -733,6 +748,11 @@ class MainWindow:
         all_sensors = self.config['thermocouples']
         frg702_configs = self.config.get('frg702_gauges', [])
         self.sensor_panel = SensorPanel(self.panel_container, all_sensors, frg702_configs)
+        
+        # Bind FRG unit changes to update plots
+        for var in self.sensor_panel.frg702_unit_vars.values():
+            var.trace_add("write", lambda *args: self._update_plot_settings())
+            
         self._build_indicators()
 
     def _configure_safety_monitor(self):
@@ -1122,6 +1142,12 @@ class MainWindow:
         color = '#00FF00' if ps_connected else '#333333'
         if 'PowerSupply' in self.indicators:
             self.indicators['PowerSupply'].config(bg=color)
+
+        # Update Turbo indicator
+        turbo_connected = self.turbo_controller is not None
+        color = '#00FF00' if turbo_connected else '#333333'
+        if 'Turbo' in self.indicators:
+            self.indicators['Turbo'].config(bg=color)
 
         # Update power supply panel
         if ps_connected and self.ps_controller:
