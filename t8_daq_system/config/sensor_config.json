@@ -7,5 +7,13 @@
     ],
     "frg702_gauges": [
         {"name": "FRG702_Chamber", "channel": 4, "status_channel": null, "units": "mbar", "enabled": true}
-    ]
+    ],
+    "turbo_pump": {
+        "enabled": true,
+        "start_stop_channel": "DIO0",
+        "status_channel": "DIO1",
+        "start_delay_ms": 500,
+        "stop_delay_ms": 500,
+        "min_restart_delay_s": 30
+    }
 }
