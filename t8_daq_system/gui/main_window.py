@@ -35,6 +35,7 @@ from t8_daq_system.gui.power_supply_panel import PowerSupplyPanel
 from t8_daq_system.gui.ramp_panel import RampPanel
 from t8_daq_system.gui.turbo_pump_panel import TurboPumpPanel
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog, AxisScaleDialog
+from t8_daq_system.core.data_acquisition import DataAcquisition
 
 
 class MockPowerSupplyController:
@@ -168,7 +169,7 @@ class MainWindow:
                 }
             },
             "logging": {"interval_ms": 100, "file_prefix": "data_log", "auto_start": False},
-            "display": {"update_rate_ms": 100, "history_seconds": 60}
+            "display": {"update_rate_ms": 250, "history_seconds": 60}
         }
 
         # Load from config file if provided
@@ -231,6 +232,14 @@ class MainWindow:
             file_prefix=self.config['logging']['file_prefix']
         )
 
+        # Data acquisition engine (created on start, wired to hardware readers)
+        self.daq = None
+
+        # Latest readings from acquisition thread (read by GUI thread)
+        self._latest_readings = None
+        self._latest_tc_readings = {}
+        self._latest_frg702_details = {}
+
         # Control flags
         self.is_running = False
         self.is_logging = False
@@ -242,9 +251,6 @@ class MainWindow:
         self._temp_range = (0, 2500)      # Default temp range
         self._press_range = (1e-9, 1e-3)  # Default pressure range (log)
         self._ps_range = (0, 60)          # Default PS range (V/A)
-
-        # FRG-702 detail readings for GUI status
-        self._latest_frg702_details = {}
 
         # Mode tracking (live vs viewing historical data)
         self._viewing_historical = False
@@ -322,6 +328,16 @@ class MainWindow:
         )
         self.sample_rate_combo.pack(side=tk.LEFT, padx=2)
         self.sample_rate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_sample_rate_change())
+
+        # Display rate dropdown (independent of acquisition rate)
+        ttk.Label(config_area, text="Display:").pack(side=tk.LEFT, padx=2)
+        self.display_rate_var = tk.StringVar(value="250ms")
+        self.display_rate_combo = ttk.Combobox(
+            config_area, textvariable=self.display_rate_var,
+            values=["100ms", "250ms", "500ms", "1000ms"], width=5
+        )
+        self.display_rate_combo.pack(side=tk.LEFT, padx=2)
+        self.display_rate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_display_rate_change())
 
         # Power Supply Resource Selection
         ttk.Label(config_area, text="PS:").pack(side=tk.LEFT, padx=2)
@@ -620,15 +636,20 @@ class MainWindow:
                     self._on_ps_resource_change()
 
     def _on_sample_rate_change(self):
-        """Handle change in sampling rate."""
+        """Handle change in acquisition sampling rate."""
         rate_str = self.sample_rate_var.get()
         rate_ms = int(rate_str.replace('ms', ''))
 
         self.config['logging']['interval_ms'] = rate_ms
-        self.config['display']['update_rate_ms'] = rate_ms
 
         # Update data buffer sample rate
         self.data_buffer.sample_rate_ms = rate_ms
+
+    def _on_display_rate_change(self):
+        """Handle change in GUI display refresh rate (independent of acquisition rate)."""
+        rate_str = self.display_rate_var.get()
+        display_rate_ms = int(rate_str.replace('ms', ''))
+        self.config['display']['update_rate_ms'] = display_rate_ms
 
     def _update_plot_settings(self):
         """Update plot settings (units, scales) based on current config."""
@@ -1129,7 +1150,7 @@ class MainWindow:
             print(f"Error checking connections: {e}")
 
     def _on_start(self):
-        """Start reading data."""
+        """Start reading data using the fast acquisition engine."""
         self.is_running = True
         self.start_btn.config(state='disabled')
         self.stop_btn.config(state='normal')
@@ -1139,13 +1160,62 @@ class MainWindow:
         # Clear old data
         self.data_buffer.clear()
 
-        # Start reading in background thread
-        self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
-        self.read_thread.start()
+        # Create the data acquisition engine with current hardware readers
+        self.daq = DataAcquisition(
+            config=self.config,
+            tc_reader=self.tc_reader,
+            frg702_reader=self.frg702_reader,
+            ps_controller=self.ps_controller,
+            turbo_controller=self.turbo_controller,
+            safety_monitor=self.safety_monitor if not self._safety_triggered else None,
+            ramp_executor=self.ramp_executor,
+            practice_mode=self._practice_mode
+        )
+
+        # Callback for new data from acquisition thread
+        def on_new_data(timestamp, all_readings, tc_readings, frg702_details,
+                        safety_shutdown=False):
+            # Add to buffer (thread-safe)
+            self.data_buffer.add_reading(all_readings)
+
+            # Store latest readings for GUI thread
+            self._latest_readings = (timestamp, all_readings)
+            self._latest_tc_readings = tc_readings
+            self._latest_frg702_details = frg702_details
+
+            # Log if enabled (convert to selected units)
+            if self.is_logging:
+                log_readings = {}
+                t_unit = self.t_unit_var.get()
+                for name, value in all_readings.items():
+                    if value is None:
+                        log_readings[name] = None
+                        continue
+                    if name.startswith('TC_'):
+                        log_readings[name] = convert_temperature(value, 'C', t_unit)
+                    else:
+                        log_readings[name] = value
+                self.logger.log_reading(log_readings)
+
+            # Handle safety shutdown signal from acquisition thread
+            if safety_shutdown:
+                self.is_running = False
+                self.root.after(0, self._handle_safety_shutdown)
+
+        # Start fast acquisition thread
+        self.daq.start_fast_acquisition(callback=on_new_data)
+
+        # Start GUI updates at the (slower) display rate
+        self._update_gui()
 
     def _on_stop(self):
         """Stop reading data."""
         self.is_running = False
+
+        # Stop the acquisition engine
+        if self.daq:
+            self.daq.stop_fast_acquisition()
+
         self.start_btn.config(state='normal')
         self.stop_btn.config(state='disabled')
         self.status_var.set("Stopped")
@@ -1204,134 +1274,9 @@ class MainWindow:
             self.log_btn.config(text="Start Logging")
             self.status_var.set("Running")
 
-    def _read_loop(self):
-        """Background thread that reads sensors."""
-        interval = self.config['logging']['interval_ms'] / 1000.0
-
-        while self.is_running:
-            # Check if still connected
-            if not self._practice_mode:
-                if not self.connection or not self.connection.is_connected():
-                    print("Connection lost in read loop")
-                    self.is_running = False
-                    break
-
-            try:
-                if self._practice_mode:
-                    # Generate simulated data
-                    tc_readings = {}
-                    for tc in self.config['thermocouples']:
-                        if tc.get('enabled', True):
-                            # Base temp 20C + sine wave + noise
-                            t = time.time()
-                            val = 20.0 + 5.0 * math.sin(t / 10.0) + random.uniform(-0.5, 0.5)
-                            tc_readings[tc['name']] = val
-
-                    # Simulate FRG-702 data (logarithmic sweep in mbar)
-                    frg702_readings = {}
-                    for gauge in self.config.get('frg702_gauges', []):
-                        if gauge.get('enabled', True):
-                            t = time.time()
-                            # Sweep through decades: 1e-6 to 1e-3 mbar with sine wave
-                            exponent = -6.0 + 1.5 * math.sin(t / 20.0) + random.uniform(-0.1, 0.1)
-                            frg702_readings[gauge['name']] = 10 ** exponent
-
-                    frg702_detail_readings = {}
-                    for gauge in self.config.get('frg702_gauges', []):
-                        if gauge.get('enabled', True):
-                            frg702_detail_readings[gauge['name']] = {
-                                'pressure': frg702_readings.get(gauge['name']),
-                                'status': 'valid',
-                                'mode': 'Combined Pirani/Cold Cathode',
-                                'voltage': 5.0,
-                            }
-
-                    ps_readings = {}
-                    if self.ps_controller:
-                        ps_readings = self.ps_controller.get_readings()
-                    elif self.config.get('power_supply', {}).get('enabled', True):
-                        ps_readings = {
-                            'PS_Voltage': 12.0 + random.uniform(-0.1, 0.1),
-                            'PS_Current': 2.0 + random.uniform(-0.05, 0.05)
-                        }
-
-                    turbo_readings = {}
-                    if self.turbo_controller:
-                        turbo_readings = self.turbo_controller.get_status_dict()
-                    elif self.config.get('turbo_pump', {}).get('enabled', False):
-                        turbo_readings = {
-                            'Turbo_Commanded': 'OFF',
-                            'Turbo_Status': 'OFF'
-                        }
-                else:
-                    # Read all sensors from hardware
-                    tc_readings = self.tc_reader.read_all()
-
-                    # Read FRG-702 gauges if configured
-                    frg702_readings = {}
-                    frg702_detail_readings = {}
-                    if self.frg702_reader:
-                        frg702_readings = self.frg702_reader.read_all()
-                        frg702_detail_readings = self.frg702_reader.read_all_with_status()
-
-                    # Read power supply state if connected
-                    ps_readings = {}
-                    if self.ps_controller:
-                        ps_readings = self.ps_controller.get_readings()
-
-                    # Read turbo pump status if connected
-                    turbo_readings = {}
-                    if self.turbo_controller:
-                        turbo_readings = self.turbo_controller.get_status_dict()
-
-                # SAFETY CHECK FIRST
-                if not self._safety_triggered:
-                    if not self.safety_monitor.check_limits(tc_readings):
-                        self.is_running = False
-                        break
-
-                # If ramp is running, update setpoint
-                if self.ps_controller:
-                    if self.ramp_executor.is_running():
-                        new_setpoint = self.ramp_executor.get_current_setpoint()
-                        try:
-                            self.ps_controller.set_voltage(new_setpoint)
-                        except Exception as e:
-                            print(f"Error setting voltage: {e}")
-
-                # Combine readings (FRG-702 stored in mbar internally)
-                all_readings = {**tc_readings, **frg702_readings, **ps_readings, **turbo_readings}
-
-                # Store FRG-702 detail readings for GUI status update
-                self._latest_frg702_details = frg702_detail_readings
-
-                # Add to buffer (stays in base units)
-                self.data_buffer.add_reading(all_readings)
-
-                # Log if enabled (convert to selected units)
-                if self.is_logging:
-                    log_readings = {}
-                    t_unit = self.t_unit_var.get()
-
-                    for name, value in all_readings.items():
-                        if value is None:
-                            log_readings[name] = None
-                            continue
-                        if name.startswith('TC_'):
-                            log_readings[name] = convert_temperature(value, 'C', t_unit)
-                        else:
-                            # FRG-702 and PS values stored as-is (mbar for FRG-702)
-                            log_readings[name] = value
-
-                    self.logger.log_reading(log_readings)
-
-            except Exception as e:
-                print(f"Error in read loop: {e}")
-                if not self.connection or not self.connection.is_connected():
-                    self.is_running = False
-                    break
-
-            time.sleep(interval)
+    # Note: _read_loop has been replaced by DataAcquisition.start_fast_acquisition()
+    # Data collection now runs in a dedicated thread via the DataAcquisition engine,
+    # decoupled from GUI updates.
 
     def _update_gui(self):
         """Update the GUI (called periodically)."""
@@ -1571,6 +1516,10 @@ class MainWindow:
     def _on_close(self):
         """Handle window close event."""
         self.is_running = False
+
+        # Stop the acquisition engine
+        if self.daq:
+            self.daq.stop_fast_acquisition()
 
         # Stop ramp execution
         if self.ramp_executor.is_active():

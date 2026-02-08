@@ -71,6 +71,26 @@ class LabJackConnection:
             self.handle = None
             return False
 
+    def read_names_batch(self, names):
+        """
+        Read multiple named registers in a single LJM call.
+
+        Args:
+            names: List of register name strings, e.g. ["AIN0_EF_READ_A", "AIN1_EF_READ_A"]
+
+        Returns:
+            List of values in same order as names, or list of None on failure
+        """
+        if not self.handle or not names:
+            return [None] * len(names)
+
+        try:
+            results = ljm.eReadNames(self.handle, len(names), names)
+            return list(results)
+        except ljm.LJMError as e:
+            print(f"Batch read error: {e}")
+            return [None] * len(names)
+
     def get_device_info(self):
         """
         Get information about the connected device.

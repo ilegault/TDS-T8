@@ -63,7 +63,41 @@ class ThermocoupleReader:
 
     def read_all(self):
         """
-        Read all enabled thermocouples.
+        Read all enabled thermocouples using batch read for speed.
+
+        Returns:
+            dict like {'TC1_Inlet': 25.3, 'TC2_Outlet': 28.1}
+        """
+        enabled_tcs = [tc for tc in self.thermocouples if tc.get('enabled', True)]
+
+        if not enabled_tcs:
+            return {}
+
+        # Build list of EF register names for batch read
+        read_names = [f"AIN{tc['channel']}_EF_READ_A" for tc in enabled_tcs]
+
+        try:
+            # Single LJM call to read all thermocouple channels at once
+            results = ljm.eReadNames(self.handle, len(read_names), read_names)
+        except ljm.LJMError as e:
+            print(f"Batch thermocouple read error: {e}")
+            # Fall back to individual reads
+            return self._read_all_sequential()
+
+        # Process batch results
+        readings = {}
+        for i, tc in enumerate(enabled_tcs):
+            temp = results[i]
+            if temp == -9999:
+                readings[tc['name']] = None
+            else:
+                readings[tc['name']] = round(temp, 3)
+
+        return readings
+
+    def _read_all_sequential(self):
+        """
+        Fallback: read thermocouples one at a time if batch read fails.
 
         Returns:
             dict like {'TC1_Inlet': 25.3, 'TC2_Outlet': 28.1}
@@ -75,19 +109,14 @@ class ThermocoupleReader:
                 continue
 
             channel = tc['channel']
-            # Reading AIN#_EF_READ_A gives us the temperature
             read_name = f"AIN{channel}_EF_READ_A"
 
             try:
                 temp = ljm.eReadName(self.handle, read_name)
-                # print(f"DEBUG {tc['name']}: Temp={temp}°C")
-
-                # -9999 means the thermocouple isn't connected
                 if temp == -9999:
                     readings[tc['name']] = None
                 else:
                     readings[tc['name']] = round(temp, 3)
-
             except ljm.LJMError as e:
                 print(f"Error reading {tc['name']}: {e}")
                 readings[tc['name']] = None
