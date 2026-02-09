@@ -319,6 +319,16 @@ class MainWindow:
         self.t_unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
 
         # Pressure Units Selection
+        ttk.Label(config_area, text="FRGs:").pack(side=tk.LEFT, padx=2)
+        frg_count = len(self.config.get('frg702_gauges', []))
+        self.frg_count_var = tk.StringVar(value=str(frg_count))
+        self.frg_count_combo = ttk.Combobox(
+            config_area, textvariable=self.frg_count_var,
+            values=["0", "1", "2"], width=2
+        )
+        self.frg_count_combo.pack(side=tk.LEFT, padx=2)
+        self.frg_count_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
+
         ttk.Label(config_area, text="P-Unit:").pack(side=tk.LEFT, padx=2)
         p_unit = "mbar"
         if self.config.get('frg702_gauges'):
@@ -542,6 +552,7 @@ class MainWindow:
                 self.config['frg702_gauges'] = [
                     {"name": "FRG702_Mock", "sensor_code": "T1", "units": "mbar", "enabled": True}
                 ]
+            self.frg_count_var.set(str(len(self.config['frg702_gauges'])))
 
             if 'turbo_pump' not in self.config:
                 self.config['turbo_pump'] = {
@@ -790,6 +801,8 @@ class MainWindow:
                 }
                 if 'tc_count' in metadata:
                     self.tc_count_var.set(str(metadata['tc_count']))
+                if 'frg702_count' in metadata:
+                    self.frg_count_var.set(str(metadata['frg702_count']))
                 if 'tc_type' in metadata:
                     self.tc_type_var.set(metadata['tc_type'])
                 if 'tc_unit' in metadata:
@@ -864,6 +877,7 @@ class MainWindow:
         new_tc_count = int(self.tc_count_var.get())
         new_tc_type = self.tc_type_var.get()
         new_tc_unit = self.t_unit_var.get()
+        new_frg_count = int(self.frg_count_var.get())
 
         if new_tc_count > 7:
             messagebox.showwarning("Config Limit", "Maximum total sensors allowed is 7.\nAdjusting counts to fit limit.")
@@ -880,6 +894,18 @@ class MainWindow:
                 "channel": i,
                 "type": new_tc_type,
                 "units": new_tc_unit,
+                "enabled": True
+            })
+
+        # Update FRG config
+        old_frgs = {g['name']: g for g in self.config.get('frg702_gauges', [])}
+        self.config['frg702_gauges'] = []
+        for i in range(new_frg_count):
+            name = f"FRG702_{i+1}"
+            self.config['frg702_gauges'].append({
+                "name": name,
+                "sensor_code": f"T{i+1}",
+                "units": self.p_unit_var.get(),
                 "enabled": True
             })
 
