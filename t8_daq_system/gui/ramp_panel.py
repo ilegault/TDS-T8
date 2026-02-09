@@ -2,17 +2,29 @@
 ramp_panel.py
 PURPOSE: Display and control ramp profile execution
 
-Provides profile selection, progress display, and execution controls
-for the heating/cooling ramp profiles.
+Provides profile selection, progress display, execution controls,
+embedded real-time V/I plot, and safety interlock enforcement.
+This is the ONLY power control interface.
 """
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+import time
 from typing import Optional, Callable, List
+from collections import deque
 
 from t8_daq_system.control.ramp_profile import RampProfile
 from t8_daq_system.control.ramp_executor import RampExecutor, ExecutorState
+
+try:
+    import matplotlib
+    matplotlib.use('TkAgg')
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.figure import Figure
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
 
 
 class RampPanel:
@@ -21,33 +33,38 @@ class RampPanel:
 
     Contains:
     - Profile selector dropdown
-    - Progress bar
-    - Current step info
-    - Start/Pause/Stop buttons
-    - Estimated time remaining
+    - Progress bar and current step info
+    - Start/Pause/Stop buttons (with safety interlock)
+    - Embedded real-time voltage/current plot
+    - Safety interlock indicator (turbo pump required)
     """
+
+    # Max data points to keep in the embedded plot history
+    PLOT_MAX_POINTS = 600
 
     def __init__(self, parent_frame, ramp_executor: RampExecutor = None,
                  profiles_folder: str = None):
-        """
-        Initialize the ramp control panel.
-
-        Args:
-            parent_frame: tkinter frame to put the panel in
-            ramp_executor: RampExecutor instance (can be None initially)
-            profiles_folder: Path to folder containing profile JSON files
-        """
         self.parent = parent_frame
         self.executor = ramp_executor
         self.profiles_folder = profiles_folder
 
         # Loaded profiles
-        self._profiles: dict = {}  # name -> RampProfile
+        self._profiles: dict = {}
         self._current_profile: Optional[RampProfile] = None
 
         # Callbacks
         self._on_ramp_start: Optional[Callable[[], None]] = None
         self._on_ramp_stop: Optional[Callable[[], None]] = None
+
+        # Safety interlock state
+        self._turbo_ready = False
+        self._emergency_shutdown_active = False
+
+        # Embedded plot data
+        self._plot_times: deque = deque(maxlen=self.PLOT_MAX_POINTS)
+        self._plot_voltages: deque = deque(maxlen=self.PLOT_MAX_POINTS)
+        self._plot_currents: deque = deque(maxlen=self.PLOT_MAX_POINTS)
+        self._plot_start_time: Optional[float] = None
 
         # Build the GUI
         self._build_gui()
@@ -65,7 +82,24 @@ class RampPanel:
         main_frame = ttk.Frame(self.parent)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Top row: Profile selection
+        # Safety interlock indicator at the top
+        interlock_frame = ttk.Frame(main_frame)
+        interlock_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.ramp_interlock_indicator = tk.Canvas(
+            interlock_frame, width=16, height=16,
+            bg='#FF0000', highlightthickness=1, highlightbackground='black'
+        )
+        self.ramp_interlock_indicator.pack(side=tk.LEFT, padx=5)
+
+        self.ramp_interlock_label = ttk.Label(
+            interlock_frame,
+            text="RAMP LOCKED - Turbo pump must be running",
+            font=('Arial', 8, 'bold'), foreground='red'
+        )
+        self.ramp_interlock_label.pack(side=tk.LEFT)
+
+        # Profile selection
         profile_frame = ttk.Frame(main_frame)
         profile_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -103,7 +137,6 @@ class RampPanel:
         progress_frame = ttk.LabelFrame(main_frame, text="Execution Progress")
         progress_frame.pack(fill=tk.X, pady=5)
 
-        # Status row
         status_row = ttk.Frame(progress_frame)
         status_row.pack(fill=tk.X, padx=10, pady=(5, 0))
 
@@ -116,7 +149,6 @@ class RampPanel:
         self.step_label = ttk.Label(status_row, text="Step: --/--", font=('Arial', 8))
         self.step_label.pack(side=tk.RIGHT)
 
-        # Progress bar
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_bar = ttk.Progressbar(
             progress_frame, variable=self.progress_var,
@@ -124,7 +156,6 @@ class RampPanel:
         )
         self.progress_bar.pack(fill=tk.X, padx=10, pady=5)
 
-        # Time and setpoint row
         time_row = ttk.Frame(progress_frame)
         time_row.pack(fill=tk.X, padx=10, pady=(0, 5))
 
@@ -138,6 +169,9 @@ class RampPanel:
 
         self.remaining_label = ttk.Label(time_row, text="Remaining: 00:00", font=('Arial', 8))
         self.remaining_label.pack(side=tk.RIGHT)
+
+        # Embedded V/I plot
+        self._build_embedded_plot(main_frame)
 
         # Control buttons
         button_frame = ttk.Frame(main_frame)
@@ -167,32 +201,172 @@ class RampPanel:
         # Initially disable start button until profile is loaded
         self.start_btn.config(state='disabled')
 
-    def set_executor(self, ramp_executor: RampExecutor):
-        """
-        Set or update the ramp executor.
+        # Emergency shutdown warning label (hidden by default)
+        self.emergency_label = ttk.Label(
+            main_frame,
+            text="",
+            font=('Arial', 9, 'bold'),
+            foreground='red'
+        )
+        self.emergency_label.pack(fill=tk.X, pady=2)
+
+    def _build_embedded_plot(self, parent):
+        """Build the embedded real-time voltage/current plot."""
+        plot_frame = ttk.LabelFrame(parent, text="Voltage / Current Monitor")
+        plot_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        if not HAS_MATPLOTLIB:
+            ttk.Label(
+                plot_frame,
+                text="(matplotlib not available - install for real-time V/I plot)",
+                font=('Arial', 8, 'italic'), foreground='gray'
+            ).pack(padx=10, pady=10)
+            self._has_plot = False
+            return
+
+        self._has_plot = True
+
+        self._fig = Figure(figsize=(4, 2), dpi=80)
+        self._fig.subplots_adjust(left=0.12, right=0.88, top=0.92, bottom=0.18)
+
+        self._ax_v = self._fig.add_subplot(111)
+        self._ax_v.set_xlabel('Time (s)', fontsize=7)
+        self._ax_v.set_ylabel('Voltage (V)', fontsize=7, color='tab:blue')
+        self._ax_v.tick_params(axis='y', labelcolor='tab:blue', labelsize=6)
+        self._ax_v.tick_params(axis='x', labelsize=6)
+
+        self._ax_a = self._ax_v.twinx()
+        self._ax_a.set_ylabel('Current (A)', fontsize=7, color='tab:red')
+        self._ax_a.tick_params(axis='y', labelcolor='tab:red', labelsize=6)
+
+        self._line_v, = self._ax_v.plot([], [], 'b-', linewidth=1, label='Voltage')
+        self._line_a, = self._ax_a.plot([], [], 'r-', linewidth=1, label='Current')
+
+        # Legend
+        lines = [self._line_v, self._line_a]
+        labels = [l.get_label() for l in lines]
+        self._ax_v.legend(lines, labels, loc='upper left', fontsize=6)
+
+        self._canvas = FigureCanvasTkAgg(self._fig, master=plot_frame)
+        self._canvas.draw()
+        self._canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def update_plot_data(self, voltage: float, current: float):
+        """Add new voltage/current data point to the embedded plot.
 
         Args:
-            ramp_executor: RampExecutor instance
+            voltage: Current voltage reading
+            current: Current current reading
         """
+        if not getattr(self, '_has_plot', False):
+            return
+
+        if self._plot_start_time is None:
+            self._plot_start_time = time.time()
+
+        t = time.time() - self._plot_start_time
+        self._plot_times.append(t)
+        self._plot_voltages.append(voltage if voltage is not None else 0.0)
+        self._plot_currents.append(current if current is not None else 0.0)
+
+    def refresh_plot(self):
+        """Redraw the embedded plot with current data. Call from GUI update loop."""
+        if not getattr(self, '_has_plot', False):
+            return
+        if not self._plot_times:
+            return
+
+        times = list(self._plot_times)
+        voltages = list(self._plot_voltages)
+        currents = list(self._plot_currents)
+
+        self._line_v.set_data(times, voltages)
+        self._line_a.set_data(times, currents)
+
+        self._ax_v.relim()
+        self._ax_v.autoscale_view()
+        self._ax_a.relim()
+        self._ax_a.autoscale_view()
+
+        try:
+            self._canvas.draw_idle()
+        except Exception:
+            pass
+
+    def clear_plot_data(self):
+        """Clear the embedded plot data."""
+        self._plot_times.clear()
+        self._plot_voltages.clear()
+        self._plot_currents.clear()
+        self._plot_start_time = None
+        if getattr(self, '_has_plot', False):
+            self._line_v.set_data([], [])
+            self._line_a.set_data([], [])
+            try:
+                self._canvas.draw_idle()
+            except Exception:
+                pass
+
+    def set_turbo_interlock(self, turbo_ready: bool):
+        """Update the turbo pump interlock state.
+
+        Args:
+            turbo_ready: True if turbo pump is running at normal speed
+        """
+        self._turbo_ready = turbo_ready
+        if turbo_ready:
+            self.ramp_interlock_indicator.config(bg='#00FF00')
+            self.ramp_interlock_label.config(
+                text="RAMP READY - Turbo pump running",
+                foreground='green'
+            )
+        else:
+            self.ramp_interlock_indicator.config(bg='#FF0000')
+            self.ramp_interlock_label.config(
+                text="RAMP LOCKED - Turbo pump must be running",
+                foreground='red'
+            )
+        self._update_start_button_state()
+
+    def set_emergency_shutdown(self, active: bool, message: str = ""):
+        """Set the emergency shutdown state.
+
+        Args:
+            active: True if emergency shutdown is active
+            message: Warning message to display
+        """
+        self._emergency_shutdown_active = active
+        if active:
+            self.emergency_label.config(text=message)
+        else:
+            self.emergency_label.config(text="")
+        self._update_start_button_state()
+
+    def _update_start_button_state(self):
+        """Update the start button based on all interlock conditions."""
+        if self._emergency_shutdown_active:
+            self.start_btn.config(state='disabled')
+            return
+        if not self._turbo_ready:
+            self.start_btn.config(state='disabled')
+            return
+        if self._current_profile and self.executor and not self.executor.is_active():
+            self.start_btn.config(state='normal')
+        elif not self.executor or not self.executor.is_active():
+            self.start_btn.config(state='disabled')
+
+    def set_executor(self, ramp_executor: RampExecutor):
         self.executor = ramp_executor
         if ramp_executor:
             self._register_executor_callbacks()
 
     def set_profiles_folder(self, folder: str):
-        """
-        Set the profiles folder and reload available profiles.
-
-        Args:
-            folder: Path to folder containing profile JSON files
-        """
         self.profiles_folder = folder
         self._load_available_profiles()
 
     def _register_executor_callbacks(self):
-        """Register callbacks with the executor."""
         if not self.executor:
             return
-
         self.executor.on_state_change(self._on_executor_state_change)
         self.executor.on_step_change(self._on_executor_step_change)
         self.executor.on_setpoint_change(self._on_executor_setpoint_change)
@@ -200,7 +374,6 @@ class RampPanel:
         self.executor.on_error(self._on_executor_error)
 
     def _load_available_profiles(self):
-        """Load all profile files from the profiles folder."""
         self._profiles.clear()
         profile_names = ["(No profile loaded)"]
 
@@ -223,7 +396,6 @@ class RampPanel:
             self.profile_var.set("(No profile loaded)")
 
     def _on_profile_selected(self, event=None):
-        """Handle profile selection from dropdown."""
         name = self.profile_var.get()
         if name == "(No profile loaded)":
             self._current_profile = None
@@ -235,18 +407,16 @@ class RampPanel:
             self._current_profile = self._profiles[name]
             self._update_profile_info()
 
-            # Load into executor if available
             if self.executor:
                 if self.executor.load_profile(self._current_profile):
-                    self.start_btn.config(state='normal')
+                    self._update_start_button_state()
                 else:
                     self.start_btn.config(state='disabled')
                     messagebox.showwarning("Profile Error", "Failed to load profile into executor")
             else:
-                self.start_btn.config(state='normal')
+                self._update_start_button_state()
 
     def _on_load_profile(self):
-        """Handle Load button click - open file dialog."""
         initial_dir = self.profiles_folder if self.profiles_folder else os.getcwd()
         filepath = filedialog.askopenfilename(
             title="Load Ramp Profile",
@@ -261,7 +431,6 @@ class RampPanel:
                     self._profiles[profile.name] = profile
                     self._current_profile = profile
 
-                    # Update combo box
                     current_values = list(self.profile_combo['values'])
                     if profile.name not in current_values:
                         current_values.append(profile.name)
@@ -270,20 +439,18 @@ class RampPanel:
                     self.profile_var.set(profile.name)
                     self._update_profile_info()
 
-                    # Load into executor
                     if self.executor:
                         if self.executor.load_profile(profile):
-                            self.start_btn.config(state='normal')
+                            self._update_start_button_state()
                         else:
-                            messagebox.showwarning("Profile Error", "Failed to load profile into executor")
+                            messagebox.showwarning("Profile Error",
+                                                   "Failed to load profile into executor")
                 else:
                     messagebox.showerror("Load Error", "Failed to load profile from file")
-
             except Exception as e:
                 messagebox.showerror("Load Error", f"Error loading profile: {e}")
 
     def _update_profile_info(self):
-        """Update the profile info display."""
         if not self._current_profile:
             self.profile_info.config(text="No profile loaded")
             return
@@ -305,7 +472,6 @@ class RampPanel:
         self.profile_info.config(text=info)
 
     def _on_start(self):
-        """Handle Start Ramp button click."""
         if not self.executor:
             messagebox.showwarning("Not Ready", "Ramp executor not initialized")
             return
@@ -314,7 +480,24 @@ class RampPanel:
             messagebox.showwarning("No Profile", "Please select a profile first")
             return
 
-        # Confirm start
+        # Check turbo pump interlock
+        if not self._turbo_ready:
+            messagebox.showwarning(
+                "Cannot Start Power Supply",
+                "Cannot start power supply - Turbo pump must be running.\n\n"
+                "Start the turbo pump first and wait for it to reach normal speed."
+            )
+            return
+
+        # Check emergency shutdown
+        if self._emergency_shutdown_active:
+            messagebox.showwarning(
+                "Cannot Start Power Supply",
+                "Cannot start power supply - Emergency shutdown is active.\n\n"
+                "Wait for temperature to drop below 2150\u00b0C before restarting."
+            )
+            return
+
         if not messagebox.askyesno(
             "Confirm Start",
             f"Start ramp profile '{self._current_profile.name}'?\n\n"
@@ -322,13 +505,14 @@ class RampPanel:
         ):
             return
 
-        # Ensure profile is loaded in executor
         if self.executor.profile is None or self.executor.profile.name != self._current_profile.name:
             if not self.executor.load_profile(self._current_profile):
                 messagebox.showerror("Error", "Failed to load profile")
                 return
 
-        # Start execution
+        # Clear plot data for new ramp
+        self.clear_plot_data()
+
         if self.executor.start():
             self._update_button_states(ExecutorState.RUNNING)
             if self._on_ramp_start:
@@ -337,7 +521,6 @@ class RampPanel:
             messagebox.showerror("Error", "Failed to start ramp execution")
 
     def _on_pause(self):
-        """Handle Pause/Resume button click."""
         if not self.executor:
             return
 
@@ -349,7 +532,6 @@ class RampPanel:
             self.pause_btn.config(text="Pause")
 
     def _on_stop(self):
-        """Handle Stop Ramp button click."""
         if not self.executor:
             return
 
@@ -364,7 +546,6 @@ class RampPanel:
                 self._on_ramp_stop()
 
     def _update_button_states(self, state: ExecutorState):
-        """Update button states based on executor state."""
         if state in [ExecutorState.RUNNING, ExecutorState.PAUSED]:
             self.start_btn.config(state='disabled')
             self.pause_btn.config(state='normal')
@@ -372,7 +553,7 @@ class RampPanel:
             self.profile_combo.config(state='disabled')
             self.load_btn.config(state='disabled')
         else:
-            self.start_btn.config(state='normal' if self._current_profile else 'disabled')
+            self._update_start_button_state()
             self.pause_btn.config(state='disabled')
             self.stop_btn.config(state='disabled')
             self.profile_combo.config(state='readonly')
@@ -380,15 +561,12 @@ class RampPanel:
             self.pause_btn.config(text="Pause")
 
     def _on_executor_state_change(self, state: ExecutorState):
-        """Handle executor state change callback."""
-        # Update UI on main thread
         try:
             self.parent.after(0, lambda: self._handle_state_change(state))
         except Exception:
             pass
 
     def _handle_state_change(self, state: ExecutorState):
-        """Handle state change on main thread."""
         state_display = {
             ExecutorState.IDLE: ("IDLE", "black"),
             ExecutorState.RUNNING: ("RUNNING", "green"),
@@ -403,7 +581,6 @@ class RampPanel:
         self._update_button_states(state)
 
     def _on_executor_step_change(self, current_step: int, total_steps: int):
-        """Handle executor step change callback."""
         try:
             self.parent.after(0, lambda: self.step_label.config(
                 text=f"Step: {current_step + 1}/{total_steps}"
@@ -412,7 +589,6 @@ class RampPanel:
             pass
 
     def _on_executor_setpoint_change(self, setpoint: float):
-        """Handle executor setpoint change callback."""
         try:
             self.parent.after(0, lambda: self.setpoint_label.config(
                 text=f"Setpoint: {setpoint:.2f} V"
@@ -421,7 +597,6 @@ class RampPanel:
             pass
 
     def _on_executor_complete(self):
-        """Handle executor completion callback."""
         try:
             self.parent.after(0, lambda: messagebox.showinfo(
                 "Ramp Complete",
@@ -431,7 +606,6 @@ class RampPanel:
             pass
 
     def _on_executor_error(self, error_message: str):
-        """Handle executor error callback."""
         try:
             self.parent.after(0, lambda: messagebox.showerror(
                 "Ramp Error",
@@ -441,64 +615,44 @@ class RampPanel:
             pass
 
     def update(self):
-        """
-        Update the display with current executor status.
-
-        Should be called periodically from the main update loop.
-        """
+        """Update the display with current executor status."""
         if not self.executor:
             return
 
-        # Update progress
         progress = self.executor.get_progress()
         self.progress_var.set(progress)
 
-        # Update elapsed time
         elapsed = self.executor.get_elapsed_time()
         e_mins = int(elapsed // 60)
         e_secs = int(elapsed % 60)
         self.elapsed_label.config(text=f"Elapsed: {e_mins:02d}:{e_secs:02d}")
 
-        # Update remaining time
         remaining = self.executor.get_remaining_time()
         r_mins = int(remaining // 60)
         r_secs = int(remaining % 60)
         self.remaining_label.config(text=f"Remaining: {r_mins:02d}:{r_secs:02d}")
 
-        # Update setpoint
         setpoint = self.executor.get_current_setpoint()
         self.setpoint_label.config(text=f"Setpoint: {setpoint:.2f} V")
 
-        # Update step info
         if self.executor.profile:
             current_step = self.executor.current_step
             total_steps = self.executor.profile.get_step_count()
             self.step_label.config(text=f"Step: {current_step + 1}/{total_steps}")
 
-    def on_ramp_start(self, callback: Callable[[], None]):
-        """
-        Register callback for when ramp execution starts.
+        # Refresh the embedded plot
+        self.refresh_plot()
 
-        Args:
-            callback: Function to call when ramp starts
-        """
+    def on_ramp_start(self, callback: Callable[[], None]):
         self._on_ramp_start = callback
 
     def on_ramp_stop(self, callback: Callable[[], None]):
-        """
-        Register callback for when ramp execution stops.
-
-        Args:
-            callback: Function to call when ramp stops
-        """
         self._on_ramp_stop = callback
 
     def get_current_profile(self) -> Optional[RampProfile]:
-        """Get the currently selected profile."""
         return self._current_profile
 
     def is_running(self) -> bool:
-        """Check if a ramp is currently running."""
         if not self.executor:
             return False
         return self.executor.is_active()

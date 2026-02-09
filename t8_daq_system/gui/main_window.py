@@ -5,6 +5,12 @@ PURPOSE: Main application window - coordinates everything
 Integrates LabJack T8 DAQ (thermocouples, turbo pump) and XGS-600 controller
 (FRG-702 gauges) with Keysight N5761A power supply control, safety monitoring,
 and ramp profile execution.
+
+Safety interlocks:
+- Power supply ramp locked unless turbo pump is running (NORMAL)
+- Turbo pump locked unless FRG pressure is below 8E-3 Torr
+- 2200C temperature override triggers controlled ramp-down
+- Restart lockout until temperature drops below 2150C
 """
 
 import tkinter as tk
@@ -149,16 +155,13 @@ class MainWindow:
     SAMPLE_RATES = [100, 200, 500, 1000, 2000]
 
     def __init__(self, config_path=None):
-        """
-        Initialize the main application window.
-        """
         # Default configuration
         self.config = {
             "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
             "thermocouples": [{"name": "TC_1", "channel": 0, "type": "C", "units": "C", "enabled": True}],
             "power_supply": {
                 "enabled": True,
-                "visa_resource": None,  # Auto-detect if None
+                "visa_resource": None,
                 "default_voltage_limit": 20.0,
                 "default_current_limit": 50.0,
                 "safety": {
@@ -172,7 +175,6 @@ class MainWindow:
             "display": {"update_rate_ms": 250, "history_seconds": 60}
         }
 
-        # Load from config file if provided
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
@@ -181,19 +183,16 @@ class MainWindow:
             except Exception as e:
                 print(f"Error loading config from {config_path}: {e}")
 
-        # Create main window
         self.root = tk.Tk()
         self.root.title("T8 DAQ System with Power Supply Control")
         self.root.geometry("1200x800")
-
-        # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # Initialize LabJack hardware (thermocouples, turbo pump)
+        # Initialize LabJack hardware
         self.connection = LabJackConnection()
         self.tc_reader = None
 
-        # Initialize XGS-600 controller (FRG-702 gauges)
+        # Initialize XGS-600 controller
         self.xgs600 = None
         self.frg702_reader = None
 
@@ -203,14 +202,14 @@ class MainWindow:
         )
         self.ps_controller = None
 
-        # Initialize turbo pump controller (set later when connected)
+        # Initialize turbo pump controller
         self.turbo_controller = None
 
         # Initialize ramp executor and safety monitor
         self.ramp_executor = RampExecutor()
         self.safety_monitor = SafetyMonitor(auto_shutoff=True)
 
-        # Initialize data handling (None for unlimited history)
+        # Initialize data handling
         self.data_buffer = DataBuffer(
             max_seconds=None,
             sample_rate_ms=self.config['display']['update_rate_ms']
@@ -221,7 +220,6 @@ class MainWindow:
         self.log_folder = os.path.join(base_dir, 'logs')
         self.profiles_folder = os.path.join(base_dir, 'config', 'profiles')
 
-        # Create folders if they don't exist
         if not os.path.exists(self.profiles_folder):
             os.makedirs(self.profiles_folder)
         if not os.path.exists(self.log_folder):
@@ -232,10 +230,10 @@ class MainWindow:
             file_prefix=self.config['logging']['file_prefix']
         )
 
-        # Data acquisition engine (created on start, wired to hardware readers)
+        # Data acquisition engine
         self.daq = None
 
-        # Latest readings from acquisition thread (read by GUI thread)
+        # Latest readings from acquisition thread
         self._latest_readings = None
         self._latest_tc_readings = {}
         self._latest_frg702_details = {}
@@ -247,27 +245,30 @@ class MainWindow:
         self._safety_triggered = False
 
         # Axis scale settings
-        self._use_absolute_scales = True  # Default to absolute scales
-        self._temp_range = (0, 2500)      # Default temp range
-        self._press_range = (1e-9, 1e-3)  # Default pressure range (log)
-        self._ps_range = (0, 60)          # Default PS range (V/A)
+        self._use_absolute_scales = True
+        self._temp_range = (0, 2500)
+        self._press_range = (1e-9, 1e-3)
+        self._ps_range = (0, 60)
 
-        # Mode tracking (live vs viewing historical data)
+        # Mode tracking
         self._viewing_historical = False
         self._practice_mode = False
         self._loaded_data = None
         self._loaded_data_units = {'temp': 'C', 'press': 'PSI'}
 
+        # Track latest FRG pressure for turbo interlock
+        self._latest_frg_pressure_mbar = None
+
         # Build the GUI
         self._build_gui()
 
-        # Configure safety monitor from config
+        # Configure safety monitor
         self._configure_safety_monitor()
 
         # Register safety callbacks
         self._register_safety_callbacks()
 
-        # Start GUI update loop (always runs to check connection)
+        # Start GUI update loop
         self._update_gui()
 
     def _build_gui(self):
@@ -329,7 +330,7 @@ class MainWindow:
         self.sample_rate_combo.pack(side=tk.LEFT, padx=2)
         self.sample_rate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_sample_rate_change())
 
-        # Display rate dropdown (independent of acquisition rate)
+        # Display rate dropdown
         ttk.Label(config_area, text="Display:").pack(side=tk.LEFT, padx=2)
         self.display_rate_var = tk.StringVar(value="250ms")
         self.display_rate_combo = ttk.Combobox(
@@ -366,25 +367,21 @@ class MainWindow:
         )
         self.log_btn.pack(side=tk.LEFT, padx=5)
 
-        # Load CSV button
         self.load_csv_btn = ttk.Button(
             control_frame, text="Load CSV", command=self._on_load_csv
         )
         self.load_csv_btn.pack(side=tk.LEFT, padx=5)
 
-        # Axis Scale button
         self.scale_btn = ttk.Button(
             control_frame, text="Axis Scales", command=self._on_axis_scales
         )
         self.scale_btn.pack(side=tk.LEFT, padx=5)
 
-        # Dual Display button
         self.dual_btn = ttk.Button(
             control_frame, text="Dual Display", command=self._toggle_dual_display
         )
         self.dual_btn.pack(side=tk.LEFT, padx=5)
 
-        # Practice Mode button
         self.practice_btn = ttk.Button(
             control_frame, text="Practice Mode: OFF", command=self._toggle_practice_mode
         )
@@ -402,7 +399,7 @@ class MainWindow:
         self.indicator_frame = ttk.Frame(control_frame)
         self.indicator_frame.pack(side=tk.RIGHT, padx=10)
 
-        self.indicators = {}  # name: widget
+        self.indicators = {}
         self._build_indicators()
 
         status_label = ttk.Label(
@@ -412,7 +409,7 @@ class MainWindow:
 
         ttk.Label(control_frame, text="Status:").pack(side=tk.RIGHT)
 
-        # Create main content area with PanedWindow for flexible layout
+        # Create main content area with PanedWindow
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -423,30 +420,26 @@ class MainWindow:
         # Current readings panel
         self.panel_container = ttk.LabelFrame(left_frame, text="Current Readings")
         self.panel_container.pack(fill=tk.X, padx=5, pady=5)
-
-        # Build initial panel
         self._rebuild_sensor_panel()
 
         # Live plots container
         self.plot_container_main = ttk.Frame(left_frame)
         self.plot_container_main.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Build initial plots
         self._build_plots(self.plot_container_main)
 
-        # Right side - Power Supply Control
+        # Right side - Power Supply Control (unified ramp interface)
         right_frame = ttk.Frame(main_paned)
         main_paned.add(right_frame, weight=1)
 
-        # Power Supply Panel
-        ps_frame = ttk.LabelFrame(right_frame, text="Power Supply Control")
+        # Power Supply Status Panel (read-only display with interlock)
+        ps_frame = ttk.LabelFrame(right_frame, text="Power Supply Status")
         ps_frame.pack(fill=tk.X, padx=5, pady=5)
 
         self.ps_panel = PowerSupplyPanel(ps_frame, self.ps_controller)
         self.ps_panel.on_output_change(self._on_ps_output_change)
 
-        # Ramp Profile Panel
-        ramp_frame = ttk.LabelFrame(right_frame, text="Ramp Profile Control")
+        # Ramp Profile Panel (ONLY power control interface)
+        ramp_frame = ttk.LabelFrame(right_frame, text="Power Supply Ramp Control")
         ramp_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         self.ramp_panel = RampPanel(
@@ -483,7 +476,6 @@ class MainWindow:
             safety_frame, text="Reset Safety",
             command=self._on_reset_safety
         )
-        # Don't pack yet - only show after safety trigger
 
         # Temperature limit display
         ttk.Separator(safety_frame, orient='vertical').pack(side=tk.LEFT, padx=10, fill='y')
@@ -493,33 +485,36 @@ class MainWindow:
         )
         self.temp_limit_label.pack(side=tk.LEFT, padx=5)
 
+        # Temperature override info
+        self.override_label = ttk.Label(
+            safety_frame,
+            text=f"Override: {SafetyMonitor.TEMP_OVERRIDE_LIMIT:.0f}\u00b0C",
+            font=('Arial', 8)
+        )
+        self.override_label.pack(side=tk.LEFT, padx=5)
+
         # Historical data indicator (initially hidden)
         self.historical_label = ttk.Label(
             safety_frame, text="[VIEWING HISTORICAL DATA]",
             font=('Arial', 9, 'bold'), foreground='blue'
         )
-        # Don't pack initially
 
         # Dual window tracking
         self.dual_window = None
 
     def _build_plots(self, parent):
         """Create the live plots in the specified parent widget."""
-        # Use PanedWindow for resizable dual windows
         plot_paned = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
         plot_paned.pack(fill=tk.BOTH, expand=True)
 
-        # Full run plot
         full_frame = ttk.LabelFrame(plot_paned, text="Full Run History")
         plot_paned.add(full_frame, weight=1)
         self.full_plot = LivePlot(full_frame, self.data_buffer)
 
-        # Recent plot (1 min)
         recent_frame = ttk.LabelFrame(plot_paned, text="Last 1 Minute")
         plot_paned.add(recent_frame, weight=1)
         self.recent_plot = LivePlot(recent_frame, self.data_buffer)
 
-        # Configure plots with units and scales
         self._update_plot_settings()
 
     def _toggle_practice_mode(self):
@@ -530,7 +525,6 @@ class MainWindow:
             self.start_btn.config(state='normal')
             self.status_var.set("Practice Mode Active")
 
-            # Expand practice mode: add mock sensors if not already configured
             if not self.config.get('frg702_gauges'):
                 self.config['frg702_gauges'] = [
                     {"name": "FRG702_Mock", "sensor_code": "T1", "units": "mbar", "enabled": True}
@@ -544,7 +538,6 @@ class MainWindow:
                 }
             self.config['turbo_pump']['enabled'] = True
 
-            # Use mock controllers for UI interaction
             self.ps_controller = MockPowerSupplyController()
             self.ps_panel.set_controller(self.ps_controller)
             self.safety_monitor.set_power_supply(self.ps_controller)
@@ -552,6 +545,10 @@ class MainWindow:
 
             self.turbo_controller = MockTurboPumpController()
             self.turbo_panel.set_controller(self.turbo_controller)
+
+            # In practice mode, simulate acceptable pressure for turbo interlock
+            self._latest_frg_pressure_mbar = 1e-4  # Well below threshold
+            self.turbo_panel.update_pressure_interlock(self._latest_frg_pressure_mbar)
 
             self._update_ps_resources()
             self.ps_resource_var.set("Mock Power Supply")
@@ -562,18 +559,18 @@ class MainWindow:
             self.ps_resource_var.set("None")
             self._on_ps_resource_change()
 
+            self._latest_frg_pressure_mbar = None
+            self.turbo_panel.update_pressure_interlock(None)
+
             if not self.connection or not self.connection.is_connected():
                 self.start_btn.config(state='disabled')
                 self.status_var.set("Disconnected")
-
-                # Remove mock controllers
                 self.ps_controller = None
                 self.ps_panel.set_controller(None)
                 self.turbo_controller = None
                 self.turbo_panel.set_controller(None)
             else:
                 self.status_var.set("Connected")
-                # Re-initialize real hardware
                 self._initialize_hardware_readers()
                 if self.ps_connection.is_connected():
                     self._initialize_power_supply()
@@ -584,18 +581,12 @@ class MainWindow:
     def _update_ps_resources(self):
         """Refresh the list of available power supply resources."""
         resources = list(self.ps_connection.list_available_resources())
-        
-        # Always allow "None"
         values = ["None"]
-        
-        # Add "Mock Power Supply" if in practice mode or if user wants it available
         if self._practice_mode:
             values.append("Mock Power Supply")
-            
         values.extend(resources)
         self.ps_resource_combo.config(values=values)
-        
-        # Set current value if not set
+
         current_res = self.config.get('power_supply', {}).get('visa_resource')
         if current_res and current_res in values:
             self.ps_resource_var.set(current_res)
@@ -607,8 +598,7 @@ class MainWindow:
     def _on_ps_resource_change(self):
         """Handle power supply resource selection change."""
         selected = self.ps_resource_var.get()
-        
-        # Update config
+
         if selected == "None":
             self.config['power_supply']['visa_resource'] = None
             if not self._practice_mode:
@@ -617,8 +607,6 @@ class MainWindow:
                 self.ps_panel.set_controller(None)
         elif selected == "Mock Power Supply":
             self.config['power_supply']['visa_resource'] = "MOCK"
-            # Switch to mock controller regardless of practice mode button? 
-            # Better to just use it if selected.
             self.ps_controller = MockPowerSupplyController()
             self.ps_panel.set_controller(self.ps_controller)
             self.safety_monitor.set_power_supply(self.ps_controller)
@@ -626,7 +614,6 @@ class MainWindow:
         else:
             self.config['power_supply']['visa_resource'] = selected
             if not self._practice_mode:
-                # Try to connect to real hardware
                 self.ps_connection.resource_string = selected
                 if self.ps_connection.connect():
                     self._initialize_power_supply()
@@ -636,37 +623,28 @@ class MainWindow:
                     self._on_ps_resource_change()
 
     def _on_sample_rate_change(self):
-        """Handle change in acquisition sampling rate."""
         rate_str = self.sample_rate_var.get()
         rate_ms = int(rate_str.replace('ms', ''))
-
         self.config['logging']['interval_ms'] = rate_ms
-
-        # Update data buffer sample rate
         self.data_buffer.sample_rate_ms = rate_ms
 
     def _on_display_rate_change(self):
-        """Handle change in GUI display refresh rate (independent of acquisition rate)."""
         rate_str = self.display_rate_var.get()
         display_rate_ms = int(rate_str.replace('ms', ''))
         self.config['display']['update_rate_ms'] = display_rate_ms
 
     def _update_plot_settings(self):
-        """Update plot settings (units, scales) based on current config."""
-        # Get current units
+        """Update plot settings based on current config."""
         t_unit = self.t_unit_var.get() if hasattr(self, 't_unit_var') else 'C'
 
-        # Map unit codes to display symbols
-        temp_symbols = {'C': '°C', 'F': '°F', 'K': 'K'}
-        temp_unit_display = temp_symbols.get(t_unit, '°C')
-        
-        # Update temperature range only if it hasn't been set
+        temp_symbols = {'C': '\u00b0C', 'F': '\u00b0F', 'K': 'K'}
+        temp_unit_display = temp_symbols.get(t_unit, '\u00b0C')
+
         if not hasattr(self, '_temp_range'):
             t_min_display = convert_temperature(0, 'C', t_unit)
             t_max_display = convert_temperature(300, 'C', t_unit)
             self._temp_range = (t_min_display, t_max_display)
 
-        # Update plot units
         press_unit = 'mbar'
         if hasattr(self, 'sensor_panel') and getattr(self.sensor_panel, 'frg702_unit_vars', None):
             keys = list(self.sensor_panel.frg702_unit_vars.keys())
@@ -692,34 +670,29 @@ class MainWindow:
                 self._press_range,
                 self._ps_range
             )
-            
-        # Calculate names to plot based on current config
+
         sensor_names = [tc['name'] for tc in self.config['thermocouples'] if tc.get('enabled', True)]
         sensor_names += [g['name'] for g in self.config.get('frg702_gauges', []) if g.get('enabled', True)]
-        
         ps_names = ['PS_Voltage', 'PS_Current'] if self.config.get('power_supply', {}).get('enabled', True) else []
-        
-        # Trigger redraw if viewing historical data or if running
+
         if self._viewing_historical and self._loaded_data:
             if hasattr(self, 'full_plot'):
                 self.full_plot.update_from_loaded_data(
-                    self._loaded_data, sensor_names, ps_names, 
+                    self._loaded_data, sensor_names, ps_names,
                     data_units=self._loaded_data_units
                 )
             if hasattr(self, 'recent_plot'):
                 self.recent_plot.update_from_loaded_data(
-                    self._loaded_data, sensor_names, [], 
+                    self._loaded_data, sensor_names, [],
                     window_seconds=60, data_units=self._loaded_data_units
                 )
-            
-            # Update sensor panel with converted last row of data
+
             if self._loaded_data.get('timestamps'):
-                last_readings = {name: self._loaded_data[name][-1] 
+                last_readings = {name: self._loaded_data[name][-1]
                                 for name in self._loaded_data if name != 'timestamps'}
                 display_last = {}
                 source_t_unit = self._loaded_data_units.get('temp', 'C')
-                source_p_unit = self._loaded_data_units.get('press', 'PSI')
-                
+
                 for name, value in last_readings.items():
                     if value is None:
                         display_last[name] = None
@@ -728,45 +701,35 @@ class MainWindow:
                     else:
                         display_last[name] = value
                 self.sensor_panel.update(display_last)
-                
         else:
-            # Not viewing historical and not running - force a redraw with empty data to update units/axes
             if hasattr(self, 'full_plot'):
                 self.full_plot.update(sensor_names, [])
             if hasattr(self, 'recent_plot'):
                 self.recent_plot.update(sensor_names, [], window_seconds=60)
 
     def _toggle_dual_display(self):
-        """Toggle between single window and dual window (for 2 displays)."""
         if self.dual_window is None or not self.dual_window.winfo_exists():
-            # Create dual window
             self.dual_window = tk.Toplevel(self.root)
             self.dual_window.title("T8 DAQ System - Live Plots")
             self.dual_window.geometry("800x600")
-            
-            # Handle closure
             self.dual_window.protocol("WM_DELETE_WINDOW", self._toggle_dual_display)
 
-            # Move plots to dual window
             for widget in self.plot_container_main.winfo_children():
                 widget.destroy()
-            
+
             self._build_plots(self.dual_window)
             self.dual_btn.config(text="Single Display")
         else:
-            # Return to single window
             self.dual_window.destroy()
             self.dual_window = None
-            
-            # Rebuild in main window
+
             for widget in self.plot_container_main.winfo_children():
                 widget.destroy()
-                
+
             self._build_plots(self.plot_container_main)
             self.dual_btn.config(text="Dual Display")
 
     def _on_axis_scales(self):
-        """Open dialog to configure axis scales."""
         dialog = AxisScaleDialog(
             self.root,
             self._temp_range,
@@ -784,15 +747,12 @@ class MainWindow:
             self._update_plot_settings()
 
     def _on_load_csv(self):
-        """Open dialog to load historical CSV data."""
         dialog = LoadCSVDialog(self.root, self.log_folder)
         self.root.wait_window(dialog)
-
         if dialog.result:
             self._load_historical_data(dialog.result)
 
     def _load_historical_data(self, filepath):
-        """Load and display historical data from a CSV file."""
         try:
             metadata, data = DataLogger.load_csv_with_metadata(filepath)
 
@@ -803,15 +763,11 @@ class MainWindow:
             self._loaded_data = data
             self._viewing_historical = True
 
-            # Update GUI to reflect loaded settings
             if metadata:
-                # Store original units for conversion
                 self._loaded_data_units = {
                     'temp': metadata.get('tc_unit', 'C'),
                     'press': metadata.get('p_unit', 'PSI')
                 }
-                
-                # Update config displays based on metadata
                 if 'tc_count' in metadata:
                     self.tc_count_var.set(str(metadata['tc_count']))
                 if 'tc_type' in metadata:
@@ -821,24 +777,19 @@ class MainWindow:
                 if 'sample_rate_ms' in metadata:
                     self.sample_rate_var.set(f"{metadata['sample_rate_ms']}ms")
 
-            # Update plot settings based on loaded metadata
             self._update_plot_settings()
-
-            # Show historical data indicator
             self.historical_label.pack(side=tk.RIGHT, padx=10)
 
-            # Update sensor panel with last row of data
             if data['timestamps']:
                 last_readings = {}
                 for name in data:
                     if name != 'timestamps':
                         last_readings[name] = data[name][-1]
-                
-                # Convert last readings for display
+
                 display_last = {}
                 t_unit = self.t_unit_var.get()
                 source_t_unit = self._loaded_data_units.get('temp', 'C')
-                
+
                 for name, value in last_readings.items():
                     if value is None:
                         display_last[name] = None
@@ -847,19 +798,16 @@ class MainWindow:
                         display_last[name] = convert_temperature(value, source_t_unit, t_unit)
                     else:
                         display_last[name] = value
-                
+
                 self.sensor_panel.update(display_last)
 
-            # Update status
             filename = os.path.basename(filepath)
             self.status_var.set(f"Viewing: {filename}")
 
-            # Disable live controls
             self.start_btn.config(state='disabled')
             self.stop_btn.config(state='disabled')
             self.log_btn.config(state='disabled')
 
-            # Add "Return to Live" button if not exists
             if not hasattr(self, 'return_live_btn'):
                 self.return_live_btn = ttk.Button(
                     self.root,
@@ -872,25 +820,19 @@ class MainWindow:
             messagebox.showerror("Error", f"Failed to load file: {e}")
 
     def _return_to_live(self):
-        """Return to live data view from historical view."""
         self._viewing_historical = False
         self._loaded_data = None
-
-        # Hide historical indicator
         self.historical_label.pack_forget()
 
-        # Hide return button
         if hasattr(self, 'return_live_btn'):
             self.return_live_btn.pack_forget()
 
-        # Clear plots
         if hasattr(self, 'full_plot'):
             self.full_plot.clear()
         if hasattr(self, 'recent_plot'):
             self.recent_plot.clear()
         self.data_buffer.clear()
 
-        # Re-enable controls if connected
         lj_ok = self.connection and self.connection.is_connected()
         if lj_ok or self._practice_mode:
             self.start_btn.config(state='normal')
@@ -899,18 +841,15 @@ class MainWindow:
             self.status_var.set("Disconnected")
 
     def _on_config_change(self):
-        """Update configuration when user changes counts or units in UI."""
         new_tc_count = int(self.tc_count_var.get())
         new_tc_type = self.tc_type_var.get()
         new_tc_unit = self.t_unit_var.get()
 
-        # Enforce total limit of 7 sensors
         if new_tc_count > 7:
             messagebox.showwarning("Config Limit", "Maximum total sensors allowed is 7.\nAdjusting counts to fit limit.")
             new_tc_count = 7
             self.tc_count_var.set(str(new_tc_count))
 
-        # Update thermocouples
         old_tcs = {tc['name']: tc for tc in self.config['thermocouples']}
         self.config['thermocouples'] = []
         for i in range(new_tc_count):
@@ -924,55 +863,44 @@ class MainWindow:
                 "enabled": True
             })
 
-        # If already connected, update the readers
         if self.connection and self.connection.is_connected():
             self._initialize_hardware_readers()
 
-        # Update safety monitor limits
         self._configure_safety_monitor()
-
         self._rebuild_sensor_panel()
-
-        # Update plot settings
         self._update_plot_settings()
 
     def _build_indicators(self):
-        """Build the small light-up boxes for connection status."""
         for widget in self.indicator_frame.winfo_children():
             widget.destroy()
         self.indicators = {}
 
         lbl_font = ('Arial', 7, 'bold')
 
-        # LabJack Indicator
         lj_frame = ttk.Frame(self.indicator_frame)
         lj_frame.pack(side=tk.LEFT, padx=5)
         ttk.Label(lj_frame, text="LJ", font=lbl_font).pack()
         self.indicators['LabJack'] = tk.Canvas(lj_frame, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
         self.indicators['LabJack'].pack()
 
-        # XGS-600 Indicator
         xgs_frame = ttk.Frame(self.indicator_frame)
         xgs_frame.pack(side=tk.LEFT, padx=5)
         ttk.Label(xgs_frame, text="XGS", font=lbl_font).pack()
         self.indicators['XGS600'] = tk.Canvas(xgs_frame, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
         self.indicators['XGS600'].pack()
 
-        # Power Supply Indicator
         ps_frame = ttk.Frame(self.indicator_frame)
         ps_frame.pack(side=tk.LEFT, padx=5)
         ttk.Label(ps_frame, text="PS", font=lbl_font).pack()
         self.indicators['PowerSupply'] = tk.Canvas(ps_frame, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
         self.indicators['PowerSupply'].pack()
 
-        # Turbo Pump Indicator
         turbo_frame = ttk.Frame(self.indicator_frame)
         turbo_frame.pack(side=tk.LEFT, padx=5)
         ttk.Label(turbo_frame, text="Turbo", font=lbl_font).pack()
         self.indicators['Turbo'] = tk.Canvas(turbo_frame, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
         self.indicators['Turbo'].pack()
 
-        # TC Indicators
         for i, tc in enumerate(self.config['thermocouples']):
             name = tc['name']
             f = ttk.Frame(self.indicator_frame)
@@ -981,7 +909,6 @@ class MainWindow:
             self.indicators[name] = tk.Canvas(f, width=20, height=20, bg='#333333', highlightthickness=1, highlightbackground="black")
             self.indicators[name].pack()
 
-        # FRG-702 Indicators
         for i, gauge in enumerate(self.config.get('frg702_gauges', [])):
             name = gauge['name']
             f = ttk.Frame(self.indicator_frame)
@@ -991,66 +918,88 @@ class MainWindow:
             self.indicators[name].pack()
 
     def _rebuild_sensor_panel(self):
-        """Re-create the sensor panel with current configuration."""
         for widget in self.panel_container.winfo_children():
             widget.destroy()
 
         all_sensors = self.config['thermocouples']
         frg702_configs = self.config.get('frg702_gauges', [])
         self.sensor_panel = SensorPanel(self.panel_container, all_sensors, frg702_configs)
-        
-        # Bind FRG unit changes to update plots
+
         for var in self.sensor_panel.frg702_unit_vars.values():
             var.trace_add("write", lambda *args: self._update_plot_settings())
-            
+
         self._build_indicators()
 
     def _configure_safety_monitor(self):
-        """Configure the safety monitor from config."""
         safety_config = self.config.get('power_supply', {}).get('safety', {})
 
-        # Set temperature limits for all thermocouples
         max_temp = safety_config.get('max_temperature', 2300)
         for tc in self.config['thermocouples']:
             self.safety_monitor.set_temperature_limit(tc['name'], max_temp)
 
-        # Set watchdog sensor
         watchdog = safety_config.get('watchdog_sensor')
         if watchdog:
             self.safety_monitor.set_watchdog_sensor(watchdog)
 
-        # Set warning threshold
         warning_threshold = safety_config.get('warning_threshold', 0.9)
         self.safety_monitor.set_warning_threshold(warning_threshold)
 
-        # Set auto shutoff
         self.safety_monitor.auto_shutoff = safety_config.get('auto_shutoff', True)
 
-        # Update display
         self.temp_limit_label.config(text=f"Max Temp: {max_temp}C")
 
     def _register_safety_callbacks(self):
-        """Register callbacks with the safety monitor."""
         self.safety_monitor.on_warning(self._on_safety_warning)
         self.safety_monitor.on_limit_exceeded(self._on_safety_limit_exceeded)
         self.safety_monitor.on_shutdown(self._on_safety_shutdown)
+        self.safety_monitor.on_rampdown_start(self._on_safety_rampdown_start)
 
     def _on_safety_warning(self, sensor_name: str, value: float, limit: float):
-        """Handle safety warning."""
-        # Update GUI on main thread
         self.root.after(0, lambda: self._update_safety_display(SafetyStatus.WARNING))
 
     def _on_safety_limit_exceeded(self, sensor_name: str, value: float, limit: float):
-        """Handle safety limit exceeded."""
         self.root.after(0, lambda: self._update_safety_display(SafetyStatus.LIMIT_EXCEEDED))
 
     def _on_safety_shutdown(self, event):
-        """Handle safety shutdown event."""
         self._safety_triggered = True
         self.root.after(0, self._handle_safety_shutdown)
 
+    def _on_safety_rampdown_start(self, message: str):
+        """Handle controlled ramp-down start event."""
+        self.root.after(0, lambda: self._handle_rampdown_start(message))
+
+    def _handle_rampdown_start(self, message: str):
+        """Handle ramp-down start on main thread."""
+        # Stop the user's ramp if running
+        if self.ramp_panel.is_running():
+            self.ramp_panel.stop_execution()
+
+        # Update ramp panel with emergency state
+        self.ramp_panel.set_emergency_shutdown(
+            True,
+            "TEMPERATURE LIMIT EXCEEDED - EMERGENCY SHUTDOWN INITIATED"
+        )
+
+        # Update PS panel
+        self.ps_panel._show_error("EMERGENCY RAMP-DOWN IN PROGRESS")
+
+        # Update safety display
+        self._update_safety_display(SafetyStatus.RAMPDOWN_ACTIVE)
+
+        # Show reset button
+        self.reset_safety_btn.pack(side=tk.LEFT, padx=10)
+
+        # Show alert
+        messagebox.showerror(
+            "TEMPERATURE OVERRIDE - EMERGENCY SHUTDOWN",
+            f"{message}\n\n"
+            "A controlled power-down ramp is now active.\n"
+            "Power will be gradually reduced to zero.\n\n"
+            "You cannot restart the power supply until\n"
+            f"temperature drops below {SafetyMonitor.TEMP_RESTART_THRESHOLD:.0f}\u00b0C."
+        )
+
     def _handle_safety_shutdown(self):
-        """Handle safety shutdown on main thread."""
         # Stop ramp if running
         if self.ramp_panel.is_running():
             self.ramp_panel.stop_execution()
@@ -1062,13 +1011,15 @@ class MainWindow:
         # Update power supply panel
         self.ps_panel.emergency_off()
 
+        # Update ramp panel
+        self.ramp_panel.set_emergency_shutdown(True, "EMERGENCY SHUTDOWN ACTIVE")
+
         # Update safety display
         self._update_safety_display(SafetyStatus.SHUTDOWN_TRIGGERED)
 
         # Show reset button
         self.reset_safety_btn.pack(side=tk.LEFT, padx=10)
 
-        # Show alert
         event = self.safety_monitor.get_last_event()
         if event:
             messagebox.showerror(
@@ -1079,12 +1030,12 @@ class MainWindow:
             )
 
     def _update_safety_display(self, status: SafetyStatus):
-        """Update the safety status display."""
         status_colors = {
             SafetyStatus.OK: ('#00FF00', 'OK', 'black'),
             SafetyStatus.WARNING: ('#FFFF00', 'WARNING', 'orange'),
             SafetyStatus.LIMIT_EXCEEDED: ('#FF0000', 'LIMIT EXCEEDED', 'red'),
             SafetyStatus.SHUTDOWN_TRIGGERED: ('#FF0000', 'SHUTDOWN', 'red'),
+            SafetyStatus.RAMPDOWN_ACTIVE: ('#FF8800', 'RAMP-DOWN ACTIVE', 'red'),
             SafetyStatus.ERROR: ('#FF0000', 'ERROR', 'red')
         }
 
@@ -1093,7 +1044,16 @@ class MainWindow:
         self.safety_status_label.config(text=text, foreground=fg)
 
     def _on_reset_safety(self):
-        """Handle Reset Safety button click."""
+        # Check if restart is allowed (temperature must be below threshold)
+        if self.safety_monitor.is_restart_locked:
+            messagebox.showwarning(
+                "Cannot Reset",
+                f"Temperature is still too high.\n\n"
+                f"Temperature must drop below {SafetyMonitor.TEMP_RESTART_THRESHOLD:.0f}\u00b0C "
+                f"before the safety system can be reset."
+            )
+            return
+
         if messagebox.askyesno(
             "Confirm Reset",
             "Reset safety system?\n\n"
@@ -1104,8 +1064,11 @@ class MainWindow:
             self._update_safety_display(SafetyStatus.OK)
             self.reset_safety_btn.pack_forget()
 
+            # Clear emergency state on ramp panel
+            self.ramp_panel.set_emergency_shutdown(False)
+            self.ps_panel._clear_error()
+
     def _on_ps_output_change(self, is_on: bool):
-        """Handle power supply output state change."""
         if is_on:
             self.status_var.set("Running - PS Output ON")
         else:
@@ -1113,20 +1076,16 @@ class MainWindow:
                 self.status_var.set("Running")
 
     def _on_ramp_start(self):
-        """Handle ramp start event."""
         # Enable power supply output if not already on
         if self.ps_controller and not self.ps_controller.is_output_on():
             self.ps_controller.output_on()
             self.ps_panel.update_output_state(True)
 
     def _on_ramp_stop(self):
-        """Handle ramp stop event."""
-        pass  # Output handled by ramp executor
+        pass
 
     def _check_connections(self):
-        """Do a one-time read to update connection indicators."""
         if self._practice_mode:
-            # In practice mode, everything is "connected"
             for name in self.indicators:
                 self.indicators[name].config(bg='#00FF00')
             return
@@ -1138,7 +1097,6 @@ class MainWindow:
             tc_readings = self.tc_reader.read_all()
             all_readings = {**tc_readings}
 
-            # Include FRG-702 readings if available
             if self.frg702_reader:
                 frg702_readings = self.frg702_reader.read_all()
                 all_readings.update(frg702_readings)
@@ -1150,18 +1108,47 @@ class MainWindow:
         except Exception as e:
             print(f"Error checking connections: {e}")
 
+    def _update_safety_interlocks(self):
+        """Update all safety interlock states. Called from the GUI update loop."""
+
+        # 1. Get latest FRG pressure for turbo pump interlock
+        if self._practice_mode and self._latest_frg_pressure_mbar is None:
+            self._latest_frg_pressure_mbar = 1e-4  # Mock low pressure in practice
+
+        # Update turbo pump panel with current pressure
+        self.turbo_panel.update_pressure_interlock(self._latest_frg_pressure_mbar)
+
+        # 2. Check turbo pump status for power supply interlock
+        turbo_running = self.turbo_panel.is_turbo_running()
+
+        # Update PS panel interlock
+        self.ps_panel.set_interlock_state(turbo_running)
+
+        # Update ramp panel interlock
+        self.ramp_panel.set_turbo_interlock(turbo_running)
+
+        # 3. Check restart lockout from safety monitor
+        if self.safety_monitor.is_restart_locked:
+            self.ramp_panel.set_emergency_shutdown(
+                True,
+                f"RESTART LOCKED - Temperature must drop below {SafetyMonitor.TEMP_RESTART_THRESHOLD:.0f}\u00b0C"
+            )
+        elif self.safety_monitor.is_rampdown_active:
+            progress = self.safety_monitor.get_rampdown_progress()
+            self.ramp_panel.set_emergency_shutdown(
+                True,
+                f"EMERGENCY RAMP-DOWN IN PROGRESS ({progress:.0f}%)"
+            )
+
     def _on_start(self):
-        """Start reading data using the fast acquisition engine."""
         self.is_running = True
         self.start_btn.config(state='disabled')
         self.stop_btn.config(state='normal')
         self.log_btn.config(state='normal')
         self.status_var.set("Running")
 
-        # Clear old data
         self.data_buffer.clear()
 
-        # Create the data acquisition engine with current hardware readers
         self.daq = DataAcquisition(
             config=self.config,
             tc_reader=self.tc_reader,
@@ -1173,18 +1160,20 @@ class MainWindow:
             practice_mode=self._practice_mode
         )
 
-        # Callback for new data from acquisition thread
         def on_new_data(timestamp, all_readings, tc_readings, frg702_details,
                         safety_shutdown=False):
-            # Add to buffer (thread-safe)
             self.data_buffer.add_reading(all_readings)
 
-            # Store latest readings for GUI thread
             self._latest_readings = (timestamp, all_readings)
             self._latest_tc_readings = tc_readings
             self._latest_frg702_details = frg702_details
 
-            # Log if enabled (convert to selected units)
+            # Track latest FRG pressure for turbo interlock
+            for name, value in all_readings.items():
+                if name.startswith('FRG702') and value is not None:
+                    self._latest_frg_pressure_mbar = value
+                    break
+
             if self.is_logging:
                 log_readings = {}
                 t_unit = self.t_unit_var.get()
@@ -1198,22 +1187,16 @@ class MainWindow:
                         log_readings[name] = value
                 self.logger.log_reading(log_readings)
 
-            # Handle safety shutdown signal from acquisition thread
             if safety_shutdown:
                 self.is_running = False
                 self.root.after(0, self._handle_safety_shutdown)
 
-        # Start fast acquisition thread
         self.daq.start_fast_acquisition(callback=on_new_data)
-
-        # Start GUI updates at the (slower) display rate
         self._update_gui()
 
     def _on_stop(self):
-        """Stop reading data."""
         self.is_running = False
 
-        # Stop the acquisition engine
         if self.daq:
             self.daq.stop_fast_acquisition()
 
@@ -1221,7 +1204,6 @@ class MainWindow:
         self.stop_btn.config(state='disabled')
         self.status_var.set("Stopped")
 
-        # Stop ramp if running
         if self.ramp_panel.is_running():
             self.ramp_panel.stop_execution()
 
@@ -1229,18 +1211,15 @@ class MainWindow:
             self._on_toggle_logging()
 
     def _on_toggle_logging(self):
-        """Start or stop logging to file."""
         if not self.is_logging:
-            # Show logging dialog
             dialog = LoggingDialog(self.root)
             self.root.wait_window(dialog)
 
             if dialog.result is None:
-                return  # User cancelled
+                return
 
             custom_name, notes = dialog.result
 
-            # Build metadata
             frg702_gauges = self.config.get('frg702_gauges', [])
             frg702_count = len([g for g in frg702_gauges if g.get('enabled', True)])
             frg702_unit = frg702_gauges[0].get('units', 'mbar') if frg702_gauges else 'mbar'
@@ -1255,13 +1234,11 @@ class MainWindow:
                 notes=notes or ""
             )
 
-            # Start logging
             sensor_names = [tc['name'] for tc in self.config['thermocouples']
                           if tc.get('enabled', True)]
             sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
                             if g.get('enabled', True)]
 
-            # Add power supply channels if connected
             if self.ps_controller:
                 sensor_names += ['PS_Voltage', 'PS_Current']
 
@@ -1275,19 +1252,14 @@ class MainWindow:
             self.log_btn.config(text="Start Logging")
             self.status_var.set("Running")
 
-    # Note: _read_loop has been replaced by DataAcquisition.start_fast_acquisition()
-    # Data collection now runs in a dedicated thread via the DataAcquisition engine,
-    # decoupled from GUI updates.
-
     def _update_gui(self):
         """Update the GUI (called periodically)."""
 
-        # Skip GUI updates if viewing historical data
         if self._viewing_historical:
             self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
             return
 
-        # Auto-connect hardware if not in practice mode
+        # Auto-connect hardware
         lj_connected = self.connection.is_connected()
         if self._practice_mode:
             lj_connected = True
@@ -1315,19 +1287,17 @@ class MainWindow:
         if 'LabJack' in self.indicators:
             self.indicators['LabJack'].config(bg=color)
 
-        # Refresh PS resources list occasionally or on connect
+        # Refresh PS resources
         if not hasattr(self, '_last_ps_refresh') or time.time() - self._last_ps_refresh > 5.0:
             self._update_ps_resources()
             self._last_ps_refresh = time.time()
 
         # Auto-connect XGS-600
         xgs_connected = (self.xgs600 is not None and self.xgs600.is_connected()) or self._practice_mode
-
         if not xgs_connected and not self._practice_mode and self.config.get('xgs600', {}).get('enabled', False):
             if self._connect_xgs600():
                 xgs_connected = True
 
-        # Update XGS-600 indicator
         color = '#00FF00' if xgs_connected else '#333333'
         if 'XGS600' in self.indicators:
             self.indicators['XGS600'].config(bg=color)
@@ -1342,7 +1312,6 @@ class MainWindow:
                 ps_connected = True
                 self._initialize_power_supply()
 
-        # Update Power Supply indicator
         color = '#00FF00' if ps_connected else '#333333'
         if 'PowerSupply' in self.indicators:
             self.indicators['PowerSupply'].config(bg=color)
@@ -1355,13 +1324,20 @@ class MainWindow:
 
         # Update power supply panel
         if ps_connected and self.ps_controller:
-            # If in practice mode, the panel update is handled by its own controls, 
-            # but we still want to show the readings.
             if self._practice_mode:
                 self.ps_panel.set_connected(True)
-            
+
             ps_readings = self.ps_controller.get_readings()
             self.ps_panel.update(ps_readings)
+
+            # Feed V/I data into ramp panel's embedded plot
+            voltage = ps_readings.get('PS_Voltage', 0.0)
+            current = ps_readings.get('PS_Current', 0.0)
+            if self.is_running:
+                self.ramp_panel.update_plot_data(
+                    voltage if voltage is not None else 0.0,
+                    current if current is not None else 0.0
+                )
         else:
             self.ps_panel.set_connected(False)
 
@@ -1371,6 +1347,9 @@ class MainWindow:
         # Update turbo pump status display
         if self.turbo_controller:
             self.turbo_panel.update_status_display()
+
+        # Update safety interlocks
+        self._update_safety_interlocks()
 
         # Update safety display
         if not self._safety_triggered:
@@ -1383,10 +1362,9 @@ class MainWindow:
             self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
             return
 
-        # Get current readings and update panel (when running)
+        # Get current readings and update panel
         current = self.data_buffer.get_all_current()
 
-        # Convert readings for display and logging
         display_readings = {}
         t_unit = self.t_unit_var.get()
 
@@ -1394,53 +1372,46 @@ class MainWindow:
             if value is None:
                 display_readings[name] = None
                 continue
-
             if name.startswith('TC_'):
                 display_readings[name] = convert_temperature(value, 'C', t_unit)
             else:
-                # FRG-702 and PS values passed through as-is (mbar for FRG-702)
                 display_readings[name] = value
 
         self.sensor_panel.update(display_readings)
 
-        # Update FRG-702 detailed status (status indicator, mode label)
+        # Update FRG-702 detailed status
         if hasattr(self, '_latest_frg702_details') and self._latest_frg702_details:
             self.sensor_panel.update_frg702_status(self._latest_frg702_details)
 
-        # Update indicators (when running)
+        # Update indicators
         for name, value in current.items():
             if name in self.indicators:
                 color = '#00FF00' if value is not None else '#333333'
                 self.indicators[name].config(bg=color)
 
-        # Update plots - include power supply data and FRG-702
+        # Update plots
         sensor_names = [tc['name'] for tc in self.config['thermocouples']
                        if tc.get('enabled', True)]
         sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
                         if g.get('enabled', True)]
-        
+
         ps_names = []
         if self.config.get('power_supply', {}).get('enabled', True):
             ps_names = ['PS_Voltage', 'PS_Current']
 
-        # Update full run plot (no window)
         if hasattr(self, 'full_plot'):
             self.full_plot.update(sensor_names, ps_names)
 
-        # Update recent plot (last 60 seconds)
         if hasattr(self, 'recent_plot'):
             self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
 
-        # Schedule next update
         self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
 
     def _initialize_hardware_readers(self):
-        """Helper to set up LabJack-based readers once connected."""
         try:
             handle = self.connection.get_handle()
             self.tc_reader = ThermocoupleReader(handle, self.config['thermocouples'])
 
-            # Initialize turbo pump controller if configured
             turbo_config = self.config.get('turbo_pump', {})
             if turbo_config.get('enabled', False):
                 try:
@@ -1454,11 +1425,9 @@ class MainWindow:
             self._check_connections()
             return True
         except Exception:
-            # Silent fail for background connection attempts
             return False
 
     def _connect_xgs600(self):
-        """Connect to XGS-600 controller and initialize FRG-702 reader."""
         xgs_config = self.config.get('xgs600', {})
         if not xgs_config.get('enabled', False):
             return False
@@ -1474,7 +1443,6 @@ class MainWindow:
                 self.xgs600 = None
                 return False
 
-            # Initialize FRG-702 reader with XGS-600 controller
             frg702_config = self.config.get('frg702_gauges', [])
             if frg702_config:
                 self.frg702_reader = FRG702Reader(self.xgs600, frg702_config)
@@ -1482,12 +1450,10 @@ class MainWindow:
             print("XGS-600 controller connected, FRG-702 reader initialized")
             return True
         except Exception:
-            # Silent fail for background connection attempts
             self.xgs600 = None
             return False
 
     def _initialize_power_supply(self):
-        """Initialize the power supply controller once connected."""
         try:
             instrument = self.ps_connection.get_instrument()
             ps_config = self.config.get('power_supply', {})
@@ -1498,46 +1464,33 @@ class MainWindow:
                 current_limit=ps_config.get('default_current_limit', 50.0)
             )
 
-            # Connect safety monitor to power supply
             self.safety_monitor.set_power_supply(self.ps_controller)
-
-            # Connect ramp executor to power supply
             self.ramp_executor.set_power_supply(self.ps_controller)
-
-            # Update GUI components
             self.ps_panel.set_controller(self.ps_controller)
 
             print("Power supply initialized successfully")
             return True
-
         except Exception:
-            # Silent fail for background connection attempts
             return False
 
     def _on_close(self):
-        """Handle window close event."""
         self.is_running = False
 
-        # Stop the acquisition engine
         if self.daq:
             self.daq.stop_fast_acquisition()
 
-        # Stop ramp execution
         if self.ramp_executor.is_active():
             self.ramp_executor.stop()
 
-        # Stop logging if active
         if self.is_logging:
             self.logger.stop_logging()
 
-        # Safely turn off turbo pump
         if self.turbo_controller:
             try:
                 self.turbo_controller.cleanup()
             except Exception:
                 pass
 
-        # Safely turn off power supply
         if self.ps_controller:
             try:
                 self.ps_controller.output_off()
@@ -1545,22 +1498,17 @@ class MainWindow:
             except Exception:
                 pass
 
-        # Disconnect from power supply
         if self.ps_connection:
             self.ps_connection.disconnect()
 
-        # Disconnect from XGS-600
         if self.xgs600:
             self.xgs600.disconnect()
             self.xgs600 = None
 
-        # Disconnect from LabJack
         if self.connection:
             self.connection.disconnect()
 
-        # Destroy the window
         self.root.destroy()
 
     def run(self):
-        """Start the application."""
         self.root.mainloop()

@@ -1,35 +1,28 @@
 """
 power_supply_panel.py
-PURPOSE: Display and control Keysight N5761A DC Power Supply
+PURPOSE: Display power supply status and readings (read-only).
 
-Provides manual voltage/current entry, output ON/OFF buttons,
-status indicators, and current readings display.
+Shows connection status, actual V/A readings, output state, and safety
+interlock indicators. All control is done through the Ramp Panel.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 from typing import Optional, Callable
 
 
 class PowerSupplyPanel:
     """
-    GUI panel for power supply control.
+    GUI panel for power supply status display (read-only).
 
     Contains:
-    - Manual voltage/current entry boxes
-    - Output ON/OFF buttons (big and obvious)
-    - Status indicator (connected, output state, errors)
-    - Current readings display (actual V and A)
+    - Connection status indicator
+    - Actual V/A readings display
+    - Output state indicator
+    - Safety interlock status (turbo pump required)
     """
 
     def __init__(self, parent_frame, power_supply_controller=None):
-        """
-        Initialize the power supply control panel.
-
-        Args:
-            parent_frame: tkinter frame to put the panel in
-            power_supply_controller: PowerSupplyController instance (can be None initially)
-        """
         self.parent = parent_frame
         self.controller = power_supply_controller
 
@@ -38,11 +31,11 @@ class PowerSupplyPanel:
         self._output_on = False
         self._last_voltage = 0.0
         self._last_current = 0.0
+        self._locked = True  # Locked until turbo pump is running
 
         # Callbacks for external notifications
         self._on_output_change: Optional[Callable[[bool], None]] = None
 
-        # Build the GUI
         self._build_gui()
 
     def _build_gui(self):
@@ -71,6 +64,23 @@ class PowerSupplyPanel:
             font=('Arial', 9, 'bold'), foreground='gray'
         )
         self.output_indicator.pack(side=tk.RIGHT, padx=5)
+
+        # Safety interlock indicator
+        interlock_frame = ttk.Frame(main_frame)
+        interlock_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.interlock_indicator = tk.Canvas(
+            interlock_frame, width=16, height=16,
+            bg='#FF0000', highlightthickness=1, highlightbackground='black'
+        )
+        self.interlock_indicator.pack(side=tk.LEFT, padx=5)
+
+        self.interlock_label = ttk.Label(
+            interlock_frame,
+            text="POWER SUPPLY LOCKED - Turbo pump must be running",
+            font=('Arial', 8, 'bold'), foreground='red'
+        )
+        self.interlock_label.pack(side=tk.LEFT)
 
         # Separator
         ttk.Separator(main_frame, orient='horizontal').pack(fill=tk.X, pady=5)
@@ -102,74 +112,6 @@ class PowerSupplyPanel:
         self.current_display.pack()
         ttk.Label(a_frame, text="A", font=('Arial', 10)).pack()
 
-        # Separator
-        ttk.Separator(main_frame, orient='horizontal').pack(fill=tk.X, pady=5)
-
-        # Setpoint controls
-        setpoint_frame = ttk.LabelFrame(main_frame, text="Setpoints")
-        setpoint_frame.pack(fill=tk.X, pady=5)
-
-        setpoint_inner = ttk.Frame(setpoint_frame)
-        setpoint_inner.pack(fill=tk.X, padx=10, pady=5)
-
-        # Voltage setpoint
-        v_set_frame = ttk.Frame(setpoint_inner)
-        v_set_frame.pack(side=tk.LEFT, expand=True, padx=5)
-
-        ttk.Label(v_set_frame, text="Voltage (V):").pack(side=tk.LEFT)
-        self.voltage_var = tk.StringVar(value="0.0")
-        self.voltage_entry = ttk.Entry(
-            v_set_frame, textvariable=self.voltage_var, width=8,
-            font=('Arial', 11)
-        )
-        self.voltage_entry.pack(side=tk.LEFT, padx=5)
-        self.set_voltage_btn = ttk.Button(
-            v_set_frame, text="Set", command=self._on_set_voltage, width=5
-        )
-        self.set_voltage_btn.pack(side=tk.LEFT)
-
-        # Current setpoint
-        a_set_frame = ttk.Frame(setpoint_inner)
-        a_set_frame.pack(side=tk.LEFT, expand=True, padx=5)
-
-        ttk.Label(a_set_frame, text="Current (A):").pack(side=tk.LEFT)
-        self.current_var = tk.StringVar(value="10.0")
-        self.current_entry = ttk.Entry(
-            a_set_frame, textvariable=self.current_var, width=8,
-            font=('Arial', 11)
-        )
-        self.current_entry.pack(side=tk.LEFT, padx=5)
-        self.set_current_btn = ttk.Button(
-            a_set_frame, text="Set", command=self._on_set_current, width=5
-        )
-        self.set_current_btn.pack(side=tk.LEFT)
-
-        # Separator
-        ttk.Separator(main_frame, orient='horizontal').pack(fill=tk.X, pady=5)
-
-        # Output control buttons - big and obvious
-        output_frame = ttk.Frame(main_frame)
-        output_frame.pack(fill=tk.X, pady=5)
-
-        # Create custom styles for the buttons
-        style = ttk.Style()
-        style.configure('On.TButton', font=('Arial', 12, 'bold'))
-        style.configure('Off.TButton', font=('Arial', 12, 'bold'))
-
-        self.output_on_btn = tk.Button(
-            output_frame, text="OUTPUT ON", command=self._on_output_on,
-            bg='#4CAF50', fg='white', font=('Arial', 11, 'bold'),
-            width=12, height=1, activebackground='#45a049'
-        )
-        self.output_on_btn.pack(side=tk.LEFT, expand=True, padx=10, pady=5)
-
-        self.output_off_btn = tk.Button(
-            output_frame, text="OUTPUT OFF", command=self._on_output_off,
-            bg='#f44336', fg='white', font=('Arial', 11, 'bold'),
-            width=12, height=1, activebackground='#da190b'
-        )
-        self.output_off_btn.pack(side=tk.LEFT, expand=True, padx=10, pady=5)
-
         # Error display
         self.error_label = ttk.Label(
             main_frame, text="", font=('Arial', 8, 'italic'),
@@ -177,35 +119,14 @@ class PowerSupplyPanel:
         )
         self.error_label.pack(fill=tk.X, pady=2)
 
-        # Initially disable controls
-        self._set_controls_enabled(False)
-
     def set_controller(self, power_supply_controller):
-        """
-        Set or update the power supply controller.
-
-        Args:
-            power_supply_controller: PowerSupplyController instance
-        """
         self.controller = power_supply_controller
         if power_supply_controller:
             self._connected = True
-            self._set_controls_enabled(True)
             self._update_status_display()
         else:
             self._connected = False
-            self._set_controls_enabled(False)
             self._update_status_display()
-
-    def _set_controls_enabled(self, enabled: bool):
-        """Enable or disable all control widgets."""
-        state = 'normal' if enabled else 'disabled'
-        self.voltage_entry.config(state=state)
-        self.current_entry.config(state=state)
-        self.set_voltage_btn.config(state=state)
-        self.set_current_btn.config(state=state)
-        self.output_on_btn.config(state=state)
-        self.output_off_btn.config(state=state)
 
     def _update_status_display(self):
         """Update the connection status display."""
@@ -227,113 +148,47 @@ class PowerSupplyPanel:
         else:
             self.output_indicator.config(text="OUTPUT OFF", foreground='gray')
 
-    def _on_set_voltage(self):
-        """Handle Set Voltage button click."""
-        if not self.controller:
-            return
+    def set_interlock_state(self, ready: bool):
+        """Update the safety interlock display.
 
-        try:
-            voltage = float(self.voltage_var.get())
-            if voltage < 0:
-                self._show_error("Voltage cannot be negative")
-                return
-
-            success = self.controller.set_voltage(voltage)
-            if success:
-                self._clear_error()
-            else:
-                self._show_error("Failed to set voltage")
-
-        except ValueError:
-            self._show_error("Invalid voltage value")
-        except Exception as e:
-            self._show_error(f"Error: {str(e)}")
-
-    def _on_set_current(self):
-        """Handle Set Current button click."""
-        if not self.controller:
-            return
-
-        try:
-            current = float(self.current_var.get())
-            if current < 0:
-                self._show_error("Current cannot be negative")
-                return
-
-            success = self.controller.set_current(current)
-            if success:
-                self._clear_error()
-            else:
-                self._show_error("Failed to set current limit")
-
-        except ValueError:
-            self._show_error("Invalid current value")
-        except Exception as e:
-            self._show_error(f"Error: {str(e)}")
-
-    def _on_output_on(self):
-        """Handle Output ON button click."""
-        if not self.controller:
-            return
-
-        # Confirm before turning on
-        if messagebox.askyesno(
-            "Confirm Output ON",
-            "Are you sure you want to enable the power supply output?"
-        ):
-            success = self.controller.output_on()
-            if success:
-                self._output_on = True
-                self._update_output_indicator()
-                self._clear_error()
-                if self._on_output_change:
-                    self._on_output_change(True)
-            else:
-                self._show_error("Failed to enable output")
-
-    def _on_output_off(self):
-        """Handle Output OFF button click."""
-        if not self.controller:
-            return
-
-        success = self.controller.output_off()
-        if success:
-            self._output_on = False
-            self._update_output_indicator()
-            self._clear_error()
-            if self._on_output_change:
-                self._on_output_change(False)
+        Args:
+            ready: True if turbo pump is running and power supply is unlocked
+        """
+        self._locked = not ready
+        if ready:
+            self.interlock_indicator.config(bg='#00FF00')
+            self.interlock_label.config(
+                text="POWER SUPPLY READY",
+                foreground='green'
+            )
         else:
-            self._show_error("CRITICAL: Failed to disable output!")
+            self.interlock_indicator.config(bg='#FF0000')
+            self.interlock_label.config(
+                text="POWER SUPPLY LOCKED - Turbo pump must be running",
+                foreground='red'
+            )
+
+    def is_locked(self) -> bool:
+        """Check if the power supply is locked by interlock."""
+        return self._locked
 
     def _show_error(self, message: str):
-        """Display an error message."""
         self.error_label.config(text=message)
 
     def _clear_error(self):
-        """Clear the error message."""
         self.error_label.config(text="")
 
     def update(self, readings: dict = None):
-        """
-        Update the display with current readings.
-
-        Should be called periodically from the main update loop.
-
-        Args:
-            readings: Optional dict with 'PS_Voltage' and 'PS_Current' keys
-        """
+        """Update the display with current readings."""
         if not self.controller:
             self._connected = False
             self._update_status_display()
             return
 
-        # Update connection status
         self._connected = True
         self.status_indicator.config(bg='#00FF00')
         self.status_label.config(text="Connected")
 
-        # Update readings display
         if readings:
             voltage = readings.get('PS_Voltage')
             current = readings.get('PS_Current')
@@ -350,7 +205,6 @@ class PowerSupplyPanel:
             else:
                 self.current_display.config(text="---.--")
 
-        # Update output state
         try:
             self._output_on = self.controller.is_output_on()
             self._update_output_indicator()
@@ -358,72 +212,18 @@ class PowerSupplyPanel:
             pass
 
     def update_output_state(self, is_on: bool):
-        """
-        Update the output state indicator without querying hardware.
-
-        Args:
-            is_on: Whether the output is currently on
-        """
         self._output_on = is_on
         self._update_output_indicator()
 
     def set_connected(self, connected: bool):
-        """
-        Set the connection status.
-
-        Args:
-            connected: Whether the power supply is connected
-        """
         self._connected = connected
-        self._set_controls_enabled(connected)
         self._update_status_display()
 
     def on_output_change(self, callback: Callable[[bool], None]):
-        """
-        Register callback for output state changes.
-
-        Args:
-            callback: Function called with True (on) or False (off)
-        """
         self._on_output_change = callback
 
-    def get_voltage_setpoint(self) -> float:
-        """Get the voltage setpoint from the entry field."""
-        try:
-            return float(self.voltage_var.get())
-        except ValueError:
-            return 0.0
-
-    def get_current_setpoint(self) -> float:
-        """Get the current setpoint from the entry field."""
-        try:
-            return float(self.current_var.get())
-        except ValueError:
-            return 0.0
-
-    def set_voltage_setpoint(self, voltage: float):
-        """
-        Set the voltage entry field value.
-
-        Args:
-            voltage: Voltage value to display
-        """
-        self.voltage_var.set(f"{voltage:.2f}")
-
-    def set_current_setpoint(self, current: float):
-        """
-        Set the current entry field value.
-
-        Args:
-            current: Current value to display
-        """
-        self.current_var.set(f"{current:.2f}")
-
     def emergency_off(self):
-        """
-        Emergency output off - called by safety monitor.
-        Does not show confirmation dialog.
-        """
+        """Emergency output off - called by safety monitor."""
         if self.controller:
             self.controller.output_off()
         self._output_on = False

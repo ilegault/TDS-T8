@@ -2,8 +2,8 @@
 turbo_pump_panel.py
 PURPOSE: GUI panel with ON/OFF buttons and status display for the turbo pump.
 
-Matches the style of power_supply_panel.py -- big colored buttons,
-status indicator that changes color based on pump state.
+Includes vacuum pressure interlock: turbo pump cannot start unless FRG
+pressure is below the required threshold (1E-3 to 8E-3 Torr).
 """
 
 import tkinter as tk
@@ -18,6 +18,7 @@ class TurboPumpPanel(ttk.LabelFrame):
     - TURBO ON button (green) -- sends start command
     - TURBO OFF button (red) -- sends stop command
     - Status indicator showing: OFF / STARTING / NORMAL / UNKNOWN
+    - Vacuum pressure interlock indicator
     - Confirmation dialog before turning ON (safety)
     """
 
@@ -29,21 +30,52 @@ class TurboPumpPanel(ttk.LabelFrame):
         'UNKNOWN': '#FF0000',   # Red (error/unknown)
     }
 
-    def __init__(self, parent, **kwargs):
-        """
-        Initialize the turbo pump control panel.
+    # Pressure threshold for turbo pump interlock (in Torr)
+    PRESSURE_THRESHOLD_TORR = 8e-3  # 8E-3 Torr max allowed
 
-        Args:
-            parent: Parent tkinter widget
-        """
+    def __init__(self, parent, **kwargs):
         super().__init__(parent, text="Turbo Pump", **kwargs)
-        self.controller = None  # Set later via set_controller()
+        self.controller = None
+        self._pressure_ok = False
+        self._current_pressure_torr = None
         self._build_widgets()
 
     def _build_widgets(self):
         """Build the panel UI elements."""
         main_frame = ttk.Frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Vacuum pressure interlock indicator
+        interlock_frame = ttk.Frame(main_frame)
+        interlock_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.turbo_interlock_indicator = tk.Canvas(
+            interlock_frame, width=16, height=16,
+            bg='#FF0000', highlightthickness=1, highlightbackground='black'
+        )
+        self.turbo_interlock_indicator.pack(side=tk.LEFT, padx=5)
+
+        self.turbo_interlock_label = ttk.Label(
+            interlock_frame,
+            text="TURBO PUMP LOCKED - Pressure too high",
+            font=('Arial', 8, 'bold'), foreground='red'
+        )
+        self.turbo_interlock_label.pack(side=tk.LEFT)
+
+        # Pressure display
+        pressure_frame = ttk.Frame(main_frame)
+        pressure_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Label(pressure_frame, text="FRG Pressure:", font=('Arial', 8)).pack(side=tk.LEFT)
+        self.pressure_display = ttk.Label(
+            pressure_frame, text="--- Torr", font=('Arial', 8, 'bold')
+        )
+        self.pressure_display.pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(
+            pressure_frame, text=f"(Required: < {self.PRESSURE_THRESHOLD_TORR:.0e} Torr)",
+            font=('Arial', 7, 'italic'), foreground='gray'
+        ).pack(side=tk.LEFT)
 
         # Status display row
         status_frame = ttk.Frame(main_frame)
@@ -91,12 +123,6 @@ class TurboPumpPanel(ttk.LabelFrame):
         self._set_controls_enabled(False)
 
     def set_controller(self, turbo_controller):
-        """
-        Attach the TurboPumpController instance.
-
-        Args:
-            turbo_controller: TurboPumpController instance (or None to disconnect)
-        """
         self.controller = turbo_controller
         if turbo_controller:
             self._set_controls_enabled(True)
@@ -108,15 +134,98 @@ class TurboPumpPanel(ttk.LabelFrame):
     def _set_controls_enabled(self, enabled):
         """Enable or disable the ON/OFF buttons."""
         state = 'normal' if enabled else 'disabled'
-        self.on_btn.config(state=state)
+        # ON button also depends on pressure interlock
+        if enabled and not self._pressure_ok:
+            self.on_btn.config(state='disabled')
+        else:
+            self.on_btn.config(state=state)
         self.off_btn.config(state=state)
 
+    def update_pressure_interlock(self, pressure_mbar):
+        """Update the vacuum pressure interlock state.
+
+        Args:
+            pressure_mbar: Current FRG pressure reading in mbar.
+                           None if no reading available.
+        """
+        if pressure_mbar is None:
+            self._pressure_ok = False
+            self._current_pressure_torr = None
+            self.pressure_display.config(text="--- Torr", foreground='gray')
+            self._update_interlock_display()
+            return
+
+        # Convert mbar to Torr (1 mbar = 0.750062 Torr)
+        pressure_torr = pressure_mbar * 0.750062
+        self._current_pressure_torr = pressure_torr
+
+        # Check if pressure is below threshold
+        # The turbo can start if pressure is below the threshold
+        self._pressure_ok = pressure_torr <= self.PRESSURE_THRESHOLD_TORR
+
+        # Update pressure display
+        self.pressure_display.config(
+            text=f"{pressure_torr:.2e} Torr",
+            foreground='green' if self._pressure_ok else 'red'
+        )
+
+        self._update_interlock_display()
+
+        # If turbo is already running and pressure is OK, keep it enabled
+        # Only lock the ON button, not the OFF button
+        if self.controller:
+            turbo_status = self.controller.read_status()
+            if turbo_status in ('NORMAL', 'STARTING'):
+                # Don't disable if turbo is already running
+                self.on_btn.config(state='disabled')  # Already on
+            elif self._pressure_ok:
+                self.on_btn.config(state='normal')
+            else:
+                self.on_btn.config(state='disabled')
+
+    def _update_interlock_display(self):
+        """Update the interlock indicator display."""
+        if self._pressure_ok:
+            self.turbo_interlock_indicator.config(bg='#00FF00')
+            self.turbo_interlock_label.config(
+                text="TURBO PUMP READY",
+                foreground='green'
+            )
+        else:
+            self.turbo_interlock_indicator.config(bg='#FF0000')
+            if self._current_pressure_torr is not None:
+                self.turbo_interlock_label.config(
+                    text=f"TURBO PUMP LOCKED - Pressure {self._current_pressure_torr:.2e} Torr > {self.PRESSURE_THRESHOLD_TORR:.0e} Torr",
+                    foreground='red'
+                )
+            else:
+                self.turbo_interlock_label.config(
+                    text="TURBO PUMP LOCKED - No pressure reading",
+                    foreground='red'
+                )
+
+    def is_turbo_running(self) -> bool:
+        """Check if the turbo pump is in NORMAL (running) state."""
+        if not self.controller:
+            return False
+        status = self.controller.read_status()
+        return status == "NORMAL"
+
     def _on_turbo_on(self):
-        """Handle TURBO ON button click."""
         if not self.controller:
             return
 
-        # Safety confirmation dialog
+        # Check pressure interlock
+        if not self._pressure_ok:
+            pressure_str = f"{self._current_pressure_torr:.2e}" if self._current_pressure_torr else "unknown"
+            messagebox.showwarning(
+                "Cannot Start Turbo Pump",
+                f"Cannot start turbo pump - Pressure is {pressure_str} Torr, "
+                f"must be below {self.PRESSURE_THRESHOLD_TORR:.0e} Torr.\n\n"
+                "Ensure the system is under rough vacuum before starting the turbo pump."
+            )
+            return
+
         result = messagebox.askyesno(
             "Confirm Turbo Pump Start",
             "Are you sure you want to START the turbo pump?\n\n"
@@ -137,7 +246,6 @@ class TurboPumpPanel(ttk.LabelFrame):
         self.update_status_display()
 
     def _on_turbo_off(self):
-        """Handle TURBO OFF button click."""
         if not self.controller:
             return
 
@@ -149,10 +257,7 @@ class TurboPumpPanel(ttk.LabelFrame):
         self.update_status_display()
 
     def update_status_display(self):
-        """
-        Refresh the status indicator and label.
-        Call this periodically from the main GUI update loop.
-        """
+        """Refresh the status indicator and label."""
         if not self.controller:
             self._update_indicator('OFF')
             return
