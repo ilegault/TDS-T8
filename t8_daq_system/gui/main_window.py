@@ -172,8 +172,8 @@ class MainWindow:
                     "warning_threshold": 0.9
                 }
             },
-            "logging": {"interval_ms": 100, "file_prefix": "data_log", "auto_start": False},
-            "display": {"update_rate_ms": 250, "history_seconds": 60}
+            "logging": {"interval_ms": 1000, "file_prefix": "data_log", "auto_start": False},
+            "display": {"update_rate_ms": 1000, "history_seconds": 60}
         }
 
         # Default Axis scale settings
@@ -1294,6 +1294,11 @@ class MainWindow:
 
     def _update_gui(self):
         """Update the GUI (called periodically)."""
+        # Only redraw plots every 3rd call to avoid overwhelming matplotlib
+        if not hasattr(self, '_plot_skip_counter'):
+            self._plot_skip_counter = 0
+        self._plot_skip_counter += 1
+        should_redraw_plots = (self._plot_skip_counter % 3 == 0)
 
         if self._viewing_historical:
             self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
@@ -1423,19 +1428,20 @@ class MainWindow:
                 color = '#00FF00' if value is not None else '#333333'
                 self.indicators[name].config(bg=color)
 
-        # Update plots
-        sensor_names = [tc['name'] for tc in self.config['thermocouples']
-                       if tc.get('enabled', True)]
-        sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
-                        if g.get('enabled', True)]
+        # Update plots (only every 3rd call to reduce matplotlib overhead)
+        if should_redraw_plots:
+            sensor_names = [tc['name'] for tc in self.config['thermocouples']
+                           if tc.get('enabled', True)]
+            sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
+                            if g.get('enabled', True)]
 
-        ps_names = []  # Explicitly empty to remove from thermocouple plots
+            ps_names = []  # Explicitly empty to remove from thermocouple plots
 
-        if hasattr(self, 'full_plot'):
-            self.full_plot.update(sensor_names, ps_names)
+            if hasattr(self, 'full_plot'):
+                self.full_plot.update(sensor_names, ps_names)
 
-        if hasattr(self, 'recent_plot'):
-            self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
+            if hasattr(self, 'recent_plot'):
+                self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
 
         self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
 

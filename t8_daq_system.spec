@@ -238,24 +238,20 @@ pyz = PYZ(
 )
 
 # ============================================================================
-# EXE (Single File Executable)
+# EXE (Folder-based Executable - Fast Launch)
 # ============================================================================
 
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
+    [],          # Binaries go to COLLECT, not here
+    exclude_binaries=True,  # Enable folder mode for faster startup
     name='T8_DAQ_System',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,  # Set to True if you want a console window for debugging
+    upx=False,   # Disable UPX - compression causes DLL decompression overhead
+    console=True,  # Set to True temporarily to see errors
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -264,11 +260,29 @@ exe = EXE(
     icon=None,  # Add .ico file path here if you have an icon
 )
 
+# ============================================================================
+# COLLECT (Bundle all files into a folder)
+# ============================================================================
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='T8_DAQ_System',
+)
+
 print("\n" + "="*80)
 print("PyInstaller spec file configuration complete!")
 print("="*80)
 print("\nTo build the executable, run:")
 print("  pyinstaller t8_daq_system.spec --clean")
+print("\nOutput will be a dist/T8_DAQ_System/ folder instead of a single file.")
+print("Ship that whole folder (zip it up if needed).")
+print("The .exe inside the folder is what users run.")
 print("\nIf you encounter issues, enable debug mode:")
 print("  1. Set console=True in the EXE section above")
 print("  2. Set debug=True in the EXE section above")

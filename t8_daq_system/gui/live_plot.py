@@ -279,7 +279,7 @@ class LivePlot:
 
         if not timestamps:
             self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            self.canvas.draw()
+            self.canvas.draw_idle()
             return
 
         # Plotting
@@ -374,7 +374,7 @@ class LivePlot:
                 label.set_rotation(0)
                 label.set_fontsize(8)
 
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
 
     def clear(self):
@@ -397,17 +397,17 @@ class LivePlot:
             self.ax_frg702.set_ylabel(f'Pressure ({self._press_unit})')
             self.ax_frg702.set_xlabel('Time (HH:MM:SS)')
 
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def set_y_label(self, label):
         """Set the y-axis label."""
         self.ax.set_ylabel(label)
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def set_title(self, title):
         """Set the plot title."""
         self.ax.set_title(title)
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def set_y_limits(self, ymin=None, ymax=None, axis='primary'):
         """
@@ -437,7 +437,7 @@ class LivePlot:
         else:
             target_ax.set_ylim(auto=True)
 
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def enable_secondary_axis(self, enable=True):
         """
@@ -456,7 +456,7 @@ class LivePlot:
                 self.ax2.set_visible(False)
                 self.ax2 = None
 
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def get_figure(self):
         """Get the matplotlib Figure object for advanced customization."""
