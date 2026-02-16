@@ -102,6 +102,12 @@ def main():
 
     # Print profiling summary before GUI loop
     profiler.summary()
+
+    # Also show detailed MainWindow profiler summary
+    print("\n" + "="*80)
+    print("DETAILED MAINWINDOW PROFILER OUTPUT SHOWN ABOVE")
+    print("="*80 + "\n")
+
     profiler.disable()
 
     profiler.log("Starting GUI main loop")

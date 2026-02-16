@@ -43,6 +43,7 @@ from t8_daq_system.gui.ramp_panel import RampPanel
 from t8_daq_system.gui.turbo_pump_panel import TurboPumpPanel
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog, AxisScaleDialog
 from t8_daq_system.core.data_acquisition import DataAcquisition
+from t8_daq_system.detailed_profiler import mainwindow_profiler as profiler
 
 
 class MockPowerSupplyController:
@@ -156,6 +157,9 @@ class MainWindow:
     SAMPLE_RATES = [100, 200, 500, 1000, 2000]
 
     def __init__(self, config_path=None):
+        profiler.section("MainWindow.__init__ START")
+        profiler.checkpoint("Entering __init__ method")
+
         # Default configuration
         self.config = {
             "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
@@ -175,6 +179,7 @@ class MainWindow:
             "logging": {"interval_ms": 1000, "file_prefix": "data_log", "auto_start": False},
             "display": {"update_rate_ms": 1000, "history_seconds": 60}
         }
+        profiler.checkpoint("Default config dictionary created")
 
         # Default Axis scale settings
         self._use_absolute_scales = True
@@ -227,38 +232,66 @@ class MainWindow:
             except Exception as e:
                 print(f"Error loading config from {config_path}: {e}")
 
+        profiler.checkpoint("Config file loaded (if present)")
+
+        profiler.checkpoint("About to create tk.Tk() root window")
         self.root = tk.Tk()
+        profiler.checkpoint("tk.Tk() root window created")
+
         self.root.title("T8 DAQ System with Power Supply Control")
         self.root.geometry("1200x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        profiler.checkpoint("Root window properties set")
 
+        profiler.section("LabJack Hardware Connection")
+        profiler.checkpoint("Creating LabJackConnection instance")
         # Initialize LabJack hardware
         self.connection = LabJackConnection()
+        profiler.checkpoint("LabJackConnection instance created (not connected yet)")
         self.tc_reader = None
 
+        profiler.section("XGS-600 Controller Connection")
+        profiler.checkpoint("Initializing XGS-600 variables")
         # Initialize XGS-600 controller
         self.xgs600 = None
         self.frg702_reader = None
+        profiler.checkpoint("XGS-600 variables initialized (not connected yet)")
 
+        profiler.section("Keysight Power Supply Connection")
+        profiler.checkpoint("Creating KeysightConnection instance")
         # Initialize Keysight power supply components
         self.ps_connection = KeysightConnection(
             resource_string=self.config.get('power_supply', {}).get('visa_resource')
         )
+        profiler.checkpoint("KeysightConnection instance created (not connected yet)")
         self.ps_controller = None
 
+        profiler.section("Turbo Pump Controller")
+        profiler.checkpoint("Initializing turbo pump variables")
         # Initialize turbo pump controller
         self.turbo_controller = None
+        profiler.checkpoint("Turbo pump variables initialized")
 
+        profiler.section("Control Systems Initialization")
+        profiler.checkpoint("Creating RampExecutor...")
         # Initialize ramp executor and safety monitor
         self.ramp_executor = RampExecutor()
-        self.safety_monitor = SafetyMonitor(auto_shutoff=True)
+        profiler.checkpoint("RampExecutor created")
 
+        profiler.checkpoint("Creating SafetyMonitor...")
+        self.safety_monitor = SafetyMonitor(auto_shutoff=True)
+        profiler.checkpoint("SafetyMonitor created")
+
+        profiler.section("Data Handling Initialization")
+        profiler.checkpoint("Creating DataBuffer...")
         # Initialize data handling
         self.data_buffer = DataBuffer(
             max_seconds=None,
             sample_rate_ms=self.config['logging']['interval_ms']
         )
+        profiler.checkpoint("DataBuffer created")
 
+        profiler.checkpoint("Setting up log folder paths...")
         # Set up log folder path
         if getattr(sys, 'frozen', False):
             # If the application is run as a bundle, use the directory of the executable
@@ -274,12 +307,16 @@ class MainWindow:
             os.makedirs(self.profiles_folder)
         if not os.path.exists(self.log_folder):
             os.makedirs(self.log_folder)
+        profiler.checkpoint("Log folders created/verified")
 
+        profiler.checkpoint("Creating DataLogger...")
         self.logger = DataLogger(
             log_folder=self.log_folder,
             file_prefix=self.config['logging']['file_prefix']
         )
+        profiler.checkpoint("DataLogger created")
 
+        profiler.checkpoint("Initializing DAQ engine and control variables...")
         # Data acquisition engine
         self.daq = None
 
@@ -302,21 +339,36 @@ class MainWindow:
 
         # Track latest FRG pressure for turbo interlock
         self._latest_frg_pressure_mbar = None
+        profiler.checkpoint("Control variables initialized")
 
+        profiler.section("GUI Components Creation")
+        profiler.checkpoint("About to call _build_gui()...")
         # Build the GUI
         self._build_gui()
+        profiler.checkpoint("_build_gui() completed")
 
+        profiler.section("Final Initialization Steps")
+        profiler.checkpoint("Configuring safety monitor...")
         # Configure safety monitor
         self._configure_safety_monitor()
+        profiler.checkpoint("Safety monitor configured")
 
+        profiler.checkpoint("Registering safety callbacks...")
         # Register safety callbacks
         self._register_safety_callbacks()
+        profiler.checkpoint("Safety callbacks registered")
 
+        profiler.checkpoint("Starting GUI update loop...")
         # Start GUI update loop
         self._update_gui()
+        profiler.checkpoint("GUI update loop started")
+
+        profiler.section("MainWindow.__init__ COMPLETE")
+        profiler.summary()
 
     def _build_gui(self):
         """Create all the GUI elements."""
+        profiler.checkpoint("_build_gui() entered - creating control frames")
 
         # Top frame - Control buttons
         control_frame = ttk.Frame(self.root)
@@ -460,6 +512,7 @@ class MainWindow:
 
         self.indicators = {}
         self._build_indicators()
+        profiler.checkpoint("Control buttons and indicators created")
 
         status_label = ttk.Label(
             control_frame, textvariable=self.status_var, font=('Arial', 10, 'bold')
@@ -467,7 +520,9 @@ class MainWindow:
         status_label.pack(side=tk.RIGHT, padx=10)
 
         ttk.Label(control_frame, text="Status:").pack(side=tk.RIGHT)
+        profiler.checkpoint("Status labels created")
 
+        profiler.checkpoint("Creating safety status bar...")
         # Safety Status Bar at bottom
         safety_frame = ttk.Frame(self.root)
         safety_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(2, 10))
@@ -512,37 +567,58 @@ class MainWindow:
             safety_frame, text="[VIEWING HISTORICAL DATA]",
             font=('Arial', 9, 'bold'), foreground='blue'
         )
+        profiler.checkpoint("Safety status bar created")
 
+        profiler.checkpoint("Creating main content area with PanedWindow...")
         # Create main content area with PanedWindow
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=2)
 
+        profiler.checkpoint("Main PanedWindow created")
+
         # Left side - Monitoring
+        profiler.checkpoint("Creating left frame (monitoring side)...")
         left_frame = ttk.Frame(main_paned)
         main_paned.add(left_frame, weight=1)
+        profiler.checkpoint("Left frame created")
 
         # Current readings panel
+        profiler.checkpoint("Creating sensor panel container...")
         self.panel_container = ttk.LabelFrame(left_frame, text="Current Readings")
         self.panel_container.pack(fill=tk.X, padx=5, pady=2)
+        profiler.checkpoint("Sensor panel container created")
+
+        profiler.checkpoint("Building sensor panel (_rebuild_sensor_panel)...")
         self._rebuild_sensor_panel()
+        profiler.checkpoint("Sensor panel built")
 
         # Live plots container
+        profiler.checkpoint("Creating plot container frame...")
         self.plot_container_main = ttk.Frame(left_frame)
         self.plot_container_main.pack(fill=tk.BOTH, expand=True, padx=2, pady=1)
+        profiler.checkpoint("Plot container frame created")
+
+        profiler.checkpoint("Building live plots (_build_plots)...")
         self._build_plots(self.plot_container_main)
+        profiler.checkpoint("Live plots built")
 
         # Right side - Power Supply Control (unified ramp interface)
+        profiler.checkpoint("Creating right frame (control side)...")
         right_frame = ttk.Frame(main_paned)
         main_paned.add(right_frame, weight=2)
+        profiler.checkpoint("Right frame created")
 
         # Power Supply Status Panel (read-only display with interlock)
+        profiler.checkpoint("Creating PowerSupplyPanel...")
         ps_frame = ttk.LabelFrame(right_frame, text="Power Supply Status")
         ps_frame.pack(fill=tk.X, padx=5, pady=1)
 
         self.ps_panel = PowerSupplyPanel(ps_frame, self.ps_controller)
         self.ps_panel.on_output_change(self._on_ps_output_change)
+        profiler.checkpoint("PowerSupplyPanel created")
 
         # Ramp Profile Panel (ONLY power control interface)
+        profiler.checkpoint("Creating RampPanel...")
         ramp_frame = ttk.LabelFrame(right_frame, text="Power Supply Ramp Control")
         ramp_frame.pack(fill=tk.X, expand=True, padx=5, pady=1)
 
@@ -553,28 +629,47 @@ class MainWindow:
         )
         self.ramp_panel.on_ramp_start(self._on_ramp_start)
         self.ramp_panel.on_ramp_stop(self._on_ramp_stop)
+        profiler.checkpoint("RampPanel created")
 
         # Turbo Pump Panel
+        profiler.checkpoint("Creating TurboPumpPanel...")
         self.turbo_panel = TurboPumpPanel(right_frame)
         self.turbo_panel.pack(fill=tk.BOTH, padx=5, pady=1)
+        profiler.checkpoint("TurboPumpPanel created")
 
         # Dual window tracking
+        profiler.checkpoint("Initializing dual window tracking...")
         self.dual_window = None
+        profiler.checkpoint("Dual window tracking initialized")
 
     def _build_plots(self, parent):
         """Create the live plots in the specified parent widget."""
+        profiler.checkpoint("_build_plots() entered - creating plot paned window")
         plot_paned = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
         plot_paned.pack(fill=tk.BOTH, expand=True)
+        profiler.checkpoint("Plot paned window created")
 
+        profiler.checkpoint("Creating full history plot frame...")
         full_frame = ttk.LabelFrame(plot_paned, text="Full Run History")
         plot_paned.add(full_frame, weight=1)
-        self.full_plot = LivePlot(full_frame, self.data_buffer)
+        profiler.checkpoint("Full history frame created")
 
+        profiler.checkpoint("Creating LivePlot for full history (matplotlib)...")
+        self.full_plot = LivePlot(full_frame, self.data_buffer)
+        profiler.checkpoint("Full history LivePlot created")
+
+        profiler.checkpoint("Creating recent plot frame...")
         recent_frame = ttk.LabelFrame(plot_paned, text="Last 1 Minute")
         plot_paned.add(recent_frame, weight=1)
-        self.recent_plot = LivePlot(recent_frame, self.data_buffer)
+        profiler.checkpoint("Recent plot frame created")
 
+        profiler.checkpoint("Creating LivePlot for recent data (matplotlib)...")
+        self.recent_plot = LivePlot(recent_frame, self.data_buffer)
+        profiler.checkpoint("Recent LivePlot created")
+
+        profiler.checkpoint("Updating plot settings...")
         self._update_plot_settings()
+        profiler.checkpoint("Plot settings updated")
 
     def _toggle_practice_mode(self):
         """Toggle practice mode on/off."""
