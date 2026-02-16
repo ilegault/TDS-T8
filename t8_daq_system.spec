@@ -206,6 +206,12 @@ hiddenimports = [
     'encodings.utf_8',
     'encodings.ascii',
     'encodings.latin_1',
+
+    # PyVISA network optimization (reduce startup time)
+    'psutil',
+    'zeroconf',
+    'zeroconf._services',
+    'zeroconf._utils',
 ]
 
 print(f"Hidden imports: {len(hiddenimports)}")

@@ -194,7 +194,7 @@ class LivePlot:
             self.ax2 = None  # Will be recreated on demand
             self.ax3 = None
             self._has_frg702 = True
-            self.fig.subplots_adjust(left=0.15, right=0.92, top=0.98, bottom=0.08, hspace=0.25)
+            self.fig.subplots_adjust(left=0.10, right=0.90, top=0.98, bottom=0.07, hspace=0.22)
         elif not has_frg702_data and self._has_frg702:
             # Remove FRG-702 subplot
             self.fig.clear()
@@ -203,7 +203,7 @@ class LivePlot:
             self.ax2 = None
             self.ax3 = None
             self._has_frg702 = False
-            self.fig.subplots_adjust(left=0.15, right=0.92, top=0.98, bottom=0.12)
+            self.fig.subplots_adjust(left=0.10, right=0.90, top=0.98, bottom=0.07, hspace=0.22)
 
     def _core_update(self, timestamps, plot_data, window_seconds=None, data_units=None):
         """Core plotting logic used by both live and historical updates."""
