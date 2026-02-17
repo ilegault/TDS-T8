@@ -368,7 +368,7 @@ class MainWindow:
 
         # Start GUI update loop (without hardware init)
         self._update_gui()
-        profiler.checkpoint("GUI update loop started (hardware deferred)")
+        profiler.checkpoint("GUI update loop started (hardware connection deferred)")
 
         profiler.section("MainWindow.__init__ COMPLETE")
         profiler.summary()
@@ -569,7 +569,7 @@ class MainWindow:
         )
 
         # Status label
-        self.status_var = tk.StringVar(value="Disconnected")
+        self.status_var = tk.StringVar(value="Connecting...")
         self.ps_resource_var = tk.StringVar(value="None")
 
         # Connection Status Indicators
