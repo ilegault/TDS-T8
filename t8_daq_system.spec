@@ -126,6 +126,31 @@ for dll_name in runtime_dlls:
     if not found:
         print(f"⚠ Warning: {dll_name} not found in any search path")
 
+# 5. MISSING CRYPTO/COMPRESSION DLLS
+# ------------------------------------
+# These are needed by Python's _hashlib, _ssl, _lzma, and _bz2 modules.
+# Without them, modules retry loading repeatedly, adding overhead.
+crypto_dlls = [
+    'libcrypto-3-x64.dll',
+    'libssl-3-x64.dll',
+    'liblzma.dll',
+    'LIBBZ2.dll',
+]
+
+for dll_name in crypto_dlls:
+    found = False
+    for search_path in [conda_bin, conda_dlls, os.path.join(conda_base, '') if conda_base else '', r'C:\Windows\System32']:
+        if not search_path:
+            continue
+        dll_path = os.path.join(search_path, dll_name)
+        if os.path.exists(dll_path):
+            binaries.append((dll_path, '.'))
+            print(f"✓ Found {dll_name} in {search_path}")
+            found = True
+            break
+    if not found:
+        print(f"⚠ Warning: {dll_name} not found")
+
 print(f"\nTotal binaries to bundle: {len(binaries)}")
 
 # ============================================================================
@@ -209,9 +234,11 @@ hiddenimports = [
 
     # PyVISA network optimization (reduce startup time)
     'psutil',
-    'zeroconf',
-    'zeroconf._services',
-    'zeroconf._utils',
+    # zeroconf removed — network service discovery is disabled in frozen mode
+    # to prevent background network scanning that degrades performance.
+    # 'zeroconf',
+    # 'zeroconf._services',
+    # 'zeroconf._utils',
 ]
 
 print(f"Hidden imports: {len(hiddenimports)}")

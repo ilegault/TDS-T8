@@ -36,6 +36,11 @@ if getattr(sys, 'frozen', False):
 os.environ['PYVISA_PY_SKIP_TCPIP'] = '1'
 os.environ['PYVISA_PY_SKIP_HISLIP'] = '1'
 
+# 3. ZEROCONF: Disable network service discovery entirely in frozen mode
+if getattr(sys, 'frozen', False):
+    os.environ['PYVISA_PY_SKIP_USB'] = '1'
+    os.environ['ZEROCONF_DISABLE'] = '1'
+
 # ============================================================================
 # Continue with existing code below
 # ============================================================================
