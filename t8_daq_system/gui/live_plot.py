@@ -206,27 +206,30 @@ class LivePlot:
             self.fig.subplots_adjust(left=0.10, right=0.90, top=0.98, bottom=0.07, hspace=0.22)
 
     def _core_update(self, timestamps, plot_data, window_seconds=None, data_units=None):
-        """Core plotting logic used by both live and historical updates."""
+        """Core plotting logic using persistent line objects for performance.
+
+        Instead of clearing axes and re-plotting every cycle, this method
+        creates line objects once and then updates their data via set_data().
+        This avoids expensive full matplotlib redraws on each update cycle.
+        """
         # Separate sensor types
         tc_names = [name for name in plot_data.keys() if name.startswith('TC_')]
         frg702_names = [name for name in plot_data.keys() if name.startswith('FRG702_')]
         ps_names = [name for name in plot_data.keys() if name.startswith('PS_')]
 
-        # Create/remove FRG-702 subplot as needed
+        # Create/remove FRG-702 subplot as needed (this clears if layout changes)
+        old_has_frg702 = self._has_frg702
         self._ensure_frg702_subplot(len(frg702_names) > 0)
 
-        self.ax.clear()
-        self.ax.grid(True, alpha=0.3)
-        self.ax.set_xlabel('Time (HH:MM:SS)')
-        
+        # If subplot structure changed, reset all cached lines
+        if old_has_frg702 != self._has_frg702:
+            self.lines.clear()
+
         has_tc = len(tc_names) > 0
         has_ps = len(ps_names) > 0
 
-        show_left_axis = has_tc
-        show_right_axis = has_ps
-
-        # Configure Left Axis (Temperature)
-        if show_left_axis:
+        # Configure Left Axis (Temperature) - only set labels/scales, don't clear
+        if has_tc:
             self.ax.set_ylabel(f'Temperature ({self._temp_unit})', color='black')
             self.ax.tick_params(axis='y', labelcolor='black', labelleft=True)
             self.ax.yaxis.set_visible(True)
@@ -241,40 +244,33 @@ class LivePlot:
         if has_ps:
             if self.ax2 is None:
                 self.ax2 = self.ax.twinx()
-            
-            self.ax2.clear()
+
             self.ax2.set_visible(True)
             self.ax2.yaxis.set_visible(True)
-
             self.ax2.set_ylabel('PS Voltage (V)', color=self.ps_colors['PS_Voltage'], rotation=270, labelpad=15)
             self.ax2.yaxis.set_label_position('right')
             self.ax2.tick_params(axis='y', labelcolor=self.ps_colors['PS_Voltage'])
-            
+
             if self._use_absolute_scales and self._ps_v_range:
                 self.ax2.set_ylim(self._ps_v_range)
-                
+
             # Configure Third Axis (PS Current)
             if self.ax3 is None:
                 self.ax3 = self.ax.twinx()
-                # Offset the right spine to make room for the second axis
                 self.ax3.spines['right'].set_position(('outward', 50))
-                
-            self.ax3.clear()
+
             self.ax3.set_visible(True)
             self.ax3.yaxis.set_visible(True)
-
             self.ax3.set_ylabel('PS Current (A)', color=self.ps_colors['PS_Current'], rotation=270, labelpad=15)
             self.ax3.yaxis.set_label_position('right')
             self.ax3.tick_params(axis='y', labelcolor=self.ps_colors['PS_Current'])
-            
+
             if self._use_absolute_scales and self._ps_i_range:
                 self.ax3.set_ylim(self._ps_i_range)
         else:
             if self.ax2 is not None:
-                self.ax2.clear()
                 self.ax2.set_visible(False)
             if self.ax3 is not None:
-                self.ax3.clear()
                 self.ax3.set_visible(False)
 
         if not timestamps:
@@ -282,69 +278,90 @@ class LivePlot:
             self.canvas.draw_idle()
             return
 
-        # Plotting
-        legend_handles = []
-        legend_labels = []
-        
+        # Track which lines are actively used this cycle
+        active_line_keys = set()
+
         # Color index to keep colors consistent across axes
         color_idx = 0
 
-        # Reference time for windowing - always use last timestamp if available
+        # Reference time for windowing
         now = timestamps[-1] if timestamps and window_seconds else None
 
-        # Plot TC data on LEFT axis
+        # Plot TC data on LEFT axis using persistent lines
         data_temp_unit = data_units.get('temp', 'C') if data_units else 'C'
         for i, name in enumerate(tc_names):
             values = plot_data.get(name, [])
-            
+
             # Convert units if needed
             if data_temp_unit != self._temp_unit:
-                # Use C, F, K directly for comparison
                 display_unit = self._temp_unit.replace('°', '')
                 source_unit = data_temp_unit.replace('°', '')
                 values = [convert_temperature(v, source_unit, display_unit) if v is not None else None for v in values]
-                
-            times, vals = self._prepare_data(timestamps, values, window_seconds, now)
-            
-            if times:
-                color = self.colors[color_idx % len(self.colors)]
-                color_idx += 1
-                line, = self.ax.plot(times, vals, label=name, linewidth=2, color=color)
-                legend_handles.append(line)
-                legend_labels.append(name)
 
-        # Plot PS data on RIGHT axis
+            times, vals = self._prepare_data(timestamps, values, window_seconds, now)
+            color = self.colors[color_idx % len(self.colors)]
+            color_idx += 1
+
+            line_key = ('tc', name)
+            active_line_keys.add(line_key)
+
+            if line_key in self.lines:
+                # Update existing line data
+                self.lines[line_key].set_data(times, vals)
+            else:
+                # Create new persistent line
+                line, = self.ax.plot(times, vals, label=name, linewidth=2, color=color)
+                self.lines[line_key] = line
+
+        # Plot PS data on RIGHT axes using persistent lines
         for i, name in enumerate(ps_names):
             values = plot_data.get(name, [])
             times, vals = self._prepare_data(timestamps, values, window_seconds, now)
-            
-            if times:
-                color = self.ps_colors.get(name, self.colors[color_idx % len(self.colors)])
-                color_idx += 1
-                
-                # Use ax2 for voltage, ax3 for current
-                target_ax = self.ax2 if name == 'PS_Voltage' else self.ax3
-                line, = target_ax.plot(times, vals, label=name, linewidth=2, color=color, linestyle='--')
-                legend_handles.append(line)
-                legend_labels.append(name)
+            color = self.ps_colors.get(name, self.colors[color_idx % len(self.colors)])
+            color_idx += 1
 
-        if legend_handles:
-            # Sort legend to keep it somewhat organized
-            combined = list(zip(legend_handles, legend_labels))
-            # Sort: TC first, then PS
-            combined.sort(key=lambda x: (not x[1].startswith('TC_'), x[1]))
-            handles, labels = zip(*combined)
-            self.ax.legend(handles, labels, loc='upper left', fontsize=8)
+            target_ax = self.ax2 if name == 'PS_Voltage' else self.ax3
+            line_key = ('ps', name)
+            active_line_keys.add(line_key)
+
+            if line_key in self.lines:
+                self.lines[line_key].set_data(times, vals)
+            else:
+                line, = target_ax.plot(times, vals, label=name, linewidth=2, color=color, linestyle='--')
+                self.lines[line_key] = line
+
+        # Remove lines for sensors that are no longer present
+        stale_keys = [k for k in self.lines if k[0] in ('tc', 'ps') and k not in active_line_keys]
+        for key in stale_keys:
+            self.lines[key].remove()
+            del self.lines[key]
+
+        # Update autoscaling if not using absolute scales
+        if not self._use_absolute_scales:
+            self.ax.relim()
+            self.ax.autoscale_view()
+            if self.ax2 is not None and has_ps:
+                self.ax2.relim()
+                self.ax2.autoscale_view()
+            if self.ax3 is not None and has_ps:
+                self.ax3.relim()
+                self.ax3.autoscale_view()
+
+        # Update legend
+        all_lines = []
+        all_labels = []
+        for key in sorted(self.lines.keys(), key=lambda x: (not x[1].startswith('TC_'), x[1])):
+            if key[0] in ('tc', 'ps'):
+                all_lines.append(self.lines[key])
+                all_labels.append(key[1])
+        if all_lines:
+            self.ax.legend(all_lines, all_labels, loc='upper left', fontsize=8)
 
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        # Manual adjustment for x-axis labels to save space
-        for label in self.ax.get_xticklabels():
-            label.set_rotation(0)
-            label.set_fontsize(8)
+        self.ax.grid(True, alpha=0.3)
 
-        # Plot FRG-702 data on separate logarithmic subplot
+        # Plot FRG-702 data on separate logarithmic subplot using persistent lines
         if self.ax_frg702 and frg702_names:
-            self.ax_frg702.clear()
             self.ax_frg702.grid(True, alpha=0.3, which='both')
             self.ax_frg702.set_xlabel('Time (HH:MM:SS)')
             self.ax_frg702.set_ylabel(f'Pressure ({self._press_unit})')
@@ -352,33 +369,53 @@ class LivePlot:
             if self._use_absolute_scales and self._press_range:
                 self.ax_frg702.set_ylim(self._press_range)
 
+            frg702_active_keys = set()
             frg702_color_idx = 0
             data_press_unit = data_units.get('press', 'mbar') if data_units else 'mbar'
             for name in frg702_names:
                 values = plot_data.get(name, [])
-                
+
                 # Convert units if needed
                 if data_press_unit != self._press_unit:
                     values = [FRG702Reader.convert_pressure(v, self._press_unit) if v is not None else None for v in values]
-                
+
                 times, vals = self._prepare_data(timestamps, values, window_seconds, now)
+                color = self.colors[frg702_color_idx % len(self.colors)]
+                frg702_color_idx += 1
 
-                if times:
-                    color = self.colors[frg702_color_idx % len(self.colors)]
-                    frg702_color_idx += 1
-                    self.ax_frg702.plot(times, vals, label=name, linewidth=2, color=color)
+                line_key = ('frg', name)
+                frg702_active_keys.add(line_key)
 
-            self.ax_frg702.legend(loc='upper left', fontsize=8)
+                if line_key in self.lines:
+                    self.lines[line_key].set_data(times, vals)
+                else:
+                    line, = self.ax_frg702.plot(times, vals, label=name, linewidth=2, color=color)
+                    self.lines[line_key] = line
+
+            # Remove stale FRG lines
+            stale_frg_keys = [k for k in self.lines if k[0] == 'frg' and k not in frg702_active_keys]
+            for key in stale_frg_keys:
+                self.lines[key].remove()
+                del self.lines[key]
+
+            if not self._use_absolute_scales:
+                self.ax_frg702.relim()
+                self.ax_frg702.autoscale_view()
+
+            # Update FRG legend
+            frg_lines = [(self.lines[k], k[1]) for k in sorted(self.lines.keys()) if k[0] == 'frg']
+            if frg_lines:
+                handles, labels = zip(*frg_lines)
+                self.ax_frg702.legend(handles, labels, loc='upper left', fontsize=8)
+
             self.ax_frg702.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-            for label in self.ax_frg702.get_xticklabels():
-                label.set_rotation(0)
-                label.set_fontsize(8)
 
         self.canvas.draw_idle()
 
 
     def clear(self):
-        """Clear the plot."""
+        """Clear the plot and reset persistent line objects."""
+        self.lines.clear()
         self.ax.clear()
         self.ax.grid(True, alpha=0.3)
         self.ax.set_xlabel('Time (HH:MM:SS)')

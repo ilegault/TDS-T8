@@ -23,6 +23,67 @@ import sys
 import random
 import math
 
+
+class GUIProfiler:
+    """Lightweight continuous profiler for the GUI update loop."""
+    def __init__(self):
+        self.enabled = True
+        self.call_count = 0
+        self.section_times = {}  # section_name -> list of durations
+        self._current_section_start = None
+        self._current_section_name = None
+        self._loop_start = None
+        self._slow_threshold_ms = 50  # Log warning if any section takes > 50ms
+
+    def loop_start(self):
+        self.call_count += 1
+        self._loop_start = time.perf_counter()
+
+    def start(self, name):
+        now = time.perf_counter()
+        # End previous section if any
+        if self._current_section_name:
+            self._end_current(now)
+        self._current_section_start = now
+        self._current_section_name = name
+
+    def _end_current(self, now):
+        if self._current_section_name and self._current_section_start:
+            elapsed_ms = (now - self._current_section_start) * 1000
+            if self._current_section_name not in self.section_times:
+                self.section_times[self._current_section_name] = []
+            self.section_times[self._current_section_name].append(elapsed_ms)
+            if elapsed_ms > self._slow_threshold_ms:
+                print(f"[GUI SLOW] {self._current_section_name}: {elapsed_ms:.1f}ms (call #{self.call_count})")
+
+    def loop_end(self):
+        now = time.perf_counter()
+        self._end_current(now)
+        self._current_section_name = None
+        total_ms = (now - self._loop_start) * 1000
+        if total_ms > 100:  # Log if total loop takes > 100ms
+            print(f"[GUI SLOW LOOP] Total: {total_ms:.1f}ms (call #{self.call_count})")
+
+        # Print summary every 100 calls
+        if self.call_count % 100 == 0 and self.enabled:
+            self.print_summary()
+
+    def print_summary(self):
+        print(f"\n{'='*60}")
+        print(f"GUI PROFILER SUMMARY (after {self.call_count} update cycles)")
+        print(f"{'='*60}")
+        for name, times in sorted(self.section_times.items(), key=lambda x: sum(x[1]), reverse=True):
+            avg = sum(times) / len(times)
+            mx = max(times)
+            total = sum(times)
+            print(f"  {name:40s} avg={avg:7.1f}ms  max={mx:7.1f}ms  total={total:8.0f}ms")
+        print(f"{'='*60}\n")
+        # Reset for next window
+        self.section_times.clear()
+
+gui_profiler = GUIProfiler()
+
+
 # Import our modules
 from t8_daq_system.hardware.labjack_connection import LabJackConnection
 from t8_daq_system.hardware.thermocouple_reader import ThermocoupleReader
@@ -340,6 +401,16 @@ class MainWindow:
 
         # Track latest FRG pressure for turbo interlock
         self._latest_frg_pressure_mbar = None
+
+        # FIX 3: Reconnection cooldown to prevent blocking the GUI thread
+        self._last_lj_reconnect_attempt = 0
+        self._last_xgs_reconnect_attempt = 0
+        self._last_ps_reconnect_attempt = 0
+        self._reconnect_cooldown_sec = 5.0  # Only try reconnecting every 5 seconds
+
+        # FIX 4: Plot skip counter - reduce plot frequency in frozen mode
+        self._plot_skip_count = 10 if getattr(sys, 'frozen', False) else 3
+
         profiler.checkpoint("Control variables initialized")
 
         profiler.section("GUI Components Creation")
@@ -1456,30 +1527,38 @@ class MainWindow:
 
     def _update_gui(self):
         """Update the GUI (called periodically)."""
-        # Only redraw plots every 3rd call to avoid overwhelming matplotlib
+        gui_profiler.loop_start()
+
+        gui_profiler.start("skip_counter_check")
+        # Only redraw plots every Nth call to avoid overwhelming matplotlib
         if not hasattr(self, '_plot_skip_counter'):
             self._plot_skip_counter = 0
         self._plot_skip_counter += 1
-        should_redraw_plots = (self._plot_skip_counter % 3 == 0)
+        should_redraw_plots = (self._plot_skip_counter % self._plot_skip_count == 0)
 
         if self._viewing_historical:
             self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
+            gui_profiler.loop_end()
             return
 
+        gui_profiler.start("labjack_reconnect")
         # Auto-connect hardware (only after initial deferred init has attempted)
         lj_connected = self.connection.is_connected()
+        now = time.time()
         if self._practice_mode:
             lj_connected = True
         elif not lj_connected and self._hardware_init_attempted:
-            # Only auto-reconnect if we've already done the initial deferred init
-            if self.connection.connect():
-                if self._initialize_hardware_readers():
-                    lj_connected = True
-                    self.status_var.set("Connected")
-                    self.start_btn.config(state='normal')
-                else:
-                    self.connection.disconnect()
-                    lj_connected = False
+            # FIX 3: Only attempt reconnection after cooldown period
+            if (now - self._last_lj_reconnect_attempt) >= self._reconnect_cooldown_sec:
+                self._last_lj_reconnect_attempt = now
+                if self.connection.connect():
+                    if self._initialize_hardware_readers():
+                        lj_connected = True
+                        self.status_var.set("Connected")
+                        self.start_btn.config(state='normal')
+                    else:
+                        self.connection.disconnect()
+                        lj_connected = False
 
             if not lj_connected:
                 if self.status_var.get() != "Disconnected":
@@ -1490,34 +1569,44 @@ class MainWindow:
                     for name in self.indicators:
                         self.indicators[name].config(bg='#333333')
 
+        gui_profiler.start("labjack_indicator")
         # Update LabJack indicator
         color = '#00FF00' if lj_connected else '#333333'
         if 'LabJack' in self.indicators:
             self.indicators['LabJack'].config(bg=color)
 
+        gui_profiler.start("xgs600_reconnect")
         # Auto-connect XGS-600 (only after initial deferred init)
         xgs_connected = (self.xgs600 is not None and self.xgs600.is_connected()) or self._practice_mode
         if not xgs_connected and not self._practice_mode and self._hardware_init_attempted and self.config.get('xgs600', {}).get('enabled', False):
-            if self._connect_xgs600():
-                xgs_connected = True
+            # FIX 3: Only attempt reconnection after cooldown period
+            if (now - self._last_xgs_reconnect_attempt) >= self._reconnect_cooldown_sec:
+                self._last_xgs_reconnect_attempt = now
+                if self._connect_xgs600():
+                    xgs_connected = True
 
         color = '#00FF00' if xgs_connected else '#333333'
         if 'XGS600' in self.indicators:
             self.indicators['XGS600'].config(bg=color)
 
+        gui_profiler.start("keysight_reconnect")
         # Auto-connect Power Supply (only after initial deferred init)
         ps_connected = self.ps_connection.is_connected() or \
                        (self._practice_mode and self.ps_controller is not None)
 
         if not ps_connected and not self._practice_mode and self._hardware_init_attempted and self.config.get('power_supply', {}).get('enabled', True):
-            if self.ps_connection.connect():
-                ps_connected = True
-                self._initialize_power_supply()
+            # FIX 3: Only attempt reconnection after cooldown period
+            if (now - self._last_ps_reconnect_attempt) >= self._reconnect_cooldown_sec:
+                self._last_ps_reconnect_attempt = now
+                if self.ps_connection.connect():
+                    ps_connected = True
+                    self._initialize_power_supply()
 
         color = '#00FF00' if ps_connected else '#333333'
         if 'PowerSupply' in self.indicators:
             self.indicators['PowerSupply'].config(bg=color)
 
+        gui_profiler.start("turbo_update")
         # Update Turbo indicator
         turbo_connected = self.turbo_controller is not None
         color = '#00FF00' if turbo_connected else '#333333'
@@ -1543,6 +1632,7 @@ class MainWindow:
         else:
             self.ps_panel.set_connected(False)
 
+        gui_profiler.start("ramp_panel_update")
         # Update ramp panel
         self.ramp_panel.update()
 
@@ -1550,6 +1640,7 @@ class MainWindow:
         if self.turbo_controller:
             self.turbo_panel.update_status_display()
 
+        gui_profiler.start("safety_interlocks")
         # Update safety interlocks
         self._update_safety_interlocks()
 
@@ -1561,9 +1652,12 @@ class MainWindow:
             if lj_connected:
                 self._check_connections()
 
+            gui_profiler.start("schedule_next")
             self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
+            gui_profiler.loop_end()
             return
 
+        gui_profiler.start("read_sensors")
         # Get current readings and update panel
         current = self.data_buffer.get_all_current()
 
@@ -1579,6 +1673,7 @@ class MainWindow:
             else:
                 display_readings[name] = value
 
+        gui_profiler.start("sensor_panel_update")
         self.sensor_panel.update(display_readings)
 
         # Update FRG-702 detailed status
@@ -1591,8 +1686,9 @@ class MainWindow:
                 color = '#00FF00' if value is not None else '#333333'
                 self.indicators[name].config(bg=color)
 
-        # Update plots (only every 3rd call to reduce matplotlib overhead)
+        # Update plots (only every Nth call to reduce matplotlib overhead)
         if should_redraw_plots:
+            gui_profiler.start("plot_full_history")
             sensor_names = [tc['name'] for tc in self.config['thermocouples']
                            if tc.get('enabled', True)]
             sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
@@ -1603,10 +1699,13 @@ class MainWindow:
             if hasattr(self, 'full_plot'):
                 self.full_plot.update(sensor_names, ps_names)
 
+            gui_profiler.start("plot_recent")
             if hasattr(self, 'recent_plot'):
                 self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
 
+        gui_profiler.start("schedule_next")
         self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
+        gui_profiler.loop_end()
 
     def _initialize_hardware_readers(self):
         try:
