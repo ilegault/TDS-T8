@@ -19,7 +19,7 @@ class PowerSupplyPanel:
     - Connection status indicator
     - Actual V/A readings display
     - Output state indicator
-    - Safety interlock status (turbo pump required)
+    - Safety status
     """
 
     def __init__(self, parent_frame, power_supply_controller=None):
@@ -31,7 +31,7 @@ class PowerSupplyPanel:
         self._output_on = False
         self._last_voltage = 0.0
         self._last_current = 0.0
-        self._locked = True  # Locked until turbo pump is running
+        self._locked = False
 
         # Callbacks for external notifications
         self._on_output_change: Optional[Callable[[bool], None]] = None
@@ -71,14 +71,14 @@ class PowerSupplyPanel:
 
         self.interlock_indicator = tk.Canvas(
             interlock_frame, width=16, height=16,
-            bg='#FF0000', highlightthickness=1, highlightbackground='black'
+            bg='#00FF00', highlightthickness=1, highlightbackground='black'
         )
         self.interlock_indicator.pack(side=tk.LEFT, padx=5)
 
         self.interlock_label = ttk.Label(
             interlock_frame,
-            text="POWER SUPPLY LOCKED - Turbo pump must be running",
-            font=('Arial', 8, 'bold'), foreground='red'
+            text="POWER SUPPLY READY",
+            font=('Arial', 8, 'bold'), foreground='green'
         )
         self.interlock_label.pack(side=tk.LEFT)
 
@@ -152,7 +152,7 @@ class PowerSupplyPanel:
         """Update the safety interlock display.
 
         Args:
-            ready: True if turbo pump is running and power supply is unlocked
+            ready: True if power supply is ready, False if locked
         """
         self._locked = not ready
         if ready:
@@ -164,7 +164,7 @@ class PowerSupplyPanel:
         else:
             self.interlock_indicator.config(bg='#FF0000')
             self.interlock_label.config(
-                text="POWER SUPPLY LOCKED - Turbo pump must be running",
+                text="POWER SUPPLY LOCKED",
                 foreground='red'
             )
 

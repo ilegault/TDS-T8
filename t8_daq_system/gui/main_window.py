@@ -2,13 +2,11 @@
 main_window.py
 PURPOSE: Main application window - coordinates everything
 
-Integrates LabJack T8 DAQ (thermocouples, turbo pump) and XGS-600 controller
+Integrates LabJack T8 DAQ (thermocouples) and XGS-600 controller
 (FRG-702 gauges) with Keysight N5761A power supply control, safety monitoring,
 and ramp profile execution.
 
-Safety interlocks:
-- Power supply ramp locked unless turbo pump is running (NORMAL)
-- Turbo pump locked unless FRG pressure is below 5E-3 Torr
+Safety features:
 - 2200C temperature override triggers controlled ramp-down
 - Restart lockout until temperature drops below 2150C
 """
@@ -91,7 +89,6 @@ from t8_daq_system.hardware.xgs600_controller import XGS600Controller
 from t8_daq_system.hardware.frg702_reader import FRG702Reader
 from t8_daq_system.hardware.keysight_connection import KeysightConnection
 from t8_daq_system.hardware.power_supply_controller import PowerSupplyController
-from t8_daq_system.hardware.turbo_pump_controller import TurboPumpController
 from t8_daq_system.control.ramp_executor import RampExecutor
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
 from t8_daq_system.data.data_buffer import DataBuffer
@@ -101,7 +98,6 @@ from t8_daq_system.gui.sensor_panel import SensorPanel
 from t8_daq_system.utils.helpers import convert_temperature
 from t8_daq_system.gui.power_supply_panel import PowerSupplyPanel
 from t8_daq_system.gui.ramp_panel import RampPanel
-from t8_daq_system.gui.turbo_pump_panel import TurboPumpPanel
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog, AxisScaleDialog
 from t8_daq_system.core.data_acquisition import DataAcquisition
 from t8_daq_system.detailed_profiler import mainwindow_profiler as profiler
@@ -167,50 +163,6 @@ class MockPowerSupplyController:
         self.output_off()
         self.voltage = 0
         return True
-
-
-class MockTurboPumpController:
-    """Simulated turbo pump for practice mode."""
-    def __init__(self):
-        self.state = "OFF"
-        self._is_commanded_on = False
-        self._start_time = 0
-
-    def start(self):
-        self._is_commanded_on = True
-        self.state = "STARTING"
-        self._start_time = time.time()
-        return True, "Start command sent (Mock)"
-
-    def stop(self):
-        self._is_commanded_on = False
-        self.state = "OFF"
-        return True, "Stop command sent (Mock)"
-
-    def read_status(self):
-        if self._is_commanded_on:
-            if time.time() - self._start_time > 5.0:
-                self.state = "NORMAL"
-            else:
-                self.state = "STARTING"
-        else:
-            self.state = "OFF"
-        return self.state
-
-    def get_status_dict(self):
-        return {
-            'Turbo_Commanded': 'ON' if self._is_commanded_on else 'OFF',
-            'Turbo_Status': self.read_status()
-        }
-
-    def is_commanded_on(self):
-        return self._is_commanded_on
-
-    def emergency_stop(self):
-        self.stop()
-
-    def cleanup(self):
-        self.stop()
 
 
 class MainWindow:
@@ -327,12 +279,6 @@ class MainWindow:
         profiler.checkpoint("KeysightConnection instance created (not connected yet)")
         self.ps_controller = None
 
-        profiler.section("Turbo Pump Controller")
-        profiler.checkpoint("Initializing turbo pump variables")
-        # Initialize turbo pump controller
-        self.turbo_controller = None
-        profiler.checkpoint("Turbo pump variables initialized")
-
         profiler.section("Control Systems Initialization")
         profiler.checkpoint("Creating RampExecutor...")
         # Initialize ramp executor and safety monitor
@@ -398,9 +344,6 @@ class MainWindow:
         self._practice_mode = False
         self._loaded_data = None
         self._loaded_data_units = {'temp': 'C', 'press': 'PSI'}
-
-        # Track latest FRG pressure for turbo interlock
-        self._latest_frg_pressure_mbar = None
 
         # Reconnection cooldown timers (prevent blocking GUI with repeated failed attempts)
         self._last_ps_reconnect_time = 0
@@ -496,10 +439,6 @@ class MainWindow:
             if self.ps_connection.connect():
                 print("[DEFERRED] Power supply connected")
                 self._initialize_power_supply()
-
-        # Connect to turbo pump if configured (part of LabJack init)
-        if self.turbo_controller:
-            print("[DEFERRED] Turbo pump controller initialized")
 
         print("[DEFERRED] Hardware initialization complete")
         self._hardware_init_attempted = True
@@ -782,12 +721,6 @@ class MainWindow:
         self.ramp_panel.on_ramp_stop(self._on_ramp_stop)
         profiler.checkpoint("RampPanel created")
 
-        # Turbo Pump Panel
-        profiler.checkpoint("Creating TurboPumpPanel...")
-        self.turbo_panel = TurboPumpPanel(right_frame)
-        self.turbo_panel.pack(fill=tk.BOTH, padx=5, pady=1)
-        profiler.checkpoint("TurboPumpPanel created")
-
         # Dual window tracking
         profiler.checkpoint("Initializing dual window tracking...")
         self.dual_window = None
@@ -837,14 +770,6 @@ class MainWindow:
                 ]
             self.frg_count_var.set(str(len(self.config['frg702_gauges'])))
 
-            if 'turbo_pump' not in self.config:
-                self.config['turbo_pump'] = {
-                    "enabled": True,
-                    "start_stop_channel": "DIO0",
-                    "status_channel": "DIO1"
-                }
-            self.config['turbo_pump']['enabled'] = True
-
             # Set up Mock Power Supply
             self.ps_connection.disconnect()
             self.ps_controller = MockPowerSupplyController()
@@ -852,28 +777,16 @@ class MainWindow:
             self.safety_monitor.set_power_supply(self.ps_controller)
             self.ramp_executor.set_power_supply(self.ps_controller)
 
-            self.turbo_controller = MockTurboPumpController()
-            self.turbo_panel.set_controller(self.turbo_controller)
-
-            # In practice mode, simulate acceptable pressure for turbo interlock
-            self._latest_frg_pressure_mbar = 1e-4  # Well below threshold
-            self.turbo_panel.update_pressure_interlock(self._latest_frg_pressure_mbar)
-
             self.ps_resource_var.set("Mock Power Supply")
         else:
             self.practice_btn.config(text="Practice Mode: OFF")
             self.ps_resource_var.set("None")
-
-            self._latest_frg_pressure_mbar = None
-            self.turbo_panel.update_pressure_interlock(None)
 
             if not self.connection or not self.connection.is_connected():
                 self.start_btn.config(state='disabled')
                 self.status_var.set("Disconnected")
                 self.ps_controller = None
                 self.ps_panel.set_controller(None)
-                self.turbo_controller = None
-                self.turbo_panel.set_controller(None)
             else:
                 self.status_var.set("Connected")
                 self._initialize_hardware_readers()
@@ -1185,12 +1098,6 @@ class MainWindow:
         self.indicators['PowerSupply'] = tk.Canvas(ps_frame, width=canvas_size, height=canvas_size, bg='#333333', highlightthickness=1, highlightbackground="black")
         self.indicators['PowerSupply'].pack()
 
-        turbo_frame = ttk.Frame(self.indicator_frame)
-        turbo_frame.pack(side=tk.LEFT, padx=5)
-        ttk.Label(turbo_frame, text="Turbo", font=lbl_font).pack()
-        self.indicators['Turbo'] = tk.Canvas(turbo_frame, width=canvas_size, height=canvas_size, bg='#333333', highlightthickness=1, highlightbackground="black")
-        self.indicators['Turbo'].pack()
-
         for i, tc in enumerate(self.config['thermocouples']):
             name = tc['name']
             f = ttk.Frame(self.indicator_frame)
@@ -1290,10 +1197,6 @@ class MainWindow:
         # Stop ramp if running
         if self.ramp_panel.is_running():
             self.ramp_panel.stop_execution()
-
-        # Emergency stop turbo pump on safety trigger
-        if self.turbo_controller:
-            self.turbo_controller.emergency_stop()
 
         # Update power supply panel
         self.ps_panel.emergency_off()
@@ -1398,23 +1301,7 @@ class MainWindow:
     def _update_safety_interlocks(self):
         """Update all safety interlock states. Called from the GUI update loop."""
 
-        # 1. Get latest FRG pressure for turbo pump interlock
-        if self._practice_mode and self._latest_frg_pressure_mbar is None:
-            self._latest_frg_pressure_mbar = 1e-4  # Mock low pressure in practice
-
-        # Update turbo pump panel with current pressure
-        self.turbo_panel.update_pressure_interlock(self._latest_frg_pressure_mbar)
-
-        # 2. Check turbo pump status for power supply interlock
-        turbo_running = self.turbo_panel.is_turbo_running()
-
-        # Update PS panel interlock
-        self.ps_panel.set_interlock_state(turbo_running)
-
-        # Update ramp panel interlock
-        self.ramp_panel.set_turbo_interlock(turbo_running)
-
-        # 3. Check restart lockout from safety monitor
+        # Check restart lockout from safety monitor
         if self.safety_monitor.is_restart_locked:
             self.ramp_panel.set_emergency_shutdown(
                 True,
@@ -1441,7 +1328,6 @@ class MainWindow:
             tc_reader=self.tc_reader,
             frg702_reader=self.frg702_reader,
             ps_controller=self.ps_controller,
-            turbo_controller=self.turbo_controller,
             safety_monitor=self.safety_monitor if not self._safety_triggered else None,
             ramp_executor=self.ramp_executor,
             practice_mode=self._practice_mode
@@ -1454,12 +1340,6 @@ class MainWindow:
             self._latest_readings = (timestamp, all_readings)
             self._latest_tc_readings = tc_readings
             self._latest_frg702_details = frg702_details
-
-            # Track latest FRG pressure for turbo interlock
-            for name, value in all_readings.items():
-                if name.startswith('FRG702') and value is not None:
-                    self._latest_frg_pressure_mbar = value
-                    break
 
             if self.is_logging:
                 log_readings = {}
@@ -1615,13 +1495,6 @@ class MainWindow:
         if 'PowerSupply' in self.indicators:
             self.indicators['PowerSupply'].config(bg=color)
 
-        gui_profiler.start("turbo_update")
-        # Update Turbo indicator
-        turbo_connected = self.turbo_controller is not None
-        color = '#00FF00' if turbo_connected else '#333333'
-        if 'Turbo' in self.indicators:
-            self.indicators['Turbo'].config(bg=color)
-
         # Update power supply panel
         if ps_connected and self.ps_controller:
             if self._practice_mode:
@@ -1644,10 +1517,6 @@ class MainWindow:
         gui_profiler.start("ramp_panel_update")
         # Update ramp panel
         self.ramp_panel.update()
-
-        # Update turbo pump status display
-        if self.turbo_controller:
-            self.turbo_panel.update_status_display()
 
         gui_profiler.start("safety_interlocks")
         # Update safety interlocks
@@ -1721,16 +1590,6 @@ class MainWindow:
             handle = self.connection.get_handle()
             self.tc_reader = ThermocoupleReader(handle, self.config['thermocouples'])
 
-            turbo_config = self.config.get('turbo_pump', {})
-            if turbo_config.get('enabled', False):
-                try:
-                    self.turbo_controller = TurboPumpController(handle, turbo_config)
-                    self.turbo_panel.set_controller(self.turbo_controller)
-                    print("Turbo pump controller initialized")
-                except Exception as e:
-                    print(f"Failed to initialize turbo pump controller: {e}")
-                    self.turbo_controller = None
-
             self._check_connections()
             return True
         except Exception:
@@ -1798,12 +1657,6 @@ class MainWindow:
 
         if self.is_logging:
             self.logger.stop_logging()
-
-        if self.turbo_controller:
-            try:
-                self.turbo_controller.cleanup()
-            except Exception:
-                pass
 
         if self.ps_controller:
             try:

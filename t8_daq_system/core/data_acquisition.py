@@ -12,8 +12,7 @@ import random
 
 class DataAcquisition:
     def __init__(self, config, tc_reader=None, frg702_reader=None,
-                 ps_controller=None, turbo_controller=None,
-                 safety_monitor=None, ramp_executor=None,
+                 ps_controller=None, safety_monitor=None, ramp_executor=None,
                  practice_mode=False):
         """
         Initialize the data acquisition engine.
@@ -23,7 +22,6 @@ class DataAcquisition:
             tc_reader: ThermocoupleReader instance (or None for practice mode)
             frg702_reader: FRG702Reader instance (or None)
             ps_controller: PowerSupplyController instance (or None)
-            turbo_controller: TurboPumpController instance (or None)
             safety_monitor: SafetyMonitor instance (or None)
             ramp_executor: RampExecutor instance (or None)
             practice_mode: If True, generate simulated data
@@ -32,7 +30,6 @@ class DataAcquisition:
         self.tc_reader = tc_reader
         self.frg702_reader = frg702_reader
         self.ps_controller = ps_controller
-        self.turbo_controller = turbo_controller
         self.safety_monitor = safety_monitor
         self.ramp_executor = ramp_executor
         self.practice_mode = practice_mode
@@ -58,7 +55,6 @@ class DataAcquisition:
         frg702_readings = {}
         frg702_detail_readings = {}
         ps_readings = {}
-        turbo_readings = {}
 
         if self.practice_mode:
             # Generate simulated thermocouple data
@@ -92,15 +88,6 @@ class DataAcquisition:
                     'PS_Voltage': 12.0 + random.uniform(-0.1, 0.1),
                     'PS_Current': 2.0 + random.uniform(-0.05, 0.05)
                 }
-
-            # Turbo pump readings
-            if self.turbo_controller:
-                turbo_readings = self.turbo_controller.get_status_dict()
-            elif self.config.get('turbo_pump', {}).get('enabled', False):
-                turbo_readings = {
-                    'Turbo_Commanded': 'OFF',
-                    'Turbo_Status': 'OFF'
-                }
         else:
             # Read real hardware
             if self.tc_reader:
@@ -113,10 +100,7 @@ class DataAcquisition:
             if self.ps_controller:
                 ps_readings = self.ps_controller.get_readings()
 
-            if self.turbo_controller:
-                turbo_readings = self.turbo_controller.get_status_dict()
-
-        all_readings = {**tc_readings, **frg702_readings, **ps_readings, **turbo_readings}
+        all_readings = {**tc_readings, **frg702_readings, **ps_readings}
         return timestamp, all_readings, tc_readings, frg702_detail_readings
 
     def start_fast_acquisition(self, callback=None):
@@ -203,7 +187,7 @@ class DataAcquisition:
         return self._acquisition_running
 
     def update_readers(self, tc_reader=None, frg702_reader=None,
-                       ps_controller=None, turbo_controller=None):
+                       ps_controller=None):
         """Update hardware reader references (e.g. after reconnection)."""
         if tc_reader is not None:
             self.tc_reader = tc_reader
@@ -211,5 +195,3 @@ class DataAcquisition:
             self.frg702_reader = frg702_reader
         if ps_controller is not None:
             self.ps_controller = ps_controller
-        if turbo_controller is not None:
-            self.turbo_controller = turbo_controller

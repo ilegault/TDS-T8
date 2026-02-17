@@ -29,9 +29,8 @@ class TestIntegration(unittest.TestCase):
     @patch('t8_daq_system.gui.main_window.LivePlot')
     @patch('t8_daq_system.gui.main_window.SensorPanel')
     @patch('t8_daq_system.gui.main_window.RampPanel')
-    @patch('t8_daq_system.gui.main_window.TurboPumpPanel')
     @patch('t8_daq_system.gui.main_window.PowerSupplyPanel')
-    def test_main_window_init(self, mock_ps_panel, mock_turbo_panel, mock_ramp_panel,
+    def test_main_window_init(self, mock_ps_panel, mock_ramp_panel,
                                mock_panel, mock_plot, mock_tk):
         """Test that MainWindow can be instantiated with all GUI components mocked."""
         app = MainWindow(config_path=self.temp_config.name)

@@ -36,7 +36,7 @@ class RampPanel:
     - Progress bar and current step info
     - Start/Pause/Stop buttons (with safety interlock)
     - Embedded real-time voltage/current plot
-    - Safety interlock indicator (turbo pump required)
+    - Safety status indicator
     """
 
     # Max data points to keep in the embedded plot history
@@ -59,7 +59,6 @@ class RampPanel:
         self._on_ramp_stop: Optional[Callable[[], None]] = None
 
         # Safety interlock state
-        self._turbo_ready = False
         self._emergency_shutdown_active = False
 
         # Embedded plot data
@@ -90,14 +89,14 @@ class RampPanel:
 
         self.ramp_interlock_indicator = tk.Canvas(
             interlock_frame, width=12, height=12,
-            bg='#FF0000', highlightthickness=1, highlightbackground='black'
+            bg='#00FF00', highlightthickness=1, highlightbackground='black'
         )
         self.ramp_interlock_indicator.pack(side=tk.LEFT, padx=5)
 
         self.ramp_interlock_label = ttk.Label(
             interlock_frame,
-            text="RAMP LOCKED - Turbo pump must be running",
-            font=('Arial', 8, 'bold'), foreground='red'
+            text="RAMP READY",
+            font=('Arial', 8, 'bold'), foreground='green'
         )
         self.ramp_interlock_label.pack(side=tk.LEFT)
 
@@ -321,25 +320,13 @@ class RampPanel:
                 pass
 
     def set_turbo_interlock(self, turbo_ready: bool):
-        """Update the turbo pump interlock state.
+        """Update the safety interlock state (deprecated - for backward compatibility).
 
         Args:
-            turbo_ready: True if turbo pump is running at normal speed
+            turbo_ready: Unused (kept for backward compatibility)
         """
-        self._turbo_ready = turbo_ready
-        if turbo_ready:
-            self.ramp_interlock_indicator.config(bg='#00FF00')
-            self.ramp_interlock_label.config(
-                text="RAMP READY - Turbo pump running",
-                foreground='green'
-            )
-        else:
-            self.ramp_interlock_indicator.config(bg='#FF0000')
-            self.ramp_interlock_label.config(
-                text="RAMP LOCKED - Turbo pump must be running",
-                foreground='red'
-            )
-        self._update_start_button_state()
+        # Turbo pump functionality has been removed
+        pass
 
     def set_emergency_shutdown(self, active: bool, message: str = ""):
         """Set the emergency shutdown state.
@@ -358,9 +345,6 @@ class RampPanel:
     def _update_start_button_state(self):
         """Update the start button based on all interlock conditions."""
         if self._emergency_shutdown_active:
-            self.start_btn.config(state='disabled')
-            return
-        if not self._turbo_ready:
             self.start_btn.config(state='disabled')
             return
         if self._current_profile and self.executor and not self.executor.is_active():
@@ -491,15 +475,6 @@ class RampPanel:
 
         if not self._current_profile:
             messagebox.showwarning("No Profile", "Please select a profile first")
-            return
-
-        # Check turbo pump interlock
-        if not self._turbo_ready:
-            messagebox.showwarning(
-                "Cannot Start Power Supply",
-                "Cannot start power supply - Turbo pump must be running.\n\n"
-                "Start the turbo pump first and wait for it to reach normal speed."
-            )
             return
 
         # Check emergency shutdown
