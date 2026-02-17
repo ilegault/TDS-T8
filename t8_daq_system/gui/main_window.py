@@ -330,6 +330,7 @@ class MainWindow:
         self.is_logging = False
         self.read_thread = None
         self._safety_triggered = False
+        self._hardware_init_attempted = False  # Track if deferred init has run
 
         # Mode tracking
         self._viewing_historical = False
@@ -359,12 +360,77 @@ class MainWindow:
         profiler.checkpoint("Safety callbacks registered")
 
         profiler.checkpoint("Starting GUI update loop...")
-        # Start GUI update loop
+
+        # PERFORMANCE FIX: Defer hardware connection until AFTER GUI is shown
+        # This prevents blocking the startup for 10+ seconds
+        # Connection will happen 100ms after GUI appears
+        self.root.after(100, self._deferred_hardware_init)
+
+        # Start GUI update loop (without hardware init)
         self._update_gui()
-        profiler.checkpoint("GUI update loop started")
+        profiler.checkpoint("GUI update loop started (hardware deferred)")
 
         profiler.section("MainWindow.__init__ COMPLETE")
         profiler.summary()
+
+    def _deferred_hardware_init(self):
+        """
+        Initialize hardware connections AFTER GUI is displayed.
+
+        This runs 100ms after the window opens, preventing startup blocking.
+        Called via root.after() from __init__().
+        """
+        print("[DEFERRED] Starting hardware initialization...")
+
+        # Connect to LabJack T8
+        if self.connection:
+            print("[DEFERRED] Connecting to LabJack T8...")
+            if self.connection.connect():
+                print("[DEFERRED] T8 connected successfully")
+
+                # Create thermocouple reader now that we're connected
+                if self.tc_reader is None:
+                    if self._initialize_hardware_readers():
+                        print("[DEFERRED] Hardware readers initialized")
+
+                # Update button states
+                self._update_connection_state(True)
+            else:
+                print("[DEFERRED] T8 connection failed")
+                self._update_connection_state(False)
+
+        # Connect to XGS-600 if configured
+        if self.config.get('xgs600', {}).get('enabled', False):
+            print("[DEFERRED] Connecting to XGS-600...")
+            if self._connect_xgs600():
+                print("[DEFERRED] XGS-600 connected")
+
+        # Connect to Keysight power supply if configured
+        if self.config.get('power_supply', {}).get('enabled', True):
+            print("[DEFERRED] Connecting to Keysight power supply...")
+            if self.ps_connection.connect():
+                print("[DEFERRED] Power supply connected")
+                self._initialize_power_supply()
+
+        # Connect to turbo pump if configured (part of LabJack init)
+        if self.turbo_controller:
+            print("[DEFERRED] Turbo pump controller initialized")
+
+        print("[DEFERRED] Hardware initialization complete")
+        self._hardware_init_attempted = True
+
+    def _update_connection_state(self, connected):
+        """Update UI to reflect connection state"""
+        if connected:
+            self.status_var.set("Connected")
+            # Enable start button and other controls
+            if hasattr(self, 'start_btn'):
+                self.start_btn.config(state='normal')
+        else:
+            self.status_var.set("Disconnected")
+            # Disable controls
+            if hasattr(self, 'start_btn'):
+                self.start_btn.config(state='disabled')
 
     def _build_gui(self):
         """Create all the GUI elements."""
@@ -675,6 +741,7 @@ class MainWindow:
         """Toggle practice mode on/off."""
         self._practice_mode = not self._practice_mode
         if self._practice_mode:
+            self._hardware_init_attempted = True  # Practice mode counts as initialized
             self.practice_btn.config(text="Practice Mode: ON")
             self.start_btn.config(state='normal')
             self.status_var.set("Practice Mode Active")
@@ -1399,11 +1466,12 @@ class MainWindow:
             self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
             return
 
-        # Auto-connect hardware
+        # Auto-connect hardware (only after initial deferred init has attempted)
         lj_connected = self.connection.is_connected()
         if self._practice_mode:
             lj_connected = True
-        elif not lj_connected:
+        elif not lj_connected and self._hardware_init_attempted:
+            # Only auto-reconnect if we've already done the initial deferred init
             if self.connection.connect():
                 if self._initialize_hardware_readers():
                     lj_connected = True
@@ -1427,9 +1495,9 @@ class MainWindow:
         if 'LabJack' in self.indicators:
             self.indicators['LabJack'].config(bg=color)
 
-        # Auto-connect XGS-600
+        # Auto-connect XGS-600 (only after initial deferred init)
         xgs_connected = (self.xgs600 is not None and self.xgs600.is_connected()) or self._practice_mode
-        if not xgs_connected and not self._practice_mode and self.config.get('xgs600', {}).get('enabled', False):
+        if not xgs_connected and not self._practice_mode and self._hardware_init_attempted and self.config.get('xgs600', {}).get('enabled', False):
             if self._connect_xgs600():
                 xgs_connected = True
 
@@ -1437,11 +1505,11 @@ class MainWindow:
         if 'XGS600' in self.indicators:
             self.indicators['XGS600'].config(bg=color)
 
-        # Auto-connect Power Supply
+        # Auto-connect Power Supply (only after initial deferred init)
         ps_connected = self.ps_connection.is_connected() or \
                        (self._practice_mode and self.ps_controller is not None)
 
-        if not ps_connected and not self._practice_mode and self.config.get('power_supply', {}).get('enabled', True):
+        if not ps_connected and not self._practice_mode and self._hardware_init_attempted and self.config.get('power_supply', {}).get('enabled', True):
             if self.ps_connection.connect():
                 ps_connected = True
                 self._initialize_power_supply()
