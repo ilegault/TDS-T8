@@ -1,36 +1,66 @@
 {
-    "defaults": {
-        "temperature_units": "C",
-        "pressure_units": "mbar",
-        "internal_acquisition_ms": 1000,
-        "display_acquisition_ms": 1000,
-        "axis_scales": {
-            "use_absolute": false,
-            "temp_range": [0, 500],
-            "press_range": [1e-9, 1e-3],
-            "voltage_range": [0, 10],
-            "current_range": [0, 100]
-        }
-    },
-    "thermocouples": [
-        {"name": "TC_1", "channel": 0, "type": "C", "units": "C", "enabled": true}
-    ],
-    "xgs600": {
-        "enabled": true,
-        "port": "COM3",
-        "baudrate": 9600,
-        "timeout": 1.0,
-        "address": "00"
-    },
-    "frg702_gauges": [
-        {"name": "FRG702_Chamber", "sensor_code": "T1", "units": "Torr", "enabled": true}
-    ],
-    "turbo_pump": {
-        "enabled": true,
-        "start_stop_channel": "DIO0",
-        "status_channel": "DIO1",
-        "start_delay_ms": 500,
-        "stop_delay_ms": 500,
-        "min_restart_delay_s": 30
+  "defaults": {
+    "temperature_units": "C",
+    "pressure_units": "mbar",
+    "internal_acquisition_ms": 1000,
+    "display_acquisition_ms": 1000,
+    "axis_scales": {
+      "use_absolute": false,
+      "temp_range": [
+        0,
+        500
+      ],
+      "press_range": [
+        1e-9,
+        1e-3
+      ],
+      "voltage_range": [
+        0,
+        10
+      ],
+      "current_range": [
+        0,
+        100
+      ]
     }
+  },
+  "thermocouples": [
+    {
+      "name": "TC_1",
+      "channel": 0,
+      "type": "C",
+      "units": "C",
+      "enabled": true
+    }
+  ],
+  "xgs600": {
+    "enabled": true,
+    "port": "COM3",
+    "baudrate": 9600,
+    "timeout": 1.0,
+    "address": "00"
+  },
+  "frg702_gauges": [
+    {
+      "name": "FRG702_Chamber",
+      "sensor_code": "T1",
+      "units": "Torr",
+      "enabled": true
+    }
+  ],
+  "turbo_pump": {
+    "enabled": true,
+    "start_stop_channel": "DIO0",
+    "status_channel": "DIO1",
+    "start_delay_ms": 500,
+    "stop_delay_ms": 500,
+    "min_restart_delay_s": 30
+  },
+  "power_supply": {
+    "visa_resource": "TCPIP0::169.254.57.0::inst0::INSTR",
+    "voltage_limit": 20.0,
+    "current_limit": 50.0
+  }
 }
+
+

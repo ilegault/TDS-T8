@@ -364,7 +364,7 @@ class SafetyMonitor:
         duration = self.RAMPDOWN_DURATION_SEC
         interval = 1.0  # Update every 1 second
 
-        print(f"SAFETY: Starting controlled ramp-down from {start_v:.2f}V over {duration:.0f}s")
+        print(f"SAFETY: Starting controlled ramp-down from {start_v:.3f}V over {duration:.0f}s")
 
         while not self._rampdown_stop_event.is_set():
             elapsed = time.time() - self._rampdown_start_time

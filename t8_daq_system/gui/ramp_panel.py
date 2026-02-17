@@ -165,7 +165,7 @@ class RampPanel:
         self.elapsed_label.pack(side=tk.LEFT)
 
         self.setpoint_label = ttk.Label(
-            time_row, text="Setpoint: 0.00 V", font=('Arial', 8, 'bold')
+            time_row, text="Setpoint: 0.000 V", font=('Arial', 8, 'bold')
         )
         self.setpoint_label.pack(side=tk.LEFT, padx=10)
 
@@ -476,8 +476,8 @@ class RampPanel:
         info = (
             f"Name: {p.name}\n"
             f"Steps: {p.get_step_count()}  |  Duration: {mins}m {secs}s\n"
-            f"Start: {p.start_voltage:.1f}V  |  End: {p.get_final_voltage():.1f}V\n"
-            f"Current Limit: {p.current_limit:.1f}A"
+            f"Start: {p.start_voltage:.3f}V  |  End: {p.get_final_voltage():.3f}V\n"
+            f"Current Limit: {p.current_limit:.3f}A"
         )
         if p.description:
             info += f"\n{p.description}"
@@ -621,7 +621,7 @@ class RampPanel:
     def _on_executor_setpoint_change(self, setpoint: float):
         try:
             self.parent.after(0, lambda: self.setpoint_label.config(
-                text=f"Setpoint: {setpoint:.2f} V"
+                text=f"Setpoint: {setpoint:.3f} V"
             ))
         except Exception:
             pass
@@ -663,7 +663,7 @@ class RampPanel:
         self.remaining_label.config(text=f"Remaining: {r_mins:02d}:{r_secs:02d}")
 
         setpoint = self.executor.get_current_setpoint()
-        self.setpoint_label.config(text=f"Setpoint: {setpoint:.2f} V")
+        self.setpoint_label.config(text=f"Setpoint: {setpoint:.3f} V")
 
         if self.executor.profile:
             current_step = self.executor.current_step

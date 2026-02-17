@@ -97,7 +97,7 @@ class PowerSupplyPanel:
         v_frame.pack(side=tk.LEFT, expand=True)
         ttk.Label(v_frame, text="Voltage", font=('Arial', 8)).pack()
         self.voltage_display = ttk.Label(
-            v_frame, text="---.--", font=('Arial', 16, 'bold')
+            v_frame, text="---.---", font=('Arial', 16, 'bold')
         )
         self.voltage_display.pack()
         ttk.Label(v_frame, text="V", font=('Arial', 10)).pack()
@@ -107,7 +107,7 @@ class PowerSupplyPanel:
         a_frame.pack(side=tk.LEFT, expand=True)
         ttk.Label(a_frame, text="Current", font=('Arial', 8)).pack()
         self.current_display = ttk.Label(
-            a_frame, text="---.--", font=('Arial', 16, 'bold')
+            a_frame, text="---.---", font=('Arial', 16, 'bold')
         )
         self.current_display.pack()
         ttk.Label(a_frame, text="A", font=('Arial', 10)).pack()
@@ -136,8 +136,8 @@ class PowerSupplyPanel:
         else:
             self.status_indicator.config(bg='#333333')
             self.status_label.config(text="Disconnected")
-            self.voltage_display.config(text="---.--")
-            self.current_display.config(text="---.--")
+            self.voltage_display.config(text="---.---")
+            self.current_display.config(text="---.---")
 
         self._update_output_indicator()
 
@@ -195,15 +195,15 @@ class PowerSupplyPanel:
 
             if voltage is not None:
                 self._last_voltage = voltage
-                self.voltage_display.config(text=f"{voltage:.2f}")
+                self.voltage_display.config(text=f"{voltage:.3f}")
             else:
-                self.voltage_display.config(text="---.--")
+                self.voltage_display.config(text="---.---")
 
             if current is not None:
                 self._last_current = current
-                self.current_display.config(text=f"{current:.2f}")
+                self.current_display.config(text=f"{current:.3f}")
             else:
-                self.current_display.config(text="---.--")
+                self.current_display.config(text="---.---")
 
         try:
             self._output_on = self.controller.is_output_on()
