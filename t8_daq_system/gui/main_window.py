@@ -88,6 +88,7 @@ from t8_daq_system.hardware.thermocouple_reader import ThermocoupleReader
 from t8_daq_system.hardware.xgs600_controller import XGS600Controller
 from t8_daq_system.hardware.frg702_reader import FRG702Reader
 from t8_daq_system.hardware.keysight_connection import KeysightConnection
+from t8_daq_system.hardware.keysight_background_monitor import KeysightBackgroundMonitor
 from t8_daq_system.hardware.power_supply_controller import PowerSupplyController
 from t8_daq_system.control.ramp_executor import RampExecutor
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
@@ -279,6 +280,11 @@ class MainWindow:
         profiler.checkpoint("KeysightConnection instance created (not connected yet)")
         self.ps_controller = None
 
+        profiler.checkpoint("Creating KeysightBackgroundMonitor instance")
+        # Initialize background monitor for Keysight (will be started after connection)
+        self.keysight_monitor = KeysightBackgroundMonitor(self.ps_connection)
+        profiler.checkpoint("KeysightBackgroundMonitor instance created (not started yet)")
+
         profiler.section("Control Systems Initialization")
         profiler.checkpoint("Creating RampExecutor...")
         # Initialize ramp executor and safety monitor
@@ -439,6 +445,9 @@ class MainWindow:
             if self.ps_connection.connect():
                 print("[DEFERRED] Power supply connected")
                 self._initialize_power_supply()
+                # Start background monitoring thread for Keysight
+                self.keysight_monitor.start()
+                print("[DEFERRED] Keysight background monitor started")
 
         print("[DEFERRED] Hardware initialization complete")
         self._hardware_init_attempted = True
@@ -1499,13 +1508,22 @@ class MainWindow:
         if ps_connected and self.ps_controller:
             if self._practice_mode:
                 self.ps_panel.set_connected(True)
-
-            ps_readings = self.ps_controller.get_readings()
-            self.ps_panel.update(ps_readings)
+                ps_readings = self.ps_controller.get_readings()
+                self.ps_panel.update(ps_readings)
+                voltage = ps_readings.get('PS_Voltage', 0.0)
+                current = ps_readings.get('PS_Current', 0.0)
+            else:
+                # Use cached data from background monitor (instant response)
+                cached_data = self.keysight_monitor.get_latest_data()
+                ps_readings = {
+                    'PS_Voltage': cached_data['voltage'],
+                    'PS_Current': cached_data['current']
+                }
+                self.ps_panel.update(ps_readings)
+                voltage = cached_data['voltage'] if cached_data['voltage'] is not None else 0.0
+                current = cached_data['current'] if cached_data['current'] is not None else 0.0
 
             # Feed V/I data into ramp panel's embedded plot
-            voltage = ps_readings.get('PS_Voltage', 0.0)
-            current = ps_readings.get('PS_Current', 0.0)
             if self.is_running:
                 self.ramp_panel.update_plot_data(
                     voltage if voltage is not None else 0.0,
@@ -1664,6 +1682,10 @@ class MainWindow:
                 self.ps_controller.set_voltage(0)
             except Exception:
                 pass
+
+        # Stop background monitor thread before disconnecting
+        if hasattr(self, 'keysight_monitor'):
+            self.keysight_monitor.stop()
 
         if self.ps_connection:
             self.ps_connection.disconnect()
