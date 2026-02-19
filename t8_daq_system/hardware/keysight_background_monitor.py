@@ -41,22 +41,27 @@ class KeysightBackgroundMonitor:
 
     def _monitor_loop(self):
         """This runs in the background thread - talks to hardware"""
+        backoff = 0.5
+        max_backoff = 10.0
+
         while self.running:
             try:
-                # Try to read from hardware (this is slow, but OK here)
-                instrument = self.keysight.get_instrument()
-                if instrument is None:
-                    # Not connected, sleep and try again
-                    with self.lock:
-                        self.latest_error = "Not connected"
-                    time.sleep(0.5)
-                    continue
+                # Acquire the VISA lock to prevent interleaving with other threads
+                with self.keysight.visa_lock:
+                    instrument = self.keysight.get_instrument()
+                    if instrument is None:
+                        with self.lock:
+                            self.latest_error = "Not connected"
+                        self.keysight.mark_disconnected()
+                        time.sleep(backoff)
+                        backoff = min(backoff * 2, max_backoff)
+                        continue
 
-                voltage = float(instrument.query("MEAS:VOLT?").strip())
-                current = float(instrument.query("MEAS:CURR?").strip())
-                output_state = instrument.query("OUTP?").strip() == "1"
+                    voltage = float(instrument.query("MEAS:VOLT?").strip())
+                    current = float(instrument.query("MEAS:CURR?").strip())
+                    output_state = instrument.query("OUTP?").strip() == "1"
 
-                # Update the latest values (thread-safe)
+                # Update the latest values (thread-safe via data lock)
                 with self.lock:
                     self.latest_voltage = voltage
                     self.latest_current = current
@@ -64,11 +69,20 @@ class KeysightBackgroundMonitor:
                     self.latest_error = None
                     self.last_update_time = time.time()
 
+                # Communication succeeded - mark connected and reset backoff
+                self.keysight.mark_connected()
+                backoff = 0.5
+
             except Exception as e:
                 with self.lock:
                     self.latest_error = str(e)
+                self.keysight.mark_disconnected()
+                # Exponential backoff on error
+                time.sleep(backoff)
+                backoff = min(backoff * 2, max_backoff)
+                continue
 
-            # Wait 0.5 seconds before next reading
+            # Normal polling interval
             time.sleep(0.5)
 
     def get_latest_data(self):

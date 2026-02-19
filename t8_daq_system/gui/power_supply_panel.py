@@ -205,11 +205,8 @@ class PowerSupplyPanel:
             else:
                 self.current_display.config(text="---.---")
 
-        try:
-            self._output_on = self.controller.is_output_on()
-            self._update_output_indicator()
-        except Exception:
-            pass
+        # Output state is provided externally via update_output_state()
+        # to avoid sending VISA commands from the GUI thread.
 
     def update_output_state(self, is_on: bool):
         self._output_on = is_on

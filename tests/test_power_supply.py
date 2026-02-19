@@ -77,28 +77,56 @@ class TestKeysightConnection(unittest.TestCase):
         self.mock_instrument.write.assert_called_with("OUTP OFF")
         self.mock_instrument.close.assert_called()
 
-    def test_is_connected_queries_device(self):
-        """Test that is_connected performs actual device query."""
+    def test_is_connected_returns_true_after_connect(self):
+        """Test that is_connected returns True after successful connect (no VISA query)."""
         conn = KeysightConnection(resource_string="USB0::...")
         conn.connect()
 
         result = conn.is_connected()
 
         self.assertTrue(result)
-        # Should have called *IDN? during connect and again during is_connected
-        self.assertGreaterEqual(self.mock_instrument.query.call_count, 2)
+        # is_connected should NOT send an additional *IDN? query (only connect does)
+        self.assertEqual(self.mock_instrument.query.call_count, 1)
 
-    def test_is_connected_returns_false_on_error(self):
-        """Test that is_connected returns False when device doesn't respond."""
+    def test_is_connected_returns_false_after_disconnect(self):
+        """Test that is_connected returns False after disconnect."""
         conn = KeysightConnection(resource_string="USB0::...")
         conn.connect()
+        self.assertTrue(conn.is_connected())
 
-        # Now make query fail
-        self.mock_instrument.query.side_effect = Exception("Timeout")
+        conn.disconnect()
 
-        result = conn.is_connected()
+        self.assertFalse(conn.is_connected())
 
-        self.assertFalse(result)
+    def test_mark_disconnected_clears_connected_state(self):
+        """Test that mark_disconnected makes is_connected return False."""
+        conn = KeysightConnection(resource_string="USB0::...")
+        conn.connect()
+        self.assertTrue(conn.is_connected())
+
+        conn.mark_disconnected()
+
+        self.assertFalse(conn.is_connected())
+
+    def test_mark_connected_sets_connected_state(self):
+        """Test that mark_connected makes is_connected return True."""
+        conn = KeysightConnection(resource_string="USB0::...")
+        conn.connect()
+        conn.mark_disconnected()
+        self.assertFalse(conn.is_connected())
+
+        conn.mark_connected()
+
+        self.assertTrue(conn.is_connected())
+
+    def test_visa_lock_is_acquirable(self):
+        """Test that visa_lock property returns an acquirable lock."""
+        conn = KeysightConnection(resource_string="USB0::...")
+        lock = conn.visa_lock
+        self.assertIsNotNone(lock)
+        acquired = lock.acquire(blocking=False)
+        self.assertTrue(acquired)
+        lock.release()
 
     def test_auto_detect_finds_n5761a(self):
         """Test auto-detection of N5761A power supply."""

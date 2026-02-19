@@ -4,6 +4,8 @@ PURPOSE: Connect to Keysight N5761A DC Power Supply via VISA and manage the conn
 FLOW: Open VISA session -> Verify with *IDN? -> Return resource -> Close when done
 """
 
+import threading
+
 import pyvisa
 
 
@@ -27,6 +29,8 @@ class KeysightConnection:
         self.resource_manager = None
         self.instrument = None
         self.device_info = None
+        self._lock = threading.Lock()
+        self._connected = False
 
     def connect(self):
         """
@@ -63,6 +67,7 @@ class KeysightConnection:
             self._parse_idn(idn)
 
             print(f"Connected to {self.device_info['model']}, Serial: {self.device_info['serial_number']}")
+            self._connected = True
             return True
 
         except (pyvisa.Error, Exception) as e:
@@ -130,6 +135,7 @@ class KeysightConnection:
                 pass
             self.instrument = None
         self.device_info = None
+        self._connected = False
 
     def disconnect(self):
         """Always call this when done!"""
@@ -146,25 +152,29 @@ class KeysightConnection:
                 pass
 
             self.instrument = None
+            self._connected = False
             print("Disconnected from Keysight Power Supply")
 
     def get_instrument(self):
         """Other parts of code use this to talk to the device."""
         return self.instrument
 
-    def is_connected(self):
-        """Check if device is currently connected and responsive by performing a small read."""
-        if self.instrument is None:
-            return False
+    @property
+    def visa_lock(self):
+        """Lock that must be held for any VISA I/O on this connection's instrument."""
+        return self._lock
 
-        try:
-            # A real query is more reliable than connection status
-            self.instrument.query("*IDN?")
-            return True
-        except (pyvisa.Error, Exception):
-            # Connection lost or instrument invalid
-            self.instrument = None
-            return False
+    def is_connected(self):
+        """Check if device is believed to be connected (lightweight, no VISA I/O)."""
+        return self._connected and self.instrument is not None
+
+    def mark_connected(self):
+        """Called by the background monitor when it successfully communicates."""
+        self._connected = True
+
+    def mark_disconnected(self):
+        """Called by the background monitor when it detects the instrument is unreachable."""
+        self._connected = False
 
     def get_device_info(self):
         """

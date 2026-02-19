@@ -399,13 +399,28 @@ class MainWindow:
             return  # Already trying
 
         def _try_connect():
-            success = self.ps_connection.connect()
-            # Schedule UI update back on main thread
+            # Stop the monitor so it doesn't race with reconnection
+            self.keysight_monitor.stop()
+
+            # Acquire the VISA lock during reconnection
+            with self.ps_connection.visa_lock:
+                success = self.ps_connection.connect()
+
             if success:
-                self.root.after(0, self._initialize_power_supply)
+                self.root.after(0, self._on_ps_reconnected)
+            else:
+                # Restart monitor even on failure so it can detect recovery
+                self.keysight_monitor.start()
 
         self._ps_reconnect_thread = threading.Thread(target=_try_connect, daemon=True)
         self._ps_reconnect_thread.start()
+
+    def _on_ps_reconnected(self):
+        """Called on main thread after successful power supply reconnection."""
+        self._initialize_power_supply()
+        # Restart the background monitor with the fresh connection
+        if not self.is_running:
+            self.keysight_monitor.start()
 
     def _deferred_hardware_init(self):
         """
@@ -1332,6 +1347,9 @@ class MainWindow:
 
         self.data_buffer.clear()
 
+        # Stop background monitor to avoid VISA conflicts with DAQ thread
+        self.keysight_monitor.stop()
+
         self.daq = DataAcquisition(
             config=self.config,
             tc_reader=self.tc_reader,
@@ -1375,6 +1393,10 @@ class MainWindow:
 
         if self.daq:
             self.daq.stop_fast_acquisition()
+
+        # Restart background monitor now that DAQ is no longer using the instrument
+        if self.ps_connection.is_connected():
+            self.keysight_monitor.start()
 
         self.start_btn.config(state='normal')
         self.stop_btn.config(state='disabled')
@@ -1510,16 +1532,19 @@ class MainWindow:
                 self.ps_panel.set_connected(True)
                 ps_readings = self.ps_controller.get_readings()
                 self.ps_panel.update(ps_readings)
+                self.ps_panel.update_output_state(self.ps_controller.is_output_on())
                 voltage = ps_readings.get('PS_Voltage', 0.0)
                 current = ps_readings.get('PS_Current', 0.0)
             else:
-                # Use cached data from background monitor (instant response)
+                # Use cached data from background monitor (instant, no VISA I/O)
                 cached_data = self.keysight_monitor.get_latest_data()
                 ps_readings = {
                     'PS_Voltage': cached_data['voltage'],
                     'PS_Current': cached_data['current']
                 }
                 self.ps_panel.update(ps_readings)
+                if cached_data['output_state'] is not None:
+                    self.ps_panel.update_output_state(cached_data['output_state'])
                 voltage = cached_data['voltage'] if cached_data['voltage'] is not None else 0.0
                 current = cached_data['current'] if cached_data['current'] is not None else 0.0
 
