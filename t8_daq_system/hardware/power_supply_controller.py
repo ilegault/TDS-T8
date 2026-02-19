@@ -339,9 +339,10 @@ class PowerSupplyController:
         with the data logging system.
 
         Returns:
-            dict: {'PS_Voltage': float, 'PS_Current': float}
+            dict: {'PS_Voltage': float, 'PS_Current': float, 'PS_Output_On': bool}
         """
         return {
             'PS_Voltage': self.get_voltage(),
-            'PS_Current': self.get_current()
+            'PS_Current': self.get_current(),
+            'PS_Output_On': self.is_output_on()
         }

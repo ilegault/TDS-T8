@@ -1536,17 +1536,34 @@ class MainWindow:
                 voltage = ps_readings.get('PS_Voltage', 0.0)
                 current = ps_readings.get('PS_Current', 0.0)
             else:
-                # Use cached data from background monitor (instant, no VISA I/O)
-                cached_data = self.keysight_monitor.get_latest_data()
-                ps_readings = {
-                    'PS_Voltage': cached_data['voltage'],
-                    'PS_Current': cached_data['current']
-                }
-                self.ps_panel.update(ps_readings)
-                if cached_data['output_state'] is not None:
-                    self.ps_panel.update_output_state(cached_data['output_state'])
-                voltage = cached_data['voltage'] if cached_data['voltage'] is not None else 0.0
-                current = cached_data['current'] if cached_data['current'] is not None else 0.0
+                if self.is_running:
+                    # Use data from DAQ thread (via DataBuffer)
+                    daq_data = self.data_buffer.get_all_current()
+                    ps_readings = {
+                        'PS_Voltage': daq_data.get('PS_Voltage'),
+                        'PS_Current': daq_data.get('PS_Current')
+                    }
+                    self.ps_panel.update(ps_readings)
+                    
+                    # Output state is now included in DAQ data
+                    output_state = daq_data.get('PS_Output_On')
+                    if output_state is not None:
+                        self.ps_panel.update_output_state(output_state)
+                    
+                    voltage = daq_data.get('PS_Voltage') if daq_data.get('PS_Voltage') is not None else 0.0
+                    current = daq_data.get('PS_Current') if daq_data.get('PS_Current') is not None else 0.0
+                else:
+                    # Use cached data from background monitor (instant, no VISA I/O)
+                    cached_data = self.keysight_monitor.get_latest_data()
+                    ps_readings = {
+                        'PS_Voltage': cached_data['voltage'],
+                        'PS_Current': cached_data['current']
+                    }
+                    self.ps_panel.update(ps_readings)
+                    if cached_data['output_state'] is not None:
+                        self.ps_panel.update_output_state(cached_data['output_state'])
+                    voltage = cached_data['voltage'] if cached_data['voltage'] is not None else 0.0
+                    current = cached_data['current'] if cached_data['current'] is not None else 0.0
 
             # Feed V/I data into ramp panel's embedded plot
             if self.is_running:

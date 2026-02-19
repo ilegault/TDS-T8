@@ -342,14 +342,16 @@ class TestPowerSupplyController(unittest.TestCase):
 
     def test_get_readings_returns_dict(self):
         """Test that get_readings returns properly formatted dict for logging."""
-        self.mock_instrument.query.side_effect = ["5.0\n", "2.5\n"]
+        self.mock_instrument.query.side_effect = ["5.0\n", "2.5\n", "1\n"]
 
         readings = self.controller.get_readings()
 
         self.assertIn('PS_Voltage', readings)
         self.assertIn('PS_Current', readings)
+        self.assertIn('PS_Output_On', readings)
         self.assertAlmostEqual(readings['PS_Voltage'], 5.0)
         self.assertAlmostEqual(readings['PS_Current'], 2.5)
+        self.assertTrue(readings['PS_Output_On'])
 
     def test_voltage_setpoint_query(self):
         """Test get_voltage_setpoint queries correct register."""
