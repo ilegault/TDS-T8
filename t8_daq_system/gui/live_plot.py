@@ -91,10 +91,14 @@ class LivePlot:
         self._temp_unit = "°C"
         self._press_unit = "mbar"
 
-    def set_absolute_scales(self, enabled=True, temp_range=None, press_range=None, 
+    def set_absolute_scales(self, enabled=True, temp_range=None, press_range=None,
                             ps_v_range=None, ps_i_range=None):
         """
         Enable or disable absolute (fixed) axis scales.
+
+        When switching TO relative mode (enabled=False) the axes are immediately
+        relim'd/autoscaled so the change is visible without waiting for the next
+        data tick.
 
         Args:
             enabled: Whether to use absolute scales
@@ -108,6 +112,14 @@ class LivePlot:
         self._press_range = press_range if press_range else self.DEFAULT_PRESS_RANGE
         self._ps_v_range = ps_v_range if ps_v_range else self.DEFAULT_PS_V_RANGE
         self._ps_i_range = ps_i_range if ps_i_range else self.DEFAULT_PS_I_RANGE
+
+        # Issue 2 fix: when switching to relative mode, reset axis bounds immediately
+        if not enabled:
+            self.ax.relim()
+            self.ax.autoscale_view()
+            if self.ax_frg702 is not None:
+                self.ax_frg702.relim()
+                self.ax_frg702.autoscale_view()
 
     def set_units(self, temp_unit="°C", press_unit="mbar"):
         """Set the unit labels for the axes."""

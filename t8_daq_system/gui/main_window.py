@@ -13,7 +13,6 @@ Safety features:
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-import json
 import threading
 import time
 import os
@@ -100,8 +99,10 @@ from t8_daq_system.utils.helpers import convert_temperature
 from t8_daq_system.gui.power_supply_panel import PowerSupplyPanel
 from t8_daq_system.gui.ramp_panel import RampPanel
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog, AxisScaleDialog
+from t8_daq_system.gui.settings_dialog import SettingsDialog
 from t8_daq_system.core.data_acquisition import DataAcquisition
 from t8_daq_system.detailed_profiler import mainwindow_profiler as profiler
+from t8_daq_system.settings.app_settings import AppSettings
 
 
 class MockPowerSupplyController:
@@ -170,83 +171,30 @@ class MainWindow:
     # Available sampling rates in milliseconds
     SAMPLE_RATES = [100, 200, 500, 1000, 2000]
 
-    def __init__(self, config_path=None):
+    def __init__(self, settings=None):
         profiler.section("MainWindow.__init__ START")
         profiler.checkpoint("Entering __init__ method")
 
-        # Default configuration
-        self.config = {
-            "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
-            "thermocouples": [{"name": "TC_1", "channel": 0, "type": "C", "units": "C", "enabled": True}],
-            "power_supply": {
-                "enabled": True,
-                "visa_resource": None,
-                "default_voltage_limit": 20.0,
-                "default_current_limit": 50.0,
-                "safety": {
-                    "max_temperature": 2300,
-                    "watchdog_sensor": "TC_1",
-                    "auto_shutoff": True,
-                    "warning_threshold": 0.9
-                }
-            },
-            "logging": {"interval_ms": 1000, "file_prefix": "data_log", "auto_start": False},
-            "display": {"update_rate_ms": 1000, "history_seconds": 60}
-        }
-        profiler.checkpoint("Default config dictionary created")
+        # Persistent settings (registry-backed).  If no settings object was
+        # provided, create one and load from registry now (covers edge cases
+        # such as direct instantiation in tests).
+        if settings is None:
+            settings = AppSettings()
+            settings.load()
+        self._app_settings = settings
 
-        # Default Axis scale settings
-        self._use_absolute_scales = True
-        self._temp_range = (0, 2500)
-        self._press_range = (1e-9, 1e-3)
-        self._ps_v_range = (0, 100)
-        self._ps_i_range = (0, 100)
+        # Build the internal config dict from AppSettings
+        self.config = self._build_config_from_settings(settings)
+        profiler.checkpoint("Config built from AppSettings")
 
-        if config_path and os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    loaded_config = json.load(f)
-                    self.config.update(loaded_config)
-                    
-                    # Apply defaults if present
-                    if 'defaults' in loaded_config:
-                        defaults = loaded_config['defaults']
-                        
-                        # Apply temperature units
-                        if 'temperature_units' in defaults:
-                            for tc in self.config.get('thermocouples', []):
-                                if 'units' not in tc:
-                                    tc['units'] = defaults['temperature_units']
-                        
-                        # Apply pressure units
-                        if 'pressure_units' in defaults:
-                            for gauge in self.config.get('frg702_gauges', []):
-                                if 'units' not in gauge:
-                                    gauge['units'] = defaults['pressure_units']
-                        
-                        # Apply acquisition rates
-                        if 'internal_acquisition_ms' in defaults:
-                            self.config['logging']['interval_ms'] = defaults['internal_acquisition_ms']
-                        elif 'acquisition_rate' in defaults:
-                            rate_hz = defaults['acquisition_rate']
-                            if rate_hz > 0:
-                                self.config['logging']['interval_ms'] = int(1000 / rate_hz)
-                                
-                        if 'display_acquisition_ms' in defaults:
-                            self.config['display']['update_rate_ms'] = defaults['display_acquisition_ms']
+        # Axis scale settings (from AppSettings)
+        self._use_absolute_scales = settings.use_absolute_scales
+        self._temp_range  = settings.temp_range
+        self._press_range = settings.press_range
+        self._ps_v_range  = settings.ps_v_range
+        self._ps_i_range  = settings.ps_i_range
 
-                        # Apply axis scales
-                        if 'axis_scales' in defaults:
-                            scales = defaults['axis_scales']
-                            self._use_absolute_scales = scales.get('use_absolute', True)
-                            if 'temp_range' in scales: self._temp_range = tuple(scales['temp_range'])
-                            if 'press_range' in scales: self._press_range = tuple(scales['press_range'])
-                            if 'voltage_range' in scales: self._ps_v_range = tuple(scales['voltage_range'])
-                            if 'current_range' in scales: self._ps_i_range = tuple(scales['current_range'])
-            except Exception as e:
-                print(f"Error loading config from {config_path}: {e}")
-
-        profiler.checkpoint("Config file loaded (if present)")
+        profiler.checkpoint("Axis scale settings applied")
 
         profiler.checkpoint("About to create tk.Tk() root window")
         self.root = tk.Tk()
@@ -274,8 +222,10 @@ class MainWindow:
         profiler.section("Keysight Power Supply Connection")
         profiler.checkpoint("Creating KeysightConnection instance")
         # Initialize Keysight power supply components
+        # Prefer visa_resource from AppSettings (overrides config default)
+        _visa = settings.visa_resource.strip() if settings.visa_resource else None
         self.ps_connection = KeysightConnection(
-            resource_string=self.config.get('power_supply', {}).get('visa_resource')
+            resource_string=_visa or self.config.get('power_supply', {}).get('visa_resource')
         )
         profiler.checkpoint("KeysightConnection instance created (not connected yet)")
         self.ps_controller = None
@@ -312,8 +262,10 @@ class MainWindow:
         else:
             # If run as a script, use the parent of t8_daq_system
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
-        self.log_folder = os.path.join(base_dir, 'logs')
+
+        # Use registry-persisted log folder if set, otherwise default to base_dir/logs
+        _custom_log = settings.log_folder if settings.log_folder else ""
+        self.log_folder = _custom_log if _custom_log else os.path.join(base_dir, 'logs')
         self.profiles_folder = os.path.join(base_dir, 'config', 'profiles')
 
         if not os.path.exists(self.profiles_folder):
@@ -393,6 +345,124 @@ class MainWindow:
         profiler.section("MainWindow.__init__ COMPLETE")
         profiler.summary()
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # AppSettings helpers
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_config_from_settings(s):
+        """
+        Translate an AppSettings object into the internal config dictionary
+        used by the rest of MainWindow.
+        """
+        # Build thermocouple list
+        thermocouples = []
+        for i in range(s.tc_count):
+            thermocouples.append({
+                "name": f"TC_{i+1}",
+                "channel": i,
+                "type": s.tc_type,
+                "units": s.tc_unit,
+                "enabled": True
+            })
+
+        # Build FRG-702 list
+        frg702_gauges = []
+        for i in range(s.frg_count):
+            frg702_gauges.append({
+                "name": f"FRG702_{i+1}",
+                "sensor_code": f"T{i+1}",
+                "units": s.p_unit,
+                "enabled": True
+            })
+
+        visa = s.visa_resource.strip() if s.visa_resource else None
+
+        return {
+            "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
+            "thermocouples": thermocouples,
+            "frg702_gauges": frg702_gauges,
+            "power_supply": {
+                "enabled": True,
+                "visa_resource": visa or None,
+                "default_voltage_limit": 20.0,
+                "default_current_limit": 50.0,
+                "safety": {
+                    "max_temperature": 2300,
+                    "watchdog_sensor": "TC_1" if s.tc_count > 0 else None,
+                    "auto_shutoff": True,
+                    "warning_threshold": 0.9
+                }
+            },
+            "logging": {
+                "interval_ms": s.sample_rate_ms,
+                "file_prefix": "data_log",
+                "auto_start": False
+            },
+            "display": {
+                "update_rate_ms": s.display_rate_ms,
+                "history_seconds": 60
+            }
+        }
+
+    def _save_quick_config_to_settings(self):
+        """
+        Persist the current Quick Config dropdown values to the registry.
+        Called whenever any Quick Config widget changes.
+        """
+        s = self._app_settings
+        s.tc_count        = int(self.tc_count_var.get())
+        s.tc_type         = self.tc_type_var.get()
+        s.tc_unit         = self.t_unit_var.get()
+        s.frg_count       = int(self.frg_count_var.get())
+        s.p_unit          = self.p_unit_var.get()
+        # Parse "1000ms" → 1000
+        try:
+            s.sample_rate_ms  = int(self.sample_rate_var.get().replace('ms', ''))
+        except ValueError:
+            pass
+        try:
+            s.display_rate_ms = int(self.display_rate_var.get().replace('ms', ''))
+        except ValueError:
+            pass
+        s.save()
+
+    def _apply_settings_to_gui(self):
+        """
+        Apply a freshly-saved AppSettings to the live GUI.
+        Called from SettingsDialog's on_save callback.
+        """
+        s = self._app_settings
+
+        # Update axis scale state
+        self._use_absolute_scales = s.use_absolute_scales
+        self._temp_range  = s.temp_range
+        self._press_range = s.press_range
+        self._ps_v_range  = s.ps_v_range
+        self._ps_i_range  = s.ps_i_range
+
+        # Update Quick Config dropdowns (without triggering _on_config_change)
+        self.tc_count_var.set(str(s.tc_count))
+        self.tc_type_var.set(s.tc_type)
+        self.t_unit_var.set(s.tc_unit)
+        self.frg_count_var.set(str(s.frg_count))
+        self.p_unit_var.set(s.p_unit)
+        self.sample_rate_var.set(f"{s.sample_rate_ms}ms")
+        self.display_rate_var.set(f"{s.display_rate_ms}ms")
+
+        # Update rates in live config
+        self.config['logging']['interval_ms']   = s.sample_rate_ms
+        self.config['display']['update_rate_ms'] = s.display_rate_ms
+        self.data_buffer.sample_rate_ms = s.sample_rate_ms
+
+        # Rebuild sensor config and refresh
+        self._on_config_change()
+
+    def _open_settings_dialog(self):
+        """Open the persistent Settings dialog."""
+        SettingsDialog(self.root, self._app_settings,
+                       on_save_callback=self._apply_settings_to_gui)
+
     def _background_ps_reconnect(self):
         """Try to reconnect Keysight power supply in background thread."""
         if hasattr(self, '_ps_reconnect_thread') and self._ps_reconnect_thread.is_alive():
@@ -428,44 +498,74 @@ class MainWindow:
 
         This runs 100ms after the window opens, preventing startup blocking.
         Called via root.after() from __init__().
+
+        Issue 3c: The Keysight power-supply connection attempt runs in a
+        dedicated background thread so a slow/failed network connection never
+        blocks the main (GUI) thread.  On failure the app continues normally
+        with ps_controller left as None (Disconnected state).
         """
-        print("[DEFERRED] Starting hardware initialization...")
+        try:
+            print("[DEFERRED] Starting hardware initialization...")
 
-        # Connect to LabJack T8
-        if self.connection:
-            print("[DEFERRED] Connecting to LabJack T8...")
-            if self.connection.connect():
-                print("[DEFERRED] T8 connected successfully")
+            # Connect to LabJack T8
+            if self.connection:
+                print("[DEFERRED] Connecting to LabJack T8...")
+                if self.connection.connect():
+                    print("[DEFERRED] T8 connected successfully")
 
-                # Create thermocouple reader now that we're connected
-                if self.tc_reader is None:
-                    if self._initialize_hardware_readers():
-                        print("[DEFERRED] Hardware readers initialized")
+                    # Create thermocouple reader now that we're connected
+                    if self.tc_reader is None:
+                        if self._initialize_hardware_readers():
+                            print("[DEFERRED] Hardware readers initialized")
 
-                # Update button states
-                self._update_connection_state(True)
-            else:
-                print("[DEFERRED] T8 connection failed")
-                self._update_connection_state(False)
+                    # Update button states
+                    self._update_connection_state(True)
+                else:
+                    print("[DEFERRED] T8 connection failed")
+                    self._update_connection_state(False)
 
-        # Connect to XGS-600 if configured
-        if self.config.get('xgs600', {}).get('enabled', False):
-            print("[DEFERRED] Connecting to XGS-600...")
-            if self._connect_xgs600():
-                print("[DEFERRED] XGS-600 connected")
+            # Connect to XGS-600 if configured
+            if self.config.get('xgs600', {}).get('enabled', False):
+                print("[DEFERRED] Connecting to XGS-600...")
+                if self._connect_xgs600():
+                    print("[DEFERRED] XGS-600 connected")
 
-        # Connect to Keysight power supply if configured
-        if self.config.get('power_supply', {}).get('enabled', True):
-            print("[DEFERRED] Connecting to Keysight power supply...")
-            if self.ps_connection.connect():
-                print("[DEFERRED] Power supply connected")
-                self._initialize_power_supply()
-                # Start background monitoring thread for Keysight
-                self.keysight_monitor.start()
-                print("[DEFERRED] Keysight background monitor started")
+            print("[DEFERRED] Hardware initialization (non-PS) complete")
+            self._hardware_init_attempted = True
 
-        print("[DEFERRED] Hardware initialization complete")
-        self._hardware_init_attempted = True
+            # Connect to Keysight power supply in a background thread so it
+            # cannot block or crash the GUI if the network is unavailable.
+            if self.config.get('power_supply', {}).get('enabled', True):
+                def _ps_connect_bg():
+                    try:
+                        print("[DEFERRED-PS] Connecting to Keysight power supply...")
+                        if self.ps_connection.connect():
+                            print("[DEFERRED-PS] Power supply connected")
+                            # Schedule UI update back on the main thread
+                            self.root.after(0, self._on_ps_init_success)
+                        else:
+                            print("[DEFERRED-PS] Power supply not found — running without PS")
+                            # ps_controller remains None; GUI stays in Disconnected PS state
+                    except Exception as exc:
+                        print(f"[DEFERRED-PS] Power supply connection error (non-fatal): {exc}")
+                        # ps_controller remains None; GUI stays in Disconnected PS state
+
+                ps_thread = threading.Thread(target=_ps_connect_bg, daemon=True,
+                                             name="PS-init")
+                ps_thread.start()
+
+        except Exception as exc:
+            print(f"[DEFERRED] Hardware init error (non-fatal): {exc}")
+            self._hardware_init_attempted = True
+
+    def _on_ps_init_success(self):
+        """
+        Called on the main thread after successful background PS connection.
+        Sets up the controller and starts the background monitor.
+        """
+        self._initialize_power_supply()
+        self.keysight_monitor.start()
+        print("[DEFERRED-PS] Keysight background monitor started")
 
     def _update_connection_state(self, connected):
         """Update UI to reflect connection state"""
@@ -484,6 +584,14 @@ class MainWindow:
         """Create all the GUI elements."""
         profiler.checkpoint("_build_gui() entered - creating control frames")
 
+        # ── Menu bar ─────────────────────────────────────────────────────────
+        menubar = tk.Menu(self.root)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(label="Settings…", command=self._open_settings_dialog)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        self.root.config(menu=menubar)
+        profiler.checkpoint("Menu bar created")
+
         # Top frame - Control buttons
         control_frame = ttk.Frame(self.root)
         control_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -500,7 +608,7 @@ class MainWindow:
             values=["0", "1", "2", "3", "4", "5", "6", "7"], width=3
         )
         self.tc_count_combo.pack(side=tk.LEFT, padx=2)
-        self.tc_count_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
+        self.tc_count_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_config_change(), self._save_quick_config_to_settings()))
 
         # TC Type
         ttk.Label(config_area, text="Type:").pack(side=tk.LEFT, padx=2)
@@ -513,7 +621,7 @@ class MainWindow:
             values=["K", "J", "T", "E", "R", "S", "B", "N", "C"], width=3
         )
         self.tc_type_combo.pack(side=tk.LEFT, padx=2)
-        self.tc_type_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
+        self.tc_type_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_config_change(), self._save_quick_config_to_settings()))
 
         # Units Selection
         ttk.Label(config_area, text="T-Unit:").pack(side=tk.LEFT, padx=2)
@@ -526,7 +634,7 @@ class MainWindow:
             values=["C", "F", "K"], width=3
         )
         self.t_unit_combo.pack(side=tk.LEFT, padx=2)
-        self.t_unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
+        self.t_unit_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_config_change(), self._save_quick_config_to_settings()))
 
         # Pressure Units Selection
         ttk.Label(config_area, text="FRGs:").pack(side=tk.LEFT, padx=2)
@@ -537,7 +645,7 @@ class MainWindow:
             values=["0", "1", "2"], width=2
         )
         self.frg_count_combo.pack(side=tk.LEFT, padx=2)
-        self.frg_count_combo.bind("<<ComboboxSelected>>", lambda e: self._on_config_change())
+        self.frg_count_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_config_change(), self._save_quick_config_to_settings()))
 
         ttk.Label(config_area, text="P-Unit:").pack(side=tk.LEFT, padx=2)
         p_unit = "mbar"
@@ -549,7 +657,7 @@ class MainWindow:
             values=["mbar", "Torr", "Pa"], width=5
         )
         self.p_unit_combo.pack(side=tk.LEFT, padx=2)
-        self.p_unit_combo.bind("<<ComboboxSelected>>", lambda e: self._on_pressure_unit_change())
+        self.p_unit_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_pressure_unit_change(), self._save_quick_config_to_settings()))
 
         # Sampling rate dropdown
         ttk.Label(config_area, text="Rate:").pack(side=tk.LEFT, padx=2)
@@ -561,7 +669,7 @@ class MainWindow:
             values=rate_values, width=8
         )
         self.sample_rate_combo.pack(side=tk.LEFT, padx=2)
-        self.sample_rate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_sample_rate_change())
+        self.sample_rate_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_sample_rate_change(), self._save_quick_config_to_settings()))
 
         # Display rate dropdown
         ttk.Label(config_area, text="Display:").pack(side=tk.LEFT, padx=2)
@@ -572,7 +680,7 @@ class MainWindow:
             values=["100ms", "250ms", "500ms", "1000ms"], width=8
         )
         self.display_rate_combo.pack(side=tk.LEFT, padx=2)
-        self.display_rate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_display_rate_change())
+        self.display_rate_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_display_rate_change(), self._save_quick_config_to_settings()))
 
         # Control buttons
         self.start_btn = ttk.Button(
@@ -870,6 +978,14 @@ class MainWindow:
                 self._ps_v_range,
                 self._ps_i_range
             )
+            # Issue 2 fix: force immediate axis relim + redraw after scale mode change
+            self.full_plot.ax.relim()
+            self.full_plot.ax.autoscale_view()
+            if self.full_plot.ax_frg702 is not None:
+                self.full_plot.ax_frg702.relim()
+                self.full_plot.ax_frg702.autoscale_view()
+            self.full_plot.canvas.draw_idle()
+
         if hasattr(self, 'recent_plot'):
             self.recent_plot.set_units(temp_unit_display, press_unit)
             self.recent_plot.set_absolute_scales(
@@ -879,6 +995,13 @@ class MainWindow:
                 self._ps_v_range,
                 self._ps_i_range
             )
+            # Issue 2 fix: force immediate axis relim + redraw after scale mode change
+            self.recent_plot.ax.relim()
+            self.recent_plot.ax.autoscale_view()
+            if self.recent_plot.ax_frg702 is not None:
+                self.recent_plot.ax_frg702.relim()
+                self.recent_plot.ax_frg702.autoscale_view()
+            self.recent_plot.canvas.draw_idle()
 
         sensor_names = [tc['name'] for tc in self.config['thermocouples'] if tc.get('enabled', True)]
         sensor_names += [g['name'] for g in self.config.get('frg702_gauges', []) if g.get('enabled', True)]
@@ -955,6 +1078,14 @@ class MainWindow:
             self._press_range = dialog.result['press_range']
             self._ps_v_range = dialog.result['ps_v_range']
             self._ps_i_range = dialog.result['ps_i_range']
+            # Persist axis scale changes to registry
+            s = self._app_settings
+            s.use_absolute_scales = self._use_absolute_scales
+            s.temp_range_min,  s.temp_range_max  = self._temp_range
+            s.press_range_min, s.press_range_max = self._press_range
+            s.ps_v_range_min,  s.ps_v_range_max  = self._ps_v_range
+            s.ps_i_range_min,  s.ps_i_range_max  = self._ps_i_range
+            s.save()
             self._update_plot_settings()
 
     def _on_load_csv(self):

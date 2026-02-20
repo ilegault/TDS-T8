@@ -5,15 +5,24 @@ PURPOSE: Application entry point for the T8 DAQ System
 
 import sys
 import os
-import shutil
 
 # ============================================================================
-# FROZEN EXE OPTIMIZATIONS - MUST BE BEFORE OTHER IMPORTS
+# ENVIRONMENT VARIABLES — MUST BE FIRST, BEFORE ANY OTHER IMPORTS
+# These suppress slow pyvisa network discovery and zeroconf scanning on every
+# launch regardless of frozen/script mode.  USB is kept enabled for LabJack.
+# ============================================================================
+os.environ['PYVISA_PY_SKIP_TCPIP'] = '1'
+os.environ['PYVISA_PY_SKIP_HISLIP'] = '1'
+os.environ['PYVISA_PY_SKIP_USB']  = '0'    # Keep USB so LabJack still works
+os.environ['ZEROCONF_DISABLE']    = '1'
+
+# ============================================================================
+# FROZEN EXE OPTIMIZATIONS
 # ============================================================================
 if getattr(sys, 'frozen', False):
     print("[FROZEN MODE] Applying performance optimizations...")
 
-    # 1. MATPLOTLIB: Disable font scanning (biggest bottleneck)
+    # Matplotlib: disable font scanning (biggest startup bottleneck)
     os.environ['MPLBACKEND'] = 'TkAgg'
     if hasattr(sys, '_MEIPASS'):
         mpl_data_dir = os.path.join(sys._MEIPASS, 'mpl-data')
@@ -27,49 +36,23 @@ if getattr(sys, 'frozen', False):
     import matplotlib.font_manager as fm
     try:
         fm._load_fontmanager = lambda try_read_cache=True: fm.FontManager()
-    except:
+    except Exception:
         pass
 
     print("[FROZEN MODE] Matplotlib optimization complete")
 
-# 2. PYVISA: Disable slow network discovery
-os.environ['PYVISA_PY_SKIP_TCPIP'] = '1'
-os.environ['PYVISA_PY_SKIP_HISLIP'] = '1'
-
-# 3. ZEROCONF: Disable network service discovery entirely in frozen mode
-if getattr(sys, 'frozen', False):
-    os.environ['PYVISA_PY_SKIP_USB'] = '1'
-    os.environ['ZEROCONF_DISABLE'] = '1'
-
 # ============================================================================
-# Continue with existing code below
+# PATH SETUP
 # ============================================================================
 
 def get_base_dir():
-    """Get the base directory for the application (where the EXE or Project Root is)."""
+    """Get the base directory for the application (where the EXE or project root is)."""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-def get_bundle_dir():
-    """Get the directory where bundled files are extracted (PyInstaller _MEIPASS)."""
-    if getattr(sys, 'frozen', False):
-        return sys._MEIPASS
-    return os.path.dirname(os.path.abspath(__file__))
 
-def setup_external_config(base_dir):
-    """Copy bundled config and profiles to the external folder if they don't exist."""
-    external_config = os.path.join(base_dir, "config")
-    bundle_config = os.path.join(get_bundle_dir(), "config")
-    
-    # If the external config folder doesn't exist, copy the entire bundled config
-    if not os.path.exists(external_config) and os.path.exists(bundle_config):
-        try:
-            shutil.copytree(bundle_config, external_config)
-        except Exception:
-            pass # Silently fail if we can't create it (e.g. permissions)
-
-# Add the project root directory to the path for imports
+# Add the project root directory to the path for imports (script mode only)
 if not getattr(sys, 'frozen', False):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -79,17 +62,17 @@ profiler.log("About to import MainWindow...")
 from t8_daq_system.gui.main_window import MainWindow
 profiler.log("MainWindow import complete")
 
+profiler.log("About to import AppSettings...")
+from t8_daq_system.settings.app_settings import AppSettings
+profiler.log("AppSettings import complete")
+
+
 def main():
     """Launch the T8 DAQ System application."""
     profiler.log("Entering main() function")
 
     base_dir = get_base_dir()
     profiler.log(f"Base directory resolved: {base_dir}")
-
-    # Create the external config folder and copy defaults if missing
-    profiler.log("Setting up config directory")
-    setup_external_config(base_dir)
-    profiler.log("Config directory ready")
 
     # Ensure logs folder exists in the base directory
     profiler.log("Creating logs directory")
@@ -98,17 +81,19 @@ def main():
         os.makedirs(logs_dir, exist_ok=True)
     profiler.log("Logs directory ready")
 
-    config_path = os.path.join(base_dir, "config", "sensor_config.json")
-    profiler.log(f"Config path: {config_path}")
+    # Load persistent settings from Windows Registry (silent defaults on first launch)
+    profiler.log("Loading AppSettings from registry...")
+    settings = AppSettings()
+    settings.load()
+    profiler.log("AppSettings loaded")
 
     profiler.log("Creating MainWindow instance...")
-    app = MainWindow(config_path=config_path if os.path.exists(config_path) else None)
+    app = MainWindow(settings=settings)
     profiler.log("MainWindow instance created")
 
     # Print profiling summary before GUI loop
     profiler.summary()
 
-    # Also show detailed MainWindow profiler summary
     print("\n" + "="*80)
     print("DETAILED MAINWINDOW PROFILER OUTPUT SHOWN ABOVE")
     print("="*80 + "\n")

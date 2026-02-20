@@ -156,10 +156,10 @@ print(f"\nTotal binaries to bundle: {len(binaries)}")
 # ============================================================================
 # DATA FILES (Config and Resources)
 # ============================================================================
+# NOTE: The external sensor_config.json has been replaced by Windows Registry
+# persistence (AppSettings / winreg).  No config files need to be bundled.
 
-datas = [
-    (os.path.join(project_root, 't8_daq_system', 'config'), 't8_daq_system/config'),
-]
+datas = []
 
 print(f"Data files to bundle: {len(datas)}")
 
@@ -219,6 +219,7 @@ hiddenimports = [
     'typing',
     'enum',
     'datetime',
+    'winreg',    # Windows Registry — used by AppSettings for persistent settings
 
     # Missing dependencies for pyvisa and serial
     'pyvisa.resources.serial',

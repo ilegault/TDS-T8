@@ -4,6 +4,7 @@ PURPOSE: Connect to Keysight N5761A DC Power Supply via VISA and manage the conn
 FLOW: Open VISA session -> Verify with *IDN? -> Return resource -> Close when done
 """
 
+import socket
 import threading
 
 import pyvisa
@@ -79,9 +80,17 @@ class KeysightConnection:
         """
         Attempt to auto-detect a Keysight/Agilent power supply.
 
+        A 1-second socket timeout is set for the duration of the scan to
+        prevent any TCP probe from hanging the GUI thread when the network
+        interface changes (e.g. ethernet cable swap).
+
         Returns:
             pyvisa.Resource or None if not found
         """
+        # Issue 3b fix: clamp all socket probes to 1 second so a missing
+        # network interface cannot stall the scan indefinitely.
+        _prev_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(1.0)
         try:
             resources = self.resource_manager.list_resources()
 
@@ -103,12 +112,15 @@ class KeysightConnection:
                         return instr
 
                     instr.close()
-                except:
+                except Exception:
                     continue
 
             return None
-        except:
+        except Exception:
             return None
+        finally:
+            # Always restore the previous default timeout
+            socket.setdefaulttimeout(_prev_timeout)
 
     def _parse_idn(self, idn_string):
         """
@@ -203,7 +215,13 @@ class KeysightConnection:
         """
         try:
             if self.resource_manager is None:
-                self.resource_manager = pyvisa.ResourceManager()
+                try:
+                    self.resource_manager = pyvisa.ResourceManager('@py')
+                except Exception:
+                    try:
+                        self.resource_manager = pyvisa.ResourceManager()
+                    except Exception:
+                        return ()
             return self.resource_manager.list_resources()
-        except:
+        except Exception:
             return ()
