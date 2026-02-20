@@ -178,24 +178,18 @@ class RampPanel:
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(2, 1))
 
-        self.start_btn = tk.Button(
-            button_frame, text="Start Ramp", command=self._on_start,
-            bg='#4CAF50', fg='white', font=('Arial', 8, 'bold'),
-            width=10, height=1
+        self.start_btn = ttk.Button(
+            button_frame, text="Start Ramp", command=self._on_start
         )
         self.start_btn.pack(side=tk.LEFT, expand=True, padx=2)
 
-        self.pause_btn = tk.Button(
-            button_frame, text="Pause", command=self._on_pause,
-            bg='#FF9800', fg='white', font=('Arial', 8, 'bold'),
-            width=10, height=1, state='disabled'
+        self.pause_btn = ttk.Button(
+            button_frame, text="Pause", command=self._on_pause, state='disabled'
         )
         self.pause_btn.pack(side=tk.LEFT, expand=True, padx=2)
 
-        self.stop_btn = tk.Button(
-            button_frame, text="Stop Ramp", command=self._on_stop,
-            bg='#f44336', fg='white', font=('Arial', 8, 'bold'),
-            width=10, height=1, state='disabled'
+        self.stop_btn = ttk.Button(
+            button_frame, text="Stop Ramp", command=self._on_stop, state='disabled'
         )
         self.stop_btn.pack(side=tk.LEFT, expand=True, padx=2)
 
@@ -203,10 +197,8 @@ class RampPanel:
         emergency_frame = ttk.Frame(main_frame)
         emergency_frame.pack(fill=tk.X, pady=(0, 2))
 
-        self.emergency_stop_btn = tk.Button(
-            emergency_frame, text="EMERGENCY STOP", command=self._on_emergency_stop,
-            bg='#D32F2F', fg='white', font=('Arial', 9, 'bold'),
-            width=25, height=1
+        self.emergency_stop_btn = ttk.Button(
+            emergency_frame, text="EMERGENCY STOP", command=self._on_emergency_stop
         )
         self.emergency_stop_btn.pack(side=tk.TOP, expand=True, padx=2)
 

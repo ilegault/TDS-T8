@@ -36,6 +36,16 @@ _DEFAULTS = {
     "ps_i_range_max":     ("float", 100.0),
     "log_folder":         ("str",   ""),
     "visa_resource":      ("str",   ""),
+    "xgs600_port":        ("str",   "COM3"),
+    "xgs600_baudrate":    ("int",   9600),
+    "xgs600_timeout":     ("float", 1.0),
+    "xgs600_address":     ("str",   "00"),
+    "turbo_pump_enabled": ("bool", True),
+    "turbo_pump_start_delay_ms": ("int", 500),
+    "turbo_pump_stop_delay_ms": ("int", 500),
+    "turbo_pump_min_restart_delay_s": ("int", 30),
+    "ps_voltage_limit":   ("float", 20.0),
+    "ps_current_limit":   ("float", 50.0),
 }
 
 
@@ -73,6 +83,16 @@ class AppSettings:
         self.ps_i_range_max: float   = 100.0
         self.log_folder: str         = ""
         self.visa_resource: str      = ""
+        self.xgs600_port: str        = "COM3"
+        self.xgs600_baudrate: int    = 9600
+        self.xgs600_timeout: float   = 1.0
+        self.xgs600_address: str     = "00"
+        self.turbo_pump_enabled: bool = True
+        self.turbo_pump_start_delay_ms: int = 500
+        self.turbo_pump_stop_delay_ms: int = 500
+        self.turbo_pump_min_restart_delay_s: int = 30
+        self.ps_voltage_limit: float = 20.0
+        self.ps_current_limit: float = 50.0
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API

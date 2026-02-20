@@ -584,11 +584,13 @@ class MainWindow:
         """Create all the GUI elements."""
         profiler.checkpoint("_build_gui() entered - creating control frames")
 
+        # ── Configure ttk Styles ──────────────────────────────────────────────
+        style = ttk.Style()
+        style.configure('Settings.TButton', foreground='#1a5f7a')
+        profiler.checkpoint("Styles configured")
+
         # ── Menu bar ─────────────────────────────────────────────────────────
         menubar = tk.Menu(self.root)
-        settings_menu = tk.Menu(menubar, tearoff=0)
-        settings_menu.add_command(label="Settings…", command=self._open_settings_dialog)
-        menubar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menubar)
         profiler.checkpoint("Menu bar created")
 
@@ -719,6 +721,12 @@ class MainWindow:
         )
         self.practice_btn.pack(side=tk.LEFT, padx=5)
 
+        self.settings_btn = ttk.Button(
+            control_frame, text="Settings", command=self._open_settings_dialog,
+            style='Settings.TButton'
+        )
+        self.settings_btn.pack(side=tk.LEFT, padx=5)
+
         # Separator
         ttk.Separator(control_frame, orient='vertical').pack(
             side=tk.LEFT, padx=10, fill='y'
@@ -833,7 +841,7 @@ class MainWindow:
         # Power Supply Status Panel (read-only display with interlock)
         profiler.checkpoint("Creating PowerSupplyPanel...")
         ps_frame = ttk.LabelFrame(right_frame, text="Power Supply Status")
-        ps_frame.pack(fill=tk.X, padx=5, pady=1)
+        ps_frame.pack(fill=tk.BOTH, padx=5, pady=1)
 
         self.ps_panel = PowerSupplyPanel(ps_frame, self.ps_controller)
         self.ps_panel.on_output_change(self._on_ps_output_change)
@@ -842,7 +850,7 @@ class MainWindow:
         # Ramp Profile Panel (ONLY power control interface)
         profiler.checkpoint("Creating RampPanel...")
         ramp_frame = ttk.LabelFrame(right_frame, text="Power Supply Ramp Control")
-        ramp_frame.pack(fill=tk.X, expand=True, padx=5, pady=1)
+        ramp_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=1)
 
         self.ramp_panel = RampPanel(
             ramp_frame,
