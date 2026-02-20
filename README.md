@@ -265,6 +265,7 @@ Add to the `frg702_gauges` array in `sensor_config.json`:
 | GUI not updating | Thread crashed | Check console for error messages |
 | Import error | Missing packages | Run `pip install -r requirements.txt` |
 | Plot not showing | Matplotlib backend | Try `pip install PyQt5` or `tkinter` |
+| `.bat` file blocked by IT policy | School/corporate machines restrict `.bat` execution | Run `python setup_firewall.py` instead — identical firewall rules, no `.bat` required |
 
 ---
 
