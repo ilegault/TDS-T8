@@ -14,7 +14,7 @@ from tkinter import ttk, filedialog, messagebox
 PRESETS = {
     "Basic Setup": {
         "tc_count": 1,
-        "tc_type": "C",
+        "tc_types": "C",
         "tc_unit": "C",
         "frg_count": 1,
         "p_unit": "mbar",
@@ -23,7 +23,7 @@ PRESETS = {
     },
     "High Frequency": {
         "tc_count": 2,
-        "tc_type": "K",
+        "tc_types": "K,K",
         "tc_unit": "C",
         "frg_count": 1,
         "p_unit": "Torr",
@@ -32,7 +32,7 @@ PRESETS = {
     },
     "Multi-Sensor": {
         "tc_count": 4,
-        "tc_type": "K",
+        "tc_types": "K,K,K,K",
         "tc_unit": "C",
         "frg_count": 2,
         "p_unit": "mbar",
@@ -41,7 +41,7 @@ PRESETS = {
     },
     "Lab Default": {
         "tc_count": 1,
-        "tc_type": "C",
+        "tc_types": "C",
         "tc_unit": "C",
         "frg_count": 1,
         "p_unit": "mbar",
@@ -174,11 +174,23 @@ class SettingsDialog(tk.Toplevel):
             return
 
         for key, value in preset.items():
-            if hasattr(self, f'_{key}_var'):
+            if key == "tc_types":
+                # Special handling: rebuild per-TC type rows from CSV string
+                types = [t.strip() for t in str(value).split(",") if t.strip()]
+                # Update count var first so rows match
+                try:
+                    self._tc_count_var.set(str(preset.get("tc_count", len(types))))
+                except Exception:
+                    pass
+                self._rebuild_tc_type_rows(len(types))
+                for i, var in enumerate(self._tc_type_vars):
+                    if i < len(types):
+                        var.set(types[i])
+            elif hasattr(self, f'_{key}_var'):
                 var = getattr(self, f'_{key}_var')
                 var.set(str(value))
 
-        messagebox.showinfo("Preset Applied", 
+        messagebox.showinfo("Preset Applied",
                            f"Preset '{preset_name}' has been applied.", parent=self)
 
     def _save_custom_preset(self):
@@ -191,7 +203,7 @@ class SettingsDialog(tk.Toplevel):
 
         preset_data = {
             "tc_count": int(self._tc_count_var.get()),
-            "tc_type": self._tc_type_var.get(),
+            "tc_types": ",".join(v.get() for v in self._tc_type_vars),
             "tc_unit": self._tc_unit_var.get(),
             "frg_count": int(self._frg_count_var.get()),
             "p_unit": self._p_unit_var.get(),
@@ -210,18 +222,23 @@ class SettingsDialog(tk.Toplevel):
         tab = ttk.Frame(notebook, padding=15)
         notebook.add(tab, text="Sensors")
 
-        ttk.Label(tab, text="Thermocouple Configuration", 
+        ttk.Label(tab, text="Thermocouple Configuration",
                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 10))
 
         tc_frame = ttk.LabelFrame(tab, text="Thermocouple", padding=10)
         tc_frame.pack(fill=tk.X, pady=5)
 
-        self._create_option_row(tc_frame, "Count:", "tc_count", 
+        self._create_option_row(tc_frame, "Count:", "tc_count",
                                ["0", "1", "2", "3", "4", "5", "6", "7"], row=0)
-        self._create_option_row(tc_frame, "Type:", "tc_type", 
-                               ["K", "J", "T", "E", "R", "S", "B", "N", "C"], row=1)
-        self._create_option_row(tc_frame, "Unit:", "tc_unit", 
-                               ["C", "F", "K"], row=2)
+        self._create_option_row(tc_frame, "Unit:", "tc_unit",
+                               ["C", "F", "K"], row=1)
+
+        # Rebuild per-TC type rows whenever the count changes
+        self._tc_type_vars = []
+        self._tc_count_var.trace_add('write', lambda *_: self._on_tc_count_change())
+
+        self._tc_types_frame = ttk.LabelFrame(tab, text="Thermocouple Types", padding=10)
+        self._tc_types_frame.pack(fill=tk.X, pady=5)
 
         ttk.Label(tab, text="FRG702 Gauge Configuration", 
                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 10))
@@ -233,6 +250,36 @@ class SettingsDialog(tk.Toplevel):
                                ["0", "1", "2"], row=0)
         self._create_option_row(frg_frame, "Pressure Unit:", "p_unit", 
                                ["mbar", "Torr", "Pa"], row=1)
+
+    _TC_TYPE_VALUES = ["K", "J", "T", "E", "R", "S", "B", "N", "C"]
+
+    def _on_tc_count_change(self):
+        """Called when the TC count combobox value changes."""
+        try:
+            count = int(self._tc_count_var.get())
+        except ValueError:
+            return
+        self._rebuild_tc_type_rows(count)
+
+    def _rebuild_tc_type_rows(self, count):
+        """Destroy and recreate the per-TC type rows for *count* thermocouples."""
+        existing = [v.get() for v in self._tc_type_vars]
+        for w in self._tc_types_frame.winfo_children():
+            w.destroy()
+        self._tc_type_vars = []
+        if count == 0:
+            ttk.Label(self._tc_types_frame,
+                      text="No thermocouples configured").pack(anchor='w')
+            return
+        for i in range(count):
+            default = existing[i] if i < len(existing) else self._settings.tc_type
+            var = tk.StringVar(value=default)
+            self._tc_type_vars.append(var)
+            row_f = ttk.Frame(self._tc_types_frame)
+            row_f.pack(fill=tk.X, pady=2)
+            ttk.Label(row_f, text=f"TC {i + 1}:", width=6).pack(side=tk.LEFT, padx=5)
+            ttk.Combobox(row_f, textvariable=var, values=self._TC_TYPE_VALUES,
+                         state='readonly', width=5).pack(side=tk.LEFT, padx=5)
 
     def _build_hardware_tab(self, notebook):
         """Tab for hardware-specific settings."""
@@ -419,10 +466,14 @@ class SettingsDialog(tk.Toplevel):
     def _load_values(self):
         """Populate widgets from AppSettings."""
         s = self._settings
-        
+
         self._tc_count_var.set(str(s.tc_count))
-        self._tc_type_var.set(s.tc_type)
         self._tc_unit_var.set(s.tc_unit)
+        # Build per-TC type rows from stored types
+        types = s.get_tc_type_list(s.tc_count)
+        self._rebuild_tc_type_rows(s.tc_count)
+        for i, var in enumerate(self._tc_type_vars):
+            var.set(types[i])
         self._frg_count_var.set(str(s.frg_count))
         self._p_unit_var.set(s.p_unit)
         self._sample_rate_ms_var.set(str(s.sample_rate_ms))
@@ -454,7 +505,8 @@ class SettingsDialog(tk.Toplevel):
         s = self._settings
         try:
             s.tc_count = int(self._tc_count_var.get())
-            s.tc_type = self._tc_type_var.get()
+            s.tc_types = ",".join(v.get() for v in self._tc_type_vars)
+            s.tc_type = self._tc_type_vars[0].get() if self._tc_type_vars else s.tc_type
             s.tc_unit = self._tc_unit_var.get()
             s.frg_count = int(self._frg_count_var.get())
             s.p_unit = self._p_unit_var.get()
