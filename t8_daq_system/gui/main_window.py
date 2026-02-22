@@ -355,13 +355,14 @@ class MainWindow:
         Translate an AppSettings object into the internal config dictionary
         used by the rest of MainWindow.
         """
-        # Build thermocouple list
+        # Build thermocouple list (per-TC types from settings)
         thermocouples = []
+        tc_type_list = s.get_tc_type_list(s.tc_count)
         for i in range(s.tc_count):
             thermocouples.append({
                 "name": f"TC_{i+1}",
                 "channel": i,
-                "type": s.tc_type,
+                "type": tc_type_list[i],
                 "units": s.tc_unit,
                 "enabled": True
             })
@@ -412,7 +413,6 @@ class MainWindow:
         """
         s = self._app_settings
         s.tc_count        = int(self.tc_count_var.get())
-        s.tc_type         = self.tc_type_var.get()
         s.tc_unit         = self.t_unit_var.get()
         s.frg_count       = int(self.frg_count_var.get())
         s.p_unit          = self.p_unit_var.get()
@@ -611,19 +611,6 @@ class MainWindow:
         )
         self.tc_count_combo.pack(side=tk.LEFT, padx=2)
         self.tc_count_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_config_change(), self._save_quick_config_to_settings()))
-
-        # TC Type
-        ttk.Label(config_area, text="Type:").pack(side=tk.LEFT, padx=2)
-        tc_type = "K"
-        if self.config['thermocouples']:
-            tc_type = self.config['thermocouples'][0]['type']
-        self.tc_type_var = tk.StringVar(value=tc_type)
-        self.tc_type_combo = ttk.Combobox(
-            config_area, textvariable=self.tc_type_var,
-            values=["K", "J", "T", "E", "R", "S", "B", "N", "C"], width=3
-        )
-        self.tc_type_combo.pack(side=tk.LEFT, padx=2)
-        self.tc_type_combo.bind("<<ComboboxSelected>>", lambda e: (self._on_config_change(), self._save_quick_config_to_settings()))
 
         # Units Selection
         ttk.Label(config_area, text="T-Unit:").pack(side=tk.LEFT, padx=2)
@@ -1194,7 +1181,6 @@ class MainWindow:
 
     def _on_config_change(self):
         new_tc_count = int(self.tc_count_var.get())
-        new_tc_type = self.tc_type_var.get()
         new_tc_unit = self.t_unit_var.get()
         new_frg_count = int(self.frg_count_var.get())
 
@@ -1203,15 +1189,17 @@ class MainWindow:
             new_tc_count = 7
             self.tc_count_var.set(str(new_tc_count))
 
+        # Use per-TC types stored in settings (falls back to tc_type default)
+        tc_type_list = self._app_settings.get_tc_type_list(new_tc_count)
+
         old_tcs = {tc['name']: tc for tc in self.config['thermocouples']}
         self.config['thermocouples'] = []
         for i in range(new_tc_count):
             name = f"TC_{i+1}"
-            old_tc = old_tcs.get(name, {})
             self.config['thermocouples'].append({
                 "name": name,
                 "channel": i,
-                "type": new_tc_type,
+                "type": tc_type_list[i],
                 "units": new_tc_unit,
                 "enabled": True
             })
@@ -1561,9 +1549,12 @@ class MainWindow:
             frg702_count = len([g for g in frg702_gauges if g.get('enabled', True)])
             frg702_unit = frg702_gauges[0].get('units', 'mbar') if frg702_gauges else 'mbar'
 
+            tc_types_list = [tc['type'] for tc in self.config['thermocouples']
+                             if tc.get('enabled', True)]
             metadata = create_metadata_dict(
                 tc_count=int(self.tc_count_var.get()),
-                tc_type=self.tc_type_var.get(),
+                tc_type=tc_types_list[0] if tc_types_list else "K",
+                tc_types=tc_types_list,
                 tc_unit=self.t_unit_var.get(),
                 frg702_count=frg702_count,
                 frg702_unit=frg702_unit,

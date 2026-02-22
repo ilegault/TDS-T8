@@ -20,6 +20,7 @@ _REG_KEY = r"Software\T8_DAQ_System"
 _DEFAULTS = {
     "tc_count":           ("int",   1),
     "tc_type":            ("str",   "C"),
+    "tc_types":           ("str",   ""),
     "tc_unit":            ("str",   "C"),
     "frg_count":          ("int",   1),
     "p_unit":             ("str",   "mbar"),
@@ -67,6 +68,7 @@ class AppSettings:
         # Populate with defaults first so the object is always fully initialised
         self.tc_count: int           = 1
         self.tc_type: str            = "C"
+        self.tc_types: str           = ""
         self.tc_unit: str            = "C"
         self.frg_count: int          = 1
         self.p_unit: str             = "mbar"
@@ -170,6 +172,20 @@ class AppSettings:
     def ps_i_range(self):
         """Return power-supply current range as a (min, max) tuple."""
         return (self.ps_i_range_min, self.ps_i_range_max)
+
+    def get_tc_type_list(self, count: int) -> list:
+        """Return a list of TC types of length *count*.
+
+        Parses the ``tc_types`` comma-separated string (e.g. ``"C,C,K,K"``),
+        padding any missing entries with ``tc_type`` as the default.
+        """
+        if self.tc_types:
+            parts = [t.strip() for t in self.tc_types.split(",") if t.strip()]
+        else:
+            parts = []
+        while len(parts) < count:
+            parts.append(self.tc_type)
+        return parts[:count]
 
     def __repr__(self):
         fields = ", ".join(f"{k}={getattr(self, k)!r}" for k in _DEFAULTS)

@@ -303,6 +303,7 @@ class DataLogger:
 
 
 def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
+                         tc_types=None,
                          frg702_count=0, frg702_unit="mbar",
                          sample_rate_ms=100, notes=""):
     """
@@ -310,8 +311,9 @@ def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
 
     Args:
         tc_count: Number of thermocouples
-        tc_type: Thermocouple type (K, J, T, etc.)
+        tc_type: Thermocouple type for backward compatibility (first TC type or default)
         tc_unit: Temperature unit (C, F, K)
+        tc_types: List of per-thermocouple types, e.g. ["C", "C", "K", "K"]
         frg702_count: Number of FRG-702 gauges
         frg702_unit: Pressure unit (mbar, torr, Pa)
         sample_rate_ms: Sampling rate in milliseconds
@@ -320,12 +322,15 @@ def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
     Returns:
         Dict with all metadata
     """
-    return {
+    result = {
         'tc_count': tc_count,
         'tc_type': tc_type,
         'tc_unit': tc_unit,
         'frg702_count': frg702_count,
         'frg702_unit': frg702_unit,
         'sample_rate_ms': sample_rate_ms,
-        'notes': notes
+        'notes': notes,
     }
+    if tc_types is not None:
+        result['tc_types'] = tc_types
+    return result
