@@ -344,13 +344,37 @@ class MainWindow:
         Translate an AppSettings object into the internal config dictionary
         used by the rest of MainWindow.
         """
-        # Build thermocouple list (per-TC types from settings)
+        # Build thermocouple list (per-TC types and per-TC AIN pins from settings)
         thermocouples = []
         tc_type_list = s.get_tc_type_list(s.tc_count)
+        tc_pin_list  = s.get_tc_pin_list(s.tc_count)
+
+        # Conflict detection: check TC pins against Keysight monitor pins
+        keysight_v_pin_str = s.ps_voltage_monitor_pin  # e.g. "AIN4"
+        keysight_i_pin_str = s.ps_current_monitor_pin  # e.g. "AIN5"
+        keysight_v_pin = int(keysight_v_pin_str.replace("AIN", "")) if keysight_v_pin_str.startswith("AIN") else None
+        keysight_i_pin = int(keysight_i_pin_str.replace("AIN", "")) if keysight_i_pin_str.startswith("AIN") else None
+        conflict_errors = []
+        for i, ch in enumerate(tc_pin_list):
+            tc_name = f"TC_{i+1}"
+            if keysight_v_pin is not None and ch == keysight_v_pin:
+                conflict_errors.append(
+                    f"TC pin conflict: {tc_name} is assigned to AIN{ch} which is also used by "
+                    f"Keysight Voltage Monitor. Please reassign in Settings."
+                )
+            if keysight_i_pin is not None and ch == keysight_i_pin:
+                conflict_errors.append(
+                    f"TC pin conflict: {tc_name} is assigned to AIN{ch} which is also used by "
+                    f"Keysight Current Monitor. Please reassign in Settings."
+                )
+        if conflict_errors:
+            import tkinter.messagebox as _mb
+            _mb.showerror("Pin Conflict", "\n\n".join(conflict_errors))
+
         for i in range(s.tc_count):
             thermocouples.append({
                 "name": f"TC_{i+1}",
-                "channel": i,
+                "channel": tc_pin_list[i],
                 "type": tc_type_list[i],
                 "units": s.tc_unit,
                 "enabled": True
@@ -368,8 +392,6 @@ class MainWindow:
                 "enabled": True
             })
 
-        visa = s.visa_resource.strip() if s.visa_resource else None
-
         return {
             "device": {"type": "T8", "connection": "USB", "identifier": "ANY"},
             "thermocouples": thermocouples,
@@ -384,8 +406,7 @@ class MainWindow:
             "frg_interface": s.frg_interface,
             "power_supply": {
                 "enabled": True,
-                "interface": s.ps_interface,
-                "visa_resource": visa or None,
+                "interface": "Analog",
                 "voltage_pin": s.ps_voltage_pin,
                 "current_pin": s.ps_current_pin,
                 "voltage_monitor_pin": s.ps_voltage_monitor_pin,
@@ -467,35 +488,6 @@ class MainWindow:
             except tk.TclError:
                 pass
         self._pinout_window = PinoutDisplay(self.root, self.config, self._app_settings)
-
-    def _background_ps_reconnect(self):
-        """Try to reconnect Keysight power supply in background thread."""
-        if hasattr(self, '_ps_reconnect_thread') and self._ps_reconnect_thread.is_alive():
-            return  # Already trying
-
-        def _try_connect():
-            # Stop the monitor so it doesn't race with reconnection
-            self.keysight_monitor.stop()
-
-            # Acquire the VISA lock during reconnection
-            with self.ps_connection.visa_lock:
-                success = self.ps_connection.connect()
-
-            if success:
-                self.root.after(0, self._on_ps_reconnected)
-            else:
-                # Restart monitor even on failure so it can detect recovery
-                self.keysight_monitor.start()
-
-        self._ps_reconnect_thread = threading.Thread(target=_try_connect, daemon=True)
-        self._ps_reconnect_thread.start()
-
-    def _on_ps_reconnected(self):
-        """Called on main thread after successful power supply reconnection."""
-        self._initialize_power_supply()
-        # Restart the background monitor with the fresh connection
-        if not self.is_running:
-            self.keysight_monitor.start()
 
     def _deferred_hardware_init(self):
         """
@@ -1376,6 +1368,14 @@ class MainWindow:
             )
 
     def _on_start(self):
+        # Show pre-flight checklist unless in practice mode or user has disabled it
+        if not self._practice_mode and not self._app_settings.skip_preflight_check:
+            from t8_daq_system.gui.preflight_dialog import PreflightDialog
+            dlg = PreflightDialog(self.root, self.config, self._app_settings)
+            self.root.wait_window(dlg)
+            if not dlg.confirmed:
+                return  # User cancelled or closed without confirming
+
         self.is_running = True
         self.start_btn.config(state='disabled')
         self.stop_btn.config(state='normal')

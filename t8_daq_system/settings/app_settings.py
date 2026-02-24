@@ -21,6 +21,7 @@ _DEFAULTS = {
     "tc_count":           ("int",   1),
     "tc_type":            ("str",   "C"),
     "tc_types":           ("str",   ""),
+    "tc_pins":            ("str",   ""),
     "tc_unit":            ("str",   "C"),
     "frg_count":          ("int",   1),
     "p_unit":             ("str",   "mbar"),
@@ -36,7 +37,6 @@ _DEFAULTS = {
     "ps_i_range_min":     ("float", 0.0),
     "ps_i_range_max":     ("float", 100.0),
     "log_folder":         ("str",   ""),
-    "visa_resource":      ("str",   ""),
     "xgs600_port":        ("str",   "COM3"),
     "xgs600_baudrate":    ("int",   9600),
     "xgs600_timeout":     ("float", 1.0),
@@ -54,6 +54,7 @@ _DEFAULTS = {
     "ps_current_pin":     ("str",   "DAC1"),
     "ps_voltage_monitor_pin": ("str", "AIN4"),
     "ps_current_monitor_pin": ("str", "AIN5"),
+    "skip_preflight_check": ("bool", False),
 }
 
 
@@ -76,6 +77,7 @@ class AppSettings:
         self.tc_count: int           = 1
         self.tc_type: str            = "C"
         self.tc_types: str           = ""
+        self.tc_pins: str            = ""
         self.tc_unit: str            = "C"
         self.frg_count: int          = 1
         self.p_unit: str             = "mbar"
@@ -91,7 +93,6 @@ class AppSettings:
         self.ps_i_range_min: float   = 0.0
         self.ps_i_range_max: float   = 100.0
         self.log_folder: str         = ""
-        self.visa_resource: str      = ""
         self.xgs600_port: str        = "COM3"
         self.xgs600_baudrate: int    = 9600
         self.xgs600_timeout: float   = 1.0
@@ -109,6 +110,7 @@ class AppSettings:
         self.ps_current_pin: str     = "DAC1"
         self.ps_voltage_monitor_pin: str = "AIN4"
         self.ps_current_monitor_pin: str = "AIN5"
+        self.skip_preflight_check: bool = False
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API
@@ -199,6 +201,21 @@ class AppSettings:
             parts = []
         while len(parts) < count:
             parts.append(self.tc_type)
+        return parts[:count]
+
+    def get_tc_pin_list(self, count: int) -> list:
+        """Return a list of AIN channel numbers (as ints) for thermocouples.
+
+        Parses the ``tc_pins`` comma-separated string (e.g. ``"0,1,7"``),
+        padding any missing entries with sequential values starting from the
+        highest already assigned + 1 (or from 0 if none are assigned yet).
+        """
+        if self.tc_pins:
+            parts = [int(p.strip()) for p in self.tc_pins.split(",") if p.strip().isdigit()]
+        else:
+            parts = []
+        while len(parts) < count:
+            parts.append(len(parts))
         return parts[:count]
 
     def get_frg_pin_list(self, count: int) -> list:
