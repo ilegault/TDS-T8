@@ -79,8 +79,9 @@ class SettingsDialog(tk.Toplevel):
         self._create_option_row(tc_frame, "Unit:", "tc_unit",
                                ["C", "F", "K"], row=1)
 
-        # Rebuild per-TC type rows whenever the count changes
+        # Rebuild per-TC type/pin rows whenever the count changes
         self._tc_type_vars = []
+        self._tc_pin_vars  = []
         self._tc_count_var.trace_add('write', lambda *_: self._on_tc_count_change())
 
         self._tc_types_frame = ttk.LabelFrame(tab, text="Thermocouple Types", padding=10)
@@ -102,6 +103,7 @@ class SettingsDialog(tk.Toplevel):
                                width=15, row=3)
 
     _TC_TYPE_VALUES = ["K", "J", "T", "E", "R", "S", "B", "N", "C"]
+    _AIN_PIN_VALUES = ["0", "1", "2", "3", "4", "5", "6", "7"]
 
     def _on_tc_count_change(self):
         """Called when the TC count combobox value changes."""
@@ -112,24 +114,41 @@ class SettingsDialog(tk.Toplevel):
         self._rebuild_tc_type_rows(count)
 
     def _rebuild_tc_type_rows(self, count):
-        """Destroy and recreate the per-TC type rows for *count* thermocouples."""
-        existing = [v.get() for v in self._tc_type_vars]
+        """Destroy and recreate the per-TC type and pin rows for *count* thermocouples."""
+        existing_types = [v.get() for v in self._tc_type_vars]
+        existing_pins  = [v.get() for v in self._tc_pin_vars]
         for w in self._tc_types_frame.winfo_children():
             w.destroy()
         self._tc_type_vars = []
+        self._tc_pin_vars  = []
         if count == 0:
             ttk.Label(self._tc_types_frame,
                       text="No thermocouples configured").pack(anchor='w')
             return
+
+        # Column headers
+        hdr = ttk.Frame(self._tc_types_frame)
+        hdr.pack(fill=tk.X, pady=(0, 2))
+        ttk.Label(hdr, text="",        width=6).pack(side=tk.LEFT, padx=5)
+        ttk.Label(hdr, text="Type",    width=7, font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=5)
+        ttk.Label(hdr, text="AIN Pin", width=8, font=('Arial', 9, 'bold')).pack(side=tk.LEFT, padx=5)
+
         for i in range(count):
-            default = existing[i] if i < len(existing) else self._settings.tc_type
-            var = tk.StringVar(value=default)
-            self._tc_type_vars.append(var)
+            default_type = existing_types[i] if i < len(existing_types) else self._settings.tc_type
+            default_pin  = existing_pins[i]  if i < len(existing_pins)  else str(i)
+
+            type_var = tk.StringVar(value=default_type)
+            pin_var  = tk.StringVar(value=default_pin)
+            self._tc_type_vars.append(type_var)
+            self._tc_pin_vars.append(pin_var)
+
             row_f = ttk.Frame(self._tc_types_frame)
             row_f.pack(fill=tk.X, pady=2)
             ttk.Label(row_f, text=f"TC {i + 1}:", width=6).pack(side=tk.LEFT, padx=5)
-            ttk.Combobox(row_f, textvariable=var, values=self._TC_TYPE_VALUES,
+            ttk.Combobox(row_f, textvariable=type_var, values=self._TC_TYPE_VALUES,
                          state='readonly', width=5).pack(side=tk.LEFT, padx=5)
+            ttk.Combobox(row_f, textvariable=pin_var, values=self._AIN_PIN_VALUES,
+                         state='readonly', width=4).pack(side=tk.LEFT, padx=5)
 
     def _build_hardware_tab(self, notebook):
         """Tab for hardware-specific settings."""
@@ -239,38 +258,33 @@ class SettingsDialog(tk.Toplevel):
                               width=20, row=5)
 
     def _build_paths_tab(self, notebook):
-        """Tab for file paths and resource configuration."""
+        """Tab for file paths and power supply configuration."""
         tab = ttk.Frame(notebook, padding=15)
         notebook.add(tab, text="Paths & Resources")
 
-        ttk.Label(tab, text="Hardware & File Configuration", 
+        ttk.Label(tab, text="Keysight N5700 — Analog Connection",
                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 10))
 
-        hw_frame = ttk.LabelFrame(tab, text="VISA Resource", padding=10)
-        hw_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(hw_frame, text="Power Supply VISA:").pack(anchor='w', pady=(5, 2))
-        self._visa_var = tk.StringVar()
-        ttk.Entry(hw_frame, textvariable=self._visa_var, width=45).pack(fill=tk.X, pady=5)
-
-        ttk.Label(tab, text="Power Supply Controller", 
-                 font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 10))
-
-        ps_int_frame = ttk.LabelFrame(tab, text="Power Supply Interface", padding=10)
+        ps_int_frame = ttk.LabelFrame(tab, text="Power Supply (J1 DB25 → Phoenix Contact → T8)", padding=10)
         ps_int_frame.pack(fill=tk.X, pady=5)
 
-        self._create_option_row(ps_int_frame, "Interface Type:", "ps_interface",
-                               ["Analog", "VISA"], row=0)
-        self._create_entry_row(ps_int_frame, "Voltage Prog (DAC):", "ps_voltage_pin", 
-                               width=10, row=1)
-        self._create_entry_row(ps_int_frame, "Current Prog (DAC):", "ps_current_pin", 
-                               width=10, row=2)
-        self._create_entry_row(ps_int_frame, "Voltage Mon (AIN):", "ps_voltage_monitor_pin", 
-                               width=10, row=3)
-        self._create_entry_row(ps_int_frame, "Current Mon (AIN):", "ps_current_monitor_pin", 
-                               width=10, row=4)
+        ttk.Label(ps_int_frame,
+                  text="Physical wiring: J1 DB25 → Phoenix Contact breakout → T8 screw terminals",
+                  font=('Arial', 8), foreground='#555555').grid(
+                  row=0, column=0, columnspan=2, sticky='w', padx=5, pady=(0, 6))
 
-        ttk.Label(tab, text="Logging", 
+        _AIN_OPTS = [f"AIN{i}" for i in range(8)]
+        _DAC_OPTS = ["DAC0", "DAC1"]
+        self._create_option_row(ps_int_frame, "Voltage Prog (DAC):", "ps_voltage_pin",
+                               _DAC_OPTS, row=1)
+        self._create_option_row(ps_int_frame, "Current Prog (DAC):", "ps_current_pin",
+                               _DAC_OPTS, row=2)
+        self._create_option_row(ps_int_frame, "Voltage Mon (AIN):", "ps_voltage_monitor_pin",
+                               _AIN_OPTS, row=3)
+        self._create_option_row(ps_int_frame, "Current Mon (AIN):", "ps_current_monitor_pin",
+                               _AIN_OPTS, row=4)
+
+        ttk.Label(tab, text="Logging",
                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 10))
 
         log_frame = ttk.LabelFrame(tab, text="Log Folder", padding=10)
@@ -280,10 +294,21 @@ class SettingsDialog(tk.Toplevel):
         log_input_frame.pack(fill=tk.X, pady=5)
 
         self._log_folder_var = tk.StringVar()
-        ttk.Entry(log_input_frame, textvariable=self._log_folder_var, 
+        ttk.Entry(log_input_frame, textvariable=self._log_folder_var,
                  width=35).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(log_input_frame, text="Browse…",
                   command=self._browse_log_folder).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(tab, text="Startup Behaviour",
+                 font=('Arial', 11, 'bold')).pack(anchor='w', pady=(15, 10))
+
+        startup_frame = ttk.LabelFrame(tab, text="Pre-flight Check", padding=10)
+        startup_frame.pack(fill=tk.X, pady=5)
+
+        self._skip_preflight_check_var = tk.BooleanVar()
+        ttk.Checkbutton(startup_frame,
+                        text="Skip wiring pre-flight check on Start",
+                        variable=self._skip_preflight_check_var).pack(anchor='w', padx=5, pady=5)
 
     def _create_option_row(self, parent, label, var_name, values, row):
         """Helper to create a label + combobox row."""
@@ -339,11 +364,13 @@ class SettingsDialog(tk.Toplevel):
 
         self._tc_count_var.set(str(s.tc_count))
         self._tc_unit_var.set(s.tc_unit)
-        # Build per-TC type rows from stored types
+        # Build per-TC type+pin rows from stored values
         types = s.get_tc_type_list(s.tc_count)
+        pins  = s.get_tc_pin_list(s.tc_count)
         self._rebuild_tc_type_rows(s.tc_count)
-        for i, var in enumerate(self._tc_type_vars):
-            var.set(types[i])
+        for i, (type_var, pin_var) in enumerate(zip(self._tc_type_vars, self._tc_pin_vars)):
+            type_var.set(types[i])
+            pin_var.set(str(pins[i]))
         self._frg_count_var.set(str(s.frg_count))
         self._p_unit_var.set(s.p_unit)
         self._sample_rate_ms_var.set(str(s.sample_rate_ms))
@@ -367,15 +394,14 @@ class SettingsDialog(tk.Toplevel):
         self._psi_max_var.set(str(s.ps_i_range_max))
         self._ps_voltage_limit_var.set(str(s.ps_voltage_limit))
         self._ps_current_limit_var.set(str(s.ps_current_limit))
-        self._visa_var.set(s.visa_resource)
         self._log_folder_var.set(s.log_folder)
         self._frg_interface_var.set(s.frg_interface)
         self._frg_pins_var.set(s.frg_pins)
-        self._ps_interface_var.set(s.ps_interface)
         self._ps_voltage_pin_var.set(s.ps_voltage_pin)
         self._ps_current_pin_var.set(s.ps_current_pin)
         self._ps_voltage_monitor_pin_var.set(s.ps_voltage_monitor_pin)
         self._ps_current_monitor_pin_var.set(s.ps_current_monitor_pin)
+        self._skip_preflight_check_var.set(s.skip_preflight_check)
 
     def _save_settings_from_gui(self):
         """Internal helper to read all GUI vars and write to AppSettings."""
@@ -383,6 +409,7 @@ class SettingsDialog(tk.Toplevel):
         try:
             s.tc_count = int(self._tc_count_var.get())
             s.tc_types = ",".join(v.get() for v in self._tc_type_vars)
+            s.tc_pins  = ",".join(v.get() for v in self._tc_pin_vars)
             s.tc_type = self._tc_type_vars[0].get() if self._tc_type_vars else s.tc_type
             s.tc_unit = self._tc_unit_var.get()
             s.frg_count = int(self._frg_count_var.get())
@@ -408,17 +435,17 @@ class SettingsDialog(tk.Toplevel):
             s.ps_i_range_max = float(self._psi_max_var.get())
             s.ps_voltage_limit = float(self._ps_voltage_limit_var.get())
             s.ps_current_limit = float(self._ps_current_limit_var.get())
-            s.visa_resource = self._visa_var.get().strip()
             s.log_folder = self._log_folder_var.get().strip()
             s.frg_interface = self._frg_interface_var.get()
             s.frg_pins = self._frg_pins_var.get().strip()
-            s.ps_interface = self._ps_interface_var.get()
+            s.ps_interface = "Analog"
             s.ps_voltage_pin = self._ps_voltage_pin_var.get().strip()
             s.ps_current_pin = self._ps_current_pin_var.get().strip()
             s.ps_voltage_monitor_pin = self._ps_voltage_monitor_pin_var.get().strip()
             s.ps_current_monitor_pin = self._ps_current_monitor_pin_var.get().strip()
+            s.skip_preflight_check = self._skip_preflight_check_var.get()
         except ValueError as exc:
-            messagebox.showerror("Invalid Value", 
+            messagebox.showerror("Invalid Value",
                                 f"Please check your entries:\n{exc}", parent=self)
             return False
 
