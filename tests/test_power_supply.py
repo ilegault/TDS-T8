@@ -138,15 +138,15 @@ class TestKeysightAnalogController(unittest.TestCase):
     # ── Monitor readings ──────────────────────────────────────────────────────
 
     def test_get_voltage_scales_ain_reading(self):
-        """AIN4 returning 3 V should report 18 V on a 60 V supply."""
-        mock_ljm.eReadName.return_value = 3.0
+        """AIN4 returning 2.5 V should report 30 V on a 60 V supply (5V monitor range)."""
+        mock_ljm.eReadName.return_value = 2.5
         result = self.controller.get_voltage()
-        self.assertAlmostEqual(result, 18.0)
+        self.assertAlmostEqual(result, 30.0)
         mock_ljm.eReadName.assert_called_with(self.handle, 'AIN4')
 
     def test_get_current_scales_ain_reading(self):
-        """AIN5 returning 8 V should report 20 A on a 25 A supply."""
-        mock_ljm.eReadName.return_value = 8.0
+        """AIN5 returning 4.0 V should report 20 A on a 25 A supply (5V monitor range)."""
+        mock_ljm.eReadName.return_value = 4.0
         result = self.controller.get_current()
         self.assertAlmostEqual(result, 20.0)
         mock_ljm.eReadName.assert_called_with(self.handle, 'AIN5')
@@ -246,10 +246,10 @@ class TestKeysightAnalogController(unittest.TestCase):
         self.assertIn('PS_Output_On', readings)
 
     def test_get_readings_voltage_value(self):
-        """AIN4=5 V on 60 V supply → PS_Voltage=30 V."""
+        """AIN4=5 V on 60 V supply → PS_Voltage=60 V (5V monitor range, full scale)."""
         mock_ljm.eReadName.return_value = 5.0
         readings = self.controller.get_readings()
-        self.assertAlmostEqual(readings['PS_Voltage'], 30.0)
+        self.assertAlmostEqual(readings['PS_Voltage'], 60.0)
 
     def test_get_status_contains_required_keys(self):
         mock_ljm.eReadName.return_value = 0.0

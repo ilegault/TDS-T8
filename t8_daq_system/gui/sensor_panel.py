@@ -33,6 +33,19 @@ class SensorPanel:
         self.frg702_mode_labels = {}   # sensor_name: Label for operating mode
         self.frg702_status_indicators = {}  # sensor_name: Canvas for status color
 
+        # Click-to-toggle state (Change 6)
+        self._sensor_visible = {}    # sensor_name: bool
+        self._toggle_callbacks = []  # list of callable(name, visible)
+
+        # Configure dimmed style for toggled-off tiles
+        try:
+            style = ttk.Style()
+            style.configure('Dimmed.TLabelframe', background='#cccccc')
+            style.configure('Dimmed.TLabelframe.Label', background='#cccccc',
+                            foreground='gray')
+        except Exception:
+            pass
+
         i = 0  # grid index counter
 
         # Create a label for each standard sensor (Thermocouples)
@@ -46,6 +59,7 @@ class SensorPanel:
             # Thermocouple precision and placeholder
             self.precisions[name] = 2
             placeholder = "--.--"
+            self._sensor_visible[name] = True
 
             # Create frame for this sensor with fixed size
             frame = ttk.LabelFrame(parent_frame, text=name, width=206, height=90)
@@ -76,6 +90,8 @@ class SensorPanel:
 
             self.displays[name] = value_label
             self.status_labels[name] = status_label
+
+            self._bind_tile_click(frame, name)
             i += 1
 
         # Create FRG-702 gauge displays
@@ -86,6 +102,7 @@ class SensorPanel:
 
                 name = gauge['name']
                 default_unit = gauge.get('units', 'mbar')
+                self._sensor_visible[name] = True
 
                 # Wider frame for FRG-702 to accommodate unit selector and mode
                 frame = ttk.LabelFrame(parent_frame, text=name, width=240, height=120)
@@ -136,27 +153,149 @@ class SensorPanel:
                 self.displays[name] = value_label
                 self.status_labels[name] = status_label
                 self.precisions[name] = -1  # Flag: use scientific notation
+
+                self._bind_tile_click(frame, name)
                 i += 1
+
+        # ── PS Voltage tile (Change 3) ─────────────────────────────────────
+        self._sensor_visible['PS_Voltage'] = True
+        ps_v_frame = ttk.LabelFrame(parent_frame, text="PS Voltage", width=206, height=90)
+        ps_v_frame.grid(row=i//7, column=i%7, padx=6, pady=5)
+        ps_v_frame.pack_propagate(False)
+        self.frames['PS_Voltage'] = ps_v_frame
+
+        ps_v_label = ttk.Label(ps_v_frame, text="--- V", font=('Arial', 14, 'bold'))
+        ps_v_label.pack(padx=5, pady=1)
+
+        ps_v_units = ttk.Label(ps_v_frame, text="V")
+        ps_v_units.pack(pady=(0, 1))
+
+        ps_v_status = ttk.Label(ps_v_frame, text="WAITING",
+                                font=('Arial', 6, 'italic'), foreground='gray')
+        ps_v_status.pack(side=tk.BOTTOM, pady=1)
+
+        self.displays['PS_Voltage'] = ps_v_label
+        self.status_labels['PS_Voltage'] = ps_v_status
+        self.precisions['PS_Voltage'] = 2
+
+        self._bind_tile_click(ps_v_frame, 'PS_Voltage')
+        i += 1
+
+        # ── PS Current tile (Change 3) ─────────────────────────────────────
+        self._sensor_visible['PS_Current'] = True
+        ps_i_frame = ttk.LabelFrame(parent_frame, text="PS Current", width=206, height=90)
+        ps_i_frame.grid(row=i//7, column=i%7, padx=6, pady=5)
+        ps_i_frame.pack_propagate(False)
+        self.frames['PS_Current'] = ps_i_frame
+
+        ps_i_label = ttk.Label(ps_i_frame, text="--- A", font=('Arial', 14, 'bold'))
+        ps_i_label.pack(padx=5, pady=1)
+
+        ps_i_units = ttk.Label(ps_i_frame, text="A")
+        ps_i_units.pack(pady=(0, 1))
+
+        ps_i_status = ttk.Label(ps_i_frame, text="WAITING",
+                                font=('Arial', 6, 'italic'), foreground='gray')
+        ps_i_status.pack(side=tk.BOTTOM, pady=1)
+
+        self.displays['PS_Current'] = ps_i_label
+        self.status_labels['PS_Current'] = ps_i_status
+        self.precisions['PS_Current'] = 2
+
+        self._bind_tile_click(ps_i_frame, 'PS_Current')
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Click-to-toggle (Change 6)
+    # ──────────────────────────────────────────────────────────────────────
+
+    def on_sensor_toggle(self, callback):
+        """
+        Register a callback invoked whenever a tile is clicked.
+
+        callback signature: callback(sensor_name: str, visible: bool)
+        """
+        self._toggle_callbacks.append(callback)
+
+    def _bind_tile_click(self, frame, name):
+        """Bind <Button-1> to a tile frame and all its children."""
+        frame.bind('<Button-1>', lambda e, n=name: self._on_tile_click(n))
+        for child in frame.winfo_children():
+            child.bind('<Button-1>', lambda e, n=name: self._on_tile_click(n))
+
+    def _on_tile_click(self, name):
+        """Toggle sensor visibility and notify registered callbacks."""
+        current = self._sensor_visible.get(name, True)
+        self._sensor_visible[name] = not current
+        self._apply_tile_appearance(name)
+        for cb in self._toggle_callbacks:
+            cb(name, self._sensor_visible[name])
+
+    def _apply_tile_appearance(self, name):
+        """Update tile visual state to reflect current visibility."""
+        visible = self._sensor_visible.get(name, True)
+        frame = self.frames.get(name)
+        if frame is None:
+            return
+
+        if visible:
+            try:
+                frame.configure(style='TLabelframe')
+            except Exception:
+                pass
+            if name in self.displays:
+                self.displays[name].configure(foreground='black')
+            if name in self.status_labels:
+                self.status_labels[name].configure(foreground='gray')
+        else:
+            try:
+                frame.configure(style='Dimmed.TLabelframe')
+            except Exception:
+                pass
+            if name in self.displays:
+                self.displays[name].configure(foreground='#aaaaaa')
+            if name in self.status_labels:
+                self.status_labels[name].configure(foreground='#aaaaaa')
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Value updates
+    # ──────────────────────────────────────────────────────────────────────
 
     def update(self, readings):
         """
         Update displayed values and status.
 
         Args:
-            readings: dict like {'TC1': 25.3, 'FRG702_Chamber': 1.5e-6}
+            readings: dict like {'TC1': 25.3, 'FRG702_Chamber': 1.5e-6,
+                                  'PS_Voltage': 12.3, 'PS_Current': 5.6}
         """
         for name, value in readings.items():
-            if name in self.displays:
-                if name in self.frg702_mode_labels:
-                    # FRG-702 display: use scientific notation
-                    self._update_frg702_display(name, value)
-                elif value is None:
-                    self.displays[name].config(text="---", foreground='gray')
+            if name not in self.displays:
+                continue
+            if name == 'PS_Voltage':
+                if value is None:
+                    self.displays[name].config(text="--- V", foreground='gray')
                     self.status_labels[name].config(text="DISCONNECTED", foreground='red')
                 else:
-                    precision = self.precisions.get(name, 1)
-                    self.displays[name].config(text=f"{value:.{precision}f}", foreground='black')
+                    self.displays[name].config(text=f"{value:.2f} V", foreground='black')
                     self.status_labels[name].config(text="CONNECTED", foreground='green')
+            elif name == 'PS_Current':
+                if value is None:
+                    self.displays[name].config(text="--- A", foreground='gray')
+                    self.status_labels[name].config(text="DISCONNECTED", foreground='red')
+                else:
+                    self.displays[name].config(text=f"{value:.2f} A", foreground='black')
+                    self.status_labels[name].config(text="CONNECTED", foreground='green')
+            elif name in self.frg702_mode_labels:
+                # FRG-702 display: use scientific notation
+                self._update_frg702_display(name, value)
+            elif value is None:
+                self.displays[name].config(text="---", foreground='gray')
+                self.status_labels[name].config(text="DISCONNECTED", foreground='red')
+            else:
+                precision = self.precisions.get(name, 1)
+                self.displays[name].config(text=f"{value:.{precision}f}",
+                                           foreground='black')
+                self.status_labels[name].config(text="CONNECTED", foreground='green')
 
     def _update_frg702_display(self, name, value):
         """Update an FRG-702 gauge display with unit conversion and scientific notation."""
@@ -276,7 +415,11 @@ class SensorPanel:
     def clear_all(self):
         """Reset all displays to default state."""
         for name in self.displays:
-            if name in self.frg702_mode_labels:
+            if name == 'PS_Voltage':
+                self.displays[name].config(text="--- V", foreground='black')
+            elif name == 'PS_Current':
+                self.displays[name].config(text="--- A", foreground='black')
+            elif name in self.frg702_mode_labels:
                 self.displays[name].config(text="-.--e--", foreground='black')
             else:
                 placeholder = "--.--" if self.precisions.get(name) == 2 else "--.-"

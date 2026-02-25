@@ -9,8 +9,8 @@ WIRING:
     J1 Pin 22 -> DAC GND      (Voltage Prog. Return)
     J1 Pin 10 -> DAC1         (Current Program, 0-10V = 0-rated_max_amps)
     J1 Pin 23 -> DAC GND      (Current Prog. Return)
-    J1 Pin 11 -> AIN4         (Voltage Monitor)
-    J1 Pin 24 -> AIN5         (Current Monitor)
+    J1 Pin 11 -> AIN4         (Voltage Monitor, SW1 Switch 4 DOWN = 0–5V monitor range)
+    J1 Pin 24 -> AIN5         (Current Monitor, SW1 Switch 4 DOWN = 0–5V monitor range)
     J1 Pin 12 -> GND          (Signal Common for monitors)
     J1 Pin 8  -> EIO0         (Local/Analog select - pull LOW for analog mode)
     J1 Pin 15 -> EIO1         (Shut Off - pull HIGH to kill output)
@@ -47,7 +47,8 @@ class KeysightAnalogController:
     def __init__(self, handle, rated_max_volts=60.0, rated_max_amps=25.0,
                  voltage_limit=None, current_limit=None,
                  voltage_pin="DAC0", current_pin="DAC1",
-                 voltage_monitor_pin="AIN4", current_monitor_pin="AIN5"):
+                 voltage_monitor_pin="AIN4", current_monitor_pin="AIN5",
+                 monitor_range_volts=5.0):
         """
         Initialize the analog power supply controller.
 
@@ -65,12 +66,15 @@ class KeysightAnalogController:
             current_pin:     LJM register for current programming (e.g. "DAC1")
             voltage_monitor_pin: LJM register for voltage monitoring (e.g. "AIN4")
             current_monitor_pin: LJM register for current monitoring (e.g. "AIN5")
+            monitor_range_volts: Full-scale voltage of the analog monitor outputs.
+                             SW1 Switch 4 DOWN = 0–5V monitor range (default 5.0 V).
         """
         self.handle = handle
         self.rated_max_volts = rated_max_volts
         self.rated_max_amps = rated_max_amps
         self.voltage_limit = voltage_limit if voltage_limit is not None else rated_max_volts
         self.current_limit = current_limit if current_limit is not None else rated_max_amps
+        self.monitor_range_volts = monitor_range_volts
         
         # Override class defaults with instance-specific pins
         self._DAC_VOLTAGE = voltage_pin
@@ -227,15 +231,15 @@ class KeysightAnalogController:
         """
         Read the actual output voltage from the analog monitor (AIN4).
 
-        The supply outputs 0-10 V on Pin 11 proportional to 0-rated_max_volts.
+        The supply outputs 0–5V on Pin 11 proportional to 0–rated_max_volts.
+        (SW1 Switch 4 DOWN = 0–5V monitor range.)
 
         Returns:
             float: Measured voltage in volts, or None on error
         """
         try:
             raw_v = ljm.eReadName(self.handle, self._AIN_VOLTAGE)
-            # print(f"[DEBUG] Keysight reading voltage from {self._AIN_VOLTAGE}: {raw_v}V")
-            return self._dac_to_volts(raw_v, self.rated_max_volts)
+            return (raw_v / self.monitor_range_volts) * self.rated_max_volts
         except Exception as e:
             print(f"Failed to measure voltage on {self._AIN_VOLTAGE}: {e}")
             return None
@@ -244,15 +248,15 @@ class KeysightAnalogController:
         """
         Read the actual output current from the analog monitor (AIN5).
 
-        The supply outputs 0-10 V on Pin 24 proportional to 0-rated_max_amps.
+        The supply outputs 0–5V on Pin 24 proportional to 0–rated_max_amps.
+        (SW1 Switch 4 DOWN = 0–5V monitor range.)
 
         Returns:
             float: Measured current in amperes, or None on error
         """
         try:
             raw_v = ljm.eReadName(self.handle, self._AIN_CURRENT)
-            # print(f"[DEBUG] Keysight reading current from {self._AIN_CURRENT}: {raw_v}V")
-            return self._dac_to_volts(raw_v, self.rated_max_amps)
+            return (raw_v / self.monitor_range_volts) * self.rated_max_amps
         except Exception as e:
             print(f"Failed to measure current on {self._AIN_CURRENT}: {e}")
             return None

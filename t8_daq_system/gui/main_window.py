@@ -94,8 +94,6 @@ from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
 from t8_daq_system.gui.live_plot import LivePlot
 from t8_daq_system.gui.sensor_panel import SensorPanel
 from t8_daq_system.utils.helpers import convert_temperature
-from t8_daq_system.gui.power_supply_panel import PowerSupplyPanel
-from t8_daq_system.gui.ramp_panel import RampPanel
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog
 from t8_daq_system.gui.settings_dialog import SettingsDialog
 from t8_daq_system.gui.pinout_display import PinoutDisplay
@@ -746,59 +744,46 @@ class MainWindow:
         self._build_plots(self.plot_container_main)
         profiler.checkpoint("Live plots built")
 
-        # Right side - Power Supply Control (unified ramp interface)
-        profiler.checkpoint("Creating right frame (control side)...")
-        right_frame = ttk.Frame(main_paned)
-        main_paned.add(right_frame, weight=2)
-        profiler.checkpoint("Right frame created")
-
-        # Power Supply Status Panel (read-only display with interlock)
-        profiler.checkpoint("Creating PowerSupplyPanel...")
-        ps_frame = ttk.LabelFrame(right_frame, text="Power Supply Status")
-        ps_frame.pack(fill=tk.BOTH, padx=5, pady=1)
-
-        self.ps_panel = PowerSupplyPanel(ps_frame, self.ps_controller)
-        self.ps_panel.on_output_change(self._on_ps_output_change)
-        profiler.checkpoint("PowerSupplyPanel created")
-
-        # Ramp Profile Panel (ONLY power control interface)
-        profiler.checkpoint("Creating RampPanel...")
-        ramp_frame = ttk.LabelFrame(right_frame, text="Power Supply Ramp Control")
-        ramp_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=1)
-
-        self.ramp_panel = RampPanel(
-            ramp_frame,
-            self.ramp_executor,
-            self.profiles_folder
-        )
-        self.ramp_panel.on_ramp_start(self._on_ramp_start)
-        self.ramp_panel.on_ramp_stop(self._on_ramp_stop)
-        profiler.checkpoint("RampPanel created")
 
     def _build_plots(self, parent):
-        """Create the live plots in the specified parent widget."""
-        profiler.checkpoint("_build_plots() entered - creating plot paned window")
-        plot_paned = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
-        plot_paned.pack(fill=tk.BOTH, expand=True)
-        profiler.checkpoint("Plot paned window created")
+        """Create a 2×2 grid of dedicated live plots in the parent widget."""
+        profiler.checkpoint("_build_plots() entered - creating 2x2 plot grid")
 
-        profiler.checkpoint("Creating full history plot frame...")
-        full_frame = ttk.LabelFrame(plot_paned, text="Full Run History")
-        plot_paned.add(full_frame, weight=1)
-        profiler.checkpoint("Full history frame created")
+        # Configure equal-weight grid rows and columns
+        parent.grid_rowconfigure(0, weight=1)
+        parent.grid_rowconfigure(1, weight=1)
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_columnconfigure(1, weight=1)
 
-        profiler.checkpoint("Creating LivePlot for full history (matplotlib)...")
-        self.full_plot = LivePlot(full_frame, self.data_buffer)
-        profiler.checkpoint("Full history LivePlot created")
+        # Row 0, Col 0 — Thermocouple temperatures
+        tc_frame = ttk.LabelFrame(parent, text="Temperatures")
+        tc_frame.grid(row=0, column=0, sticky='nsew', padx=2, pady=2)
+        self.plot_tc = LivePlot(tc_frame, self.data_buffer, plot_type='tc')
+        profiler.checkpoint("TC plot created")
 
-        profiler.checkpoint("Creating recent plot frame...")
-        recent_frame = ttk.LabelFrame(plot_paned, text="Last 1 Minute")
-        plot_paned.add(recent_frame, weight=1)
-        profiler.checkpoint("Recent plot frame created")
+        # Row 0, Col 1 — Pressure gauges (log scale)
+        press_frame = ttk.LabelFrame(parent, text="Pressures")
+        press_frame.grid(row=0, column=1, sticky='nsew', padx=2, pady=2)
+        self.plot_pressure = LivePlot(press_frame, self.data_buffer, plot_type='pressure')
+        profiler.checkpoint("Pressure plot created")
 
-        profiler.checkpoint("Creating LivePlot for recent data (matplotlib)...")
-        self.recent_plot = LivePlot(recent_frame, self.data_buffer)
-        profiler.checkpoint("Recent LivePlot created")
+        # Row 1, Col 0 — PS Voltage & Current
+        ps_frame = ttk.LabelFrame(parent, text="Power Supply V & I")
+        ps_frame.grid(row=1, column=0, sticky='nsew', padx=2, pady=2)
+        self.plot_ps = LivePlot(ps_frame, self.data_buffer, plot_type='ps')
+        profiler.checkpoint("PS plot created")
+
+        # Row 1, Col 1 — Placeholder (future camera / IR)
+        placeholder_frame = ttk.LabelFrame(parent, text="Camera / IR")
+        placeholder_frame.grid(row=1, column=1, sticky='nsew', padx=2, pady=2)
+        placeholder_lbl = ttk.Label(
+            placeholder_frame,
+            text="Camera / IR — Coming Soon",
+            foreground='gray',
+            font=('Arial', 12)
+        )
+        placeholder_lbl.place(relx=0.5, rely=0.5, anchor='center')
+        profiler.checkpoint("Placeholder frame created")
 
         profiler.checkpoint("Updating plot settings...")
         self._update_plot_settings()
@@ -821,7 +806,6 @@ class MainWindow:
 
             # Set up Mock Power Supply
             self.ps_controller = MockPowerSupplyController()
-            self.ps_panel.set_controller(self.ps_controller)
             self.safety_monitor.set_power_supply(self.ps_controller)
             self.ramp_executor.set_power_supply(self.ps_controller)
 
@@ -834,7 +818,6 @@ class MainWindow:
                 self.start_btn.config(state='disabled')
                 self.status_var.set("Disconnected")
                 self.ps_controller = None
-                self.ps_panel.set_controller(None)
             else:
                 self.status_var.set("Connected")
                 self._initialize_hardware_readers()
@@ -890,54 +873,48 @@ class MainWindow:
 
         press_unit = self.p_unit_var.get()
 
-        if hasattr(self, 'full_plot'):
-            self.full_plot.set_units(temp_unit_display, press_unit)
-            self.full_plot.set_absolute_scales(
-                self._use_absolute_scales,
-                display_temp_range,
-                self._press_range,
-                self._ps_v_range,
-                self._ps_i_range
-            )
-            # Force immediate axis relim + redraw after scale mode change
-            self.full_plot.ax.relim()
-            self.full_plot.ax.autoscale_view()
-            if self.full_plot.ax_frg702 is not None:
-                self.full_plot.ax_frg702.relim()
-                self.full_plot.ax_frg702.autoscale_view()
-            self.full_plot.canvas.draw_idle()
+        # Apply settings to each active plot
+        _ps_v_range = self._ps_v_range if hasattr(self, '_ps_v_range') else None
+        _ps_i_range = self._ps_i_range if hasattr(self, '_ps_i_range') else None
+        _press_range = self._press_range if hasattr(self, '_press_range') else None
 
-        if hasattr(self, 'recent_plot'):
-            self.recent_plot.set_units(temp_unit_display, press_unit)
-            self.recent_plot.set_absolute_scales(
-                self._use_absolute_scales,
-                display_temp_range,
-                self._press_range,
-                self._ps_v_range,
-                self._ps_i_range
-            )
-            # Force immediate axis relim + redraw after scale mode change
-            self.recent_plot.ax.relim()
-            self.recent_plot.ax.autoscale_view()
-            if self.recent_plot.ax_frg702 is not None:
-                self.recent_plot.ax_frg702.relim()
-                self.recent_plot.ax_frg702.autoscale_view()
-            self.recent_plot.canvas.draw_idle()
+        for plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
+            if hasattr(self, plot_attr):
+                plot = getattr(self, plot_attr)
+                plot.set_units(temp_unit_display, press_unit)
+                plot.set_absolute_scales(
+                    self._use_absolute_scales,
+                    display_temp_range,
+                    _press_range,
+                    _ps_v_range,
+                    _ps_i_range
+                )
+                plot.ax.relim()
+                plot.ax.autoscale_view()
+                plot.canvas.draw_idle()
 
-        sensor_names = [tc['name'] for tc in self.config['thermocouples'] if tc.get('enabled', True)]
-        sensor_names += [g['name'] for g in self.config.get('frg702_gauges', []) if g.get('enabled', True)]
-        ps_names = []  # Explicitly empty to remove from thermocouple plots
+        tc_names = [tc['name'] for tc in self.config['thermocouples']
+                    if tc.get('enabled', True)]
+        frg_names = [g['name'] for g in self.config.get('frg702_gauges', [])
+                     if g.get('enabled', True)]
 
         if self._viewing_historical and self._loaded_data:
-            if hasattr(self, 'full_plot'):
-                self.full_plot.update_from_loaded_data(
-                    self._loaded_data, sensor_names, [],
+            if hasattr(self, 'plot_tc'):
+                self.plot_tc.update_from_loaded_data(
+                    self._loaded_data, tc_names,
                     data_units=self._loaded_data_units
                 )
-            if hasattr(self, 'recent_plot'):
-                self.recent_plot.update_from_loaded_data(
-                    self._loaded_data, sensor_names, [],
-                    window_seconds=60, data_units=self._loaded_data_units
+            if hasattr(self, 'plot_pressure'):
+                self.plot_pressure.update_from_loaded_data(
+                    self._loaded_data, frg_names,
+                    data_units=self._loaded_data_units
+                )
+            if hasattr(self, 'plot_ps'):
+                ps_names = [n for n in self._loaded_data
+                            if n in ('PS_Voltage', 'PS_Current')]
+                self.plot_ps.update_from_loaded_data(
+                    self._loaded_data, ps_names,
+                    data_units=self._loaded_data_units
                 )
 
             if self._loaded_data.get('timestamps'):
@@ -955,10 +932,12 @@ class MainWindow:
                         display_last[name] = value
                 self.sensor_panel.update(display_last)
         else:
-            if hasattr(self, 'full_plot'):
-                self.full_plot.update(sensor_names, [])
-            if hasattr(self, 'recent_plot'):
-                self.recent_plot.update(sensor_names, [], window_seconds=60)
+            if hasattr(self, 'plot_tc'):
+                self.plot_tc.update(tc_names)
+            if hasattr(self, 'plot_pressure'):
+                self.plot_pressure.update(frg_names)
+            if hasattr(self, 'plot_ps'):
+                self.plot_ps.update(['PS_Voltage', 'PS_Current'])
 
     def _on_load_csv(self):
         dialog = LoadCSVDialog(self.root, self.log_folder)
@@ -1043,10 +1022,9 @@ class MainWindow:
         if hasattr(self, 'return_live_btn'):
             self.return_live_btn.pack_forget()
 
-        if hasattr(self, 'full_plot'):
-            self.full_plot.clear()
-        if hasattr(self, 'recent_plot'):
-            self.recent_plot.clear()
+        for _plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
+            if hasattr(self, _plot_attr):
+                getattr(self, _plot_attr).clear()
         self.data_buffer.clear()
 
         lj_ok = self.connection and self.connection.is_connected()
@@ -1131,8 +1109,24 @@ class MainWindow:
         all_sensors = self.config['thermocouples']
         frg702_configs = self.config.get('frg702_gauges', [])
         self.sensor_panel = SensorPanel(self.panel_container, all_sensors, frg702_configs)
+        self.sensor_panel.on_sensor_toggle(self._on_sensor_toggle)
 
         self._build_indicators()
+
+    def _on_sensor_toggle(self, name, visible):
+        """Route a sensor-tile click to the correct plot's visibility toggle."""
+        if name.startswith('TC_'):
+            if hasattr(self, 'plot_tc'):
+                self.plot_tc.set_sensor_visible(name, visible)
+        elif name.startswith('FRG702_'):
+            if hasattr(self, 'plot_pressure'):
+                self.plot_pressure.set_sensor_visible(name, visible)
+        elif name == 'PS_Voltage':
+            if hasattr(self, 'plot_ps'):
+                self.plot_ps.set_sensor_visible('PS_Voltage', visible)
+        elif name == 'PS_Current':
+            if hasattr(self, 'plot_ps'):
+                self.plot_ps.set_sensor_visible('PS_Current', visible)
 
     def _configure_safety_monitor(self):
         safety_config = self.config.get('power_supply', {}).get('safety', {})
@@ -1174,18 +1168,9 @@ class MainWindow:
 
     def _handle_rampdown_start(self, message: str):
         """Handle ramp-down start on main thread."""
-        # Stop the user's ramp if running
-        if self.ramp_panel.is_running():
-            self.ramp_panel.stop_execution()
-
-        # Update ramp panel with emergency state
-        self.ramp_panel.set_emergency_shutdown(
-            True,
-            "TEMPERATURE LIMIT EXCEEDED - EMERGENCY SHUTDOWN INITIATED"
-        )
-
-        # Update PS panel
-        self.ps_panel._show_error("EMERGENCY RAMP-DOWN IN PROGRESS")
+        # Stop the user's ramp executor if running
+        if self.ramp_executor.is_active():
+            self.ramp_executor.stop()
 
         # Update safety display
         self._update_safety_display(SafetyStatus.RAMPDOWN_ACTIVE)
@@ -1204,15 +1189,16 @@ class MainWindow:
         )
 
     def _handle_safety_shutdown(self):
-        # Stop ramp if running
-        if self.ramp_panel.is_running():
-            self.ramp_panel.stop_execution()
+        # Stop ramp executor if active
+        if self.ramp_executor.is_active():
+            self.ramp_executor.stop()
 
-        # Update power supply panel
-        self.ps_panel.emergency_off()
-
-        # Update ramp panel
-        self.ramp_panel.set_emergency_shutdown(True, "EMERGENCY SHUTDOWN ACTIVE")
+        # Directly shut down the power supply controller
+        if self.ps_controller:
+            try:
+                self.ps_controller.emergency_shutdown()
+            except Exception:
+                pass
 
         # Update safety display
         self._update_safety_display(SafetyStatus.SHUTDOWN_TRIGGERED)
@@ -1264,10 +1250,6 @@ class MainWindow:
             self._update_safety_display(SafetyStatus.OK)
             self.reset_safety_btn.pack_forget()
 
-            # Clear emergency state on ramp panel
-            self.ramp_panel.set_emergency_shutdown(False)
-            self.ps_panel._clear_error()
-
     def _on_ps_output_change(self, is_on: bool):
         if is_on:
             self.status_var.set("Running - PS Output ON")
@@ -1279,7 +1261,6 @@ class MainWindow:
         # Enable power supply output if not already on
         if self.ps_controller and not self.ps_controller.is_output_on():
             self.ps_controller.output_on()
-            self.ps_panel.update_output_state(True)
 
     def _on_ramp_stop(self):
         pass
@@ -1310,19 +1291,8 @@ class MainWindow:
 
     def _update_safety_interlocks(self):
         """Update all safety interlock states. Called from the GUI update loop."""
-
-        # Check restart lockout from safety monitor
-        if self.safety_monitor.is_restart_locked:
-            self.ramp_panel.set_emergency_shutdown(
-                True,
-                f"RESTART LOCKED - Temperature must drop below {SafetyMonitor.TEMP_RESTART_THRESHOLD:.0f}\u00b0C"
-            )
-        elif self.safety_monitor.is_rampdown_active:
-            progress = self.safety_monitor.get_rampdown_progress()
-            self.ramp_panel.set_emergency_shutdown(
-                True,
-                f"EMERGENCY RAMP-DOWN IN PROGRESS ({progress:.0f}%)"
-            )
+        # ramp_panel removed; safety monitor status shown via _update_safety_display()
+        pass
 
     def _on_start(self):
         # Show pre-flight checklist unless in practice mode or user has disabled it
@@ -1406,8 +1376,8 @@ class MainWindow:
         self.stop_btn.config(state='disabled')
         self.status_var.set("Stopped")
 
-        if self.ramp_panel.is_running():
-            self.ramp_panel.stop_execution()
+        if self.ramp_executor.is_active():
+            self.ramp_executor.stop()
 
         if self.is_logging:
             self._on_toggle_logging()
@@ -1545,57 +1515,14 @@ class MainWindow:
         if 'PowerSupply' in self.indicators:
             self.indicators['PowerSupply'].config(bg=color)
 
-        # Update power supply panel
-        if ps_connected and self.ps_controller:
-            if self._practice_mode:
-                self.ps_panel.set_connected(True)
-                ps_readings = self.ps_controller.get_readings()
-                self.ps_panel.update(ps_readings)
-                self.ps_panel.update_output_state(self.ps_controller.is_output_on())
-                voltage = ps_readings.get('PS_Voltage', 0.0)
-                current = ps_readings.get('PS_Current', 0.0)
-            else:
-                if self.is_running:
-                    # Use data from DAQ thread (via DataBuffer)
-                    daq_data = self.data_buffer.get_all_current()
-                    ps_readings = {
-                        'PS_Voltage': daq_data.get('PS_Voltage'),
-                        'PS_Current': daq_data.get('PS_Current')
-                    }
-                    self.ps_panel.update(ps_readings)
-
-                    # Output state is now included in DAQ data
-                    output_state = daq_data.get('PS_Output_On')
-                    if output_state is not None:
-                        self.ps_panel.update_output_state(output_state)
-
-                    voltage = daq_data.get('PS_Voltage') if daq_data.get('PS_Voltage') is not None else 0.0
-                    current = daq_data.get('PS_Current') if daq_data.get('PS_Current') is not None else 0.0
-                else:
-                    # Analog reads are fast (< 1 ms), so call the controller directly
-                    # from the GUI thread when idle — no background polling thread needed.
-                    readings = self.ps_controller.get_readings()
-                    ps_readings = {
-                        'PS_Voltage': readings['PS_Voltage'],
-                        'PS_Current': readings['PS_Current'],
-                    }
-                    self.ps_panel.update(ps_readings)
-                    self.ps_panel.update_output_state(readings['PS_Output_On'])
-                    voltage = readings['PS_Voltage'] if readings['PS_Voltage'] is not None else 0.0
-                    current = readings['PS_Current'] if readings['PS_Current'] is not None else 0.0
-
-            # Feed V/I data into ramp panel's embedded plot
-            if self.is_running:
-                self.ramp_panel.update_plot_data(
-                    voltage if voltage is not None else 0.0,
-                    current if current is not None else 0.0
-                )
-        else:
-            self.ps_panel.set_connected(False)
-
-        gui_profiler.start("ramp_panel_update")
-        # Update ramp panel
-        self.ramp_panel.update()
+        # When not running, poll PS directly and update sensor-panel tiles
+        if ps_connected and self.ps_controller and not self.is_running:
+            _ps_live = self.ps_controller.get_readings()
+            if hasattr(self, 'sensor_panel'):
+                self.sensor_panel.update({
+                    'PS_Voltage': _ps_live.get('PS_Voltage'),
+                    'PS_Current': _ps_live.get('PS_Current'),
+                })
 
         gui_profiler.start("safety_interlocks")
         # Update safety interlocks
@@ -1645,20 +1572,18 @@ class MainWindow:
 
         # Update plots (only every Nth call to reduce matplotlib overhead)
         if should_redraw_plots:
-            gui_profiler.start("plot_full_history")
-            sensor_names = [tc['name'] for tc in self.config['thermocouples']
-                           if tc.get('enabled', True)]
-            sensor_names += [g['name'] for g in self.config.get('frg702_gauges', [])
-                            if g.get('enabled', True)]
+            gui_profiler.start("plot_update")
+            tc_names = [tc['name'] for tc in self.config['thermocouples']
+                        if tc.get('enabled', True)]
+            frg_names = [g['name'] for g in self.config.get('frg702_gauges', [])
+                         if g.get('enabled', True)]
 
-            ps_names = []  # Explicitly empty to remove from thermocouple plots
-
-            if hasattr(self, 'full_plot'):
-                self.full_plot.update(sensor_names, ps_names)
-
-            gui_profiler.start("plot_recent")
-            if hasattr(self, 'recent_plot'):
-                self.recent_plot.update(sensor_names, ps_names, window_seconds=60)
+            if hasattr(self, 'plot_tc'):
+                self.plot_tc.update(tc_names)
+            if hasattr(self, 'plot_pressure'):
+                self.plot_pressure.update(frg_names)
+            if hasattr(self, 'plot_ps'):
+                self.plot_ps.update(['PS_Voltage', 'PS_Current'])
 
         gui_profiler.start("schedule_next")
         self.root.after(self.config['display']['update_rate_ms'], self._update_gui)
@@ -1731,7 +1656,6 @@ class MainWindow:
             if not enabled:
                 print("[DEBUG] Power supply is disabled in config. Setting ps_controller to None.")
                 self.ps_controller = None
-                self.ps_panel.set_controller(None)
                 self.safety_monitor.set_power_supply(None)
                 self.ramp_executor.set_power_supply(None)
                 self.ps_resource_var.set("None")
@@ -1759,8 +1683,7 @@ class MainWindow:
 
             self.safety_monitor.set_power_supply(self.ps_controller)
             self.ramp_executor.set_power_supply(self.ps_controller)
-            self.ps_panel.set_controller(self.ps_controller)
-            
+
             v_pin = ps_config.get('voltage_pin', 'DAC0')
             i_pin = ps_config.get('current_pin', 'DAC1')
             self.ps_resource_var.set(f"Analog ({v_pin}/{i_pin})")
