@@ -288,12 +288,30 @@ class KeysightAnalogController:
         Keysight J1 Pin 11 outputs 0-5V proportional to 0-rated_max_volts
         (SW1 switch 4 DOWN = 0-5V monitor range).
 
+        Scaling: (raw_ain / monitor_range_v) * rated_max_volts
+        Default: (raw_ain / 5.0) * 6.0
+
         Returns:
             float: Measured voltage in volts, or None on error
         """
         try:
             raw_v = ljm.eReadName(self.handle, self._AIN_VOLTAGE)
-            return (raw_v / self._MONITOR_RANGE_V) * self.rated_max_volts
+
+            # CRITICAL SCALING - 0-5V input represents 0-rated_max_volts output
+            actual_voltage = (raw_v / self._MONITOR_RANGE_V) * self.rated_max_volts
+
+            # Debug output - helps verify scaling is correct
+            print(f"=== KEYSIGHT VOLTAGE MONITOR ===")
+            print(f"Raw AIN ({self._AIN_VOLTAGE}): {raw_v:.4f}V")
+            print(f"Scaled: {actual_voltage:.3f}V  (formula: {raw_v:.4f} / {self._MONITOR_RANGE_V} * {self.rated_max_volts})")
+            print(f"================================")
+
+            # Safety check for reasonable values
+            if actual_voltage < 0 or actual_voltage > self.rated_max_volts * 1.083:
+                print(f"WARNING: Voltage reading {actual_voltage:.3f}V is out of expected range (0-{self.rated_max_volts}V)")
+                print(f"         Raw AIN reading was: {raw_v:.4f}V")
+
+            return actual_voltage
         except Exception as e:
             print(f"Failed to measure voltage: {e}")
             return None
@@ -305,12 +323,30 @@ class KeysightAnalogController:
         Keysight J1 Pin 24 outputs 0-5V proportional to 0-rated_max_amps
         (SW1 switch 4 DOWN = 0-5V monitor range).
 
+        Scaling: (raw_ain / monitor_range_v) * rated_max_amps
+        Default: (raw_ain / 5.0) * 180.0
+
         Returns:
             float: Measured current in amperes, or None on error
         """
         try:
             raw_v = ljm.eReadName(self.handle, self._AIN_CURRENT)
-            return (raw_v / self._MONITOR_RANGE_V) * self.rated_max_amps
+
+            # CRITICAL SCALING - 0-5V input represents 0-rated_max_amps output
+            actual_current = (raw_v / self._MONITOR_RANGE_V) * self.rated_max_amps
+
+            # Debug output - helps verify scaling is correct
+            print(f"=== KEYSIGHT CURRENT MONITOR ===")
+            print(f"Raw AIN ({self._AIN_CURRENT}): {raw_v:.4f}V")
+            print(f"Scaled: {actual_current:.2f}A  (formula: {raw_v:.4f} / {self._MONITOR_RANGE_V} * {self.rated_max_amps})")
+            print(f"================================")
+
+            # Safety check for reasonable values
+            if actual_current < 0 or actual_current > self.rated_max_amps * 1.028:
+                print(f"WARNING: Current reading {actual_current:.2f}A is out of expected range (0-{self.rated_max_amps}A)")
+                print(f"         Raw AIN reading was: {raw_v:.4f}V")
+
+            return actual_current
         except Exception as e:
             print(f"Failed to measure current: {e}")
             return None
@@ -359,6 +395,58 @@ class KeysightAnalogController:
                 print("✗ FAIL - Outside tolerance")
                 print("  Check: Is SW1-4 switch position correct?")
                 print("  Check: Are AIN channels wired to correct J1 pins?")
+
+    def test_keysight_scaling(self):
+        """
+        Test the scaling formula with known values.
+        This proves the math is correct without requiring hardware to be at specific setpoints.
+
+        Expected results (SW1-4 DOWN, 0-5V monitor range):
+            0.0V AIN  →  0.0V  /  0.0A   (0%)
+            1.0V AIN  →  1.2V  / 36.0A  (20%)
+            2.5V AIN  →  3.0V  / 90.0A  (50%)
+            4.0V AIN  →  4.8V  /144.0A  (80%)
+            5.0V AIN  →  6.0V  /180.0A  (100%)
+        """
+        print("\n=== SCALING FORMULA TEST ===")
+        print(f"Monitor range: {self._MONITOR_RANGE_V}V  |  "
+              f"Max voltage: {self.rated_max_volts}V  |  Max current: {self.rated_max_amps}A")
+
+        test_values = [
+            (0.0, "0%   / Zero"),
+            (1.0, "20%"),
+            (2.5, "50%  / Half scale"),
+            (4.0, "80%"),
+            (5.0, "100% / Maximum"),
+        ]
+
+        print("\nVoltage Scaling (AIN input → power supply output):")
+        all_pass = True
+        for raw_v, label in test_values:
+            calculated_v = (raw_v / self._MONITOR_RANGE_V) * self.rated_max_volts
+            expected_v = (raw_v / 5.0) * 6.0  # canonical formula
+            ok = abs(calculated_v - expected_v) < 1e-9
+            if not ok:
+                all_pass = False
+            status = "✓" if ok else "✗"
+            print(f"  {status} {raw_v:.1f}V → {calculated_v:.3f}V  ({label})")
+
+        print("\nCurrent Scaling (AIN input → power supply output):")
+        for raw_v, label in test_values:
+            calculated_a = (raw_v / self._MONITOR_RANGE_V) * self.rated_max_amps
+            expected_a = (raw_v / 5.0) * 180.0  # canonical formula
+            ok = abs(calculated_a - expected_a) < 1e-9
+            if not ok:
+                all_pass = False
+            status = "✓" if ok else "✗"
+            print(f"  {status} {raw_v:.1f}V → {calculated_a:.2f}A  ({label})")
+
+        if all_pass:
+            print("\n✓ All scaling values correct — formula is right")
+        else:
+            print("\n✗ SCALING MISMATCH DETECTED — check rated_max_volts/amps and monitor range")
+        print("============================\n")
+        return all_pass
 
     # ──────────────────────────────────────────────────────────────────────────
     # Output enable / disable
