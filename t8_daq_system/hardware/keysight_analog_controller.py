@@ -45,6 +45,9 @@ class KeysightAnalogController:
     # 0V = 0% of rated output, 5V = 100% of rated output
     _MONITOR_RANGE_V = 5.0
 
+    # MAX DAC output is 5.0 V — hard limit per Keysight N5700 J1 spec (SW1-3 DOWN)
+    _DAC_MAX_V = 5.0
+
     def __init__(self, handle, rated_max_volts=6.0, rated_max_amps=180.0,
                  voltage_limit=None, current_limit=None,
                  voltage_pin="DAC0", current_pin="DAC1",
@@ -138,11 +141,12 @@ class KeysightAnalogController:
         analog programming mode.  Must be called once at startup.
         """
         try:
-            print(f"[DEBUG] Keysight: Pulling {self._DIO_ANALOG_EN} LOW to enable analog mode")
             ljm.eWriteName(self.handle, self._DIO_ANALOG_EN, 0)
+            print(f'[Keysight] Analog mode ENABLED via EIO0=LOW')
+            print(f'[Keysight] DAC hard clamp active: max {self._DAC_MAX_V}V on DAC0/DAC1')
+            print(f'[Keysight] Scaling: 5.0V DAC = {self.rated_max_volts}V / {self.rated_max_amps}A output')
         except Exception as e:
-            print(f"[DEBUG] Keysight: Error enabling analog mode: {e}")
-            pass
+            print(f'[Keysight] Warning: Could not enable analog mode: {e}')
 
     # ──────────────────────────────────────────────────────────────────────────
     # Validation helpers
@@ -170,6 +174,20 @@ class KeysightAnalogController:
         """Scale a DAC readback (0-5 V) back to engineering units."""
         return (dac_v / 5.0) * rated_max
 
+    def _safe_dac_write(self, register, value):
+        """
+        Write a DAC value with a hard clamp to prevent exceeding 5.0 V.
+        This is the only place DAC values are written to the T8.
+        Raises ValueError if value is negative (programming error).
+        """
+        if value < 0.0:
+            raise ValueError(f'DAC value cannot be negative: {value}')
+        clamped = min(value, self._DAC_MAX_V)
+        if clamped != value:
+            print(f'WARNING: DAC value {value:.4f}V clamped to {clamped:.4f}V on {register}')
+        ljm.eWriteName(self.handle, register, clamped)
+        return clamped
+
     # ──────────────────────────────────────────────────────────────────────────
     # Setpoint commands (write to DAC)
     # ──────────────────────────────────────────────────────────────────────────
@@ -192,23 +210,21 @@ class KeysightAnalogController:
         try:
             # STEP 2: Calculate DAC values with correct scaling
             dac_v = (volts / self.rated_max_volts) * 5.0
-            
+
             # STEP 3: Debug output (Before write)
             if self.debug:
-                print(f"=== KEYSIGHT VOLTAGE COMMAND DEBUG ===")
-                print(f"Requested Output: {volts}V")
-                print(f"Calculated DAC Voltage: {dac_v:.3f}V")
-                print(f"Expected PSU Output: {volts}V")
-            
-            # STEP 4: Send to T8
-            ljm.eWriteName(self.handle, self._DAC_VOLTAGE, dac_v)
-            
+                print(f"=== KEYSIGHT VOLTAGE COMMAND ===")
+                print(f"Target: {volts}V  →  DAC: {dac_v:.4f}V")
+
+            # STEP 4: Send to T8 via clamped write
+            actual_written = self._safe_dac_write(self._DAC_VOLTAGE, dac_v)
+
             # STEP 5: Readback Verification
             actual_dac_v = ljm.eReadName(self.handle, self._DAC_VOLTAGE)
             if self.debug:
-                print(f"DAC Readback - V channel: {actual_dac_v:.3f}V")
-                print(f"=======================================")
-            
+                print(f"DAC Readback: {actual_dac_v:.4f}V")
+                print(f"=================================")
+
             return True
         except Exception as e:
             print(f"Failed to set voltage: {e}")
@@ -232,23 +248,21 @@ class KeysightAnalogController:
         try:
             # STEP 2: Calculate DAC values with correct scaling
             dac_i = (amps / self.rated_max_amps) * 5.0
-            
+
             # STEP 3: Debug output (Before write)
             if self.debug:
-                print(f"=== KEYSIGHT CURRENT COMMAND DEBUG ===")
-                print(f"Requested Output: {amps}A")
-                print(f"Calculated DAC Current: {dac_i:.3f}V")
-                print(f"Expected PSU Output: {amps}A")
-            
-            # STEP 4: Send to T8
-            ljm.eWriteName(self.handle, self._DAC_CURRENT, dac_i)
-            
+                print(f"=== KEYSIGHT CURRENT COMMAND ===")
+                print(f"Target: {amps}A  →  DAC: {dac_i:.4f}V")
+
+            # STEP 4: Send to T8 via clamped write
+            actual_written = self._safe_dac_write(self._DAC_CURRENT, dac_i)
+
             # STEP 5: Readback Verification
             actual_dac_i = ljm.eReadName(self.handle, self._DAC_CURRENT)
             if self.debug:
-                print(f"DAC Readback - I channel: {actual_dac_i:.3f}V")
-                print(f"=======================================")
-            
+                print(f"DAC Readback: {actual_dac_i:.4f}V")
+                print(f"=================================")
+
             return True
         except Exception as e:
             print(f"Failed to set current: {e}")
@@ -560,8 +574,8 @@ class KeysightAnalogController:
             True if successful, False if failed
         """
         try:
-            ljm.eWriteName(self.handle, self._DAC_VOLTAGE, 0.0)
-            ljm.eWriteName(self.handle, self._DAC_CURRENT, 0.0)
+            self._safe_dac_write(self._DAC_VOLTAGE, 0.0)
+            self._safe_dac_write(self._DAC_CURRENT, 0.0)
             ljm.eWriteName(self.handle, self._DIO_SHUTOFF, 0)
             return True
         except Exception as e:
@@ -585,13 +599,13 @@ class KeysightAnalogController:
 
         # 2. Zero the voltage program DAC
         try:
-            ljm.eWriteName(self.handle, self._DAC_VOLTAGE, 0.0)
+            self._safe_dac_write(self._DAC_VOLTAGE, 0.0)
         except Exception:
             success = False
 
         # 3. Zero the current program DAC
         try:
-            ljm.eWriteName(self.handle, self._DAC_CURRENT, 0.0)
+            self._safe_dac_write(self._DAC_CURRENT, 0.0)
         except Exception:
             success = False
 

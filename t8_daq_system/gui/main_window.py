@@ -107,7 +107,8 @@ from t8_daq_system.gui.programmer_preview_plot import ProgrammerPreviewPlot
 
 class MockPowerSupplyController:
     """Simulated power supply for practice mode."""
-    def __init__(self, voltage_limit=20.0, current_limit=50.0):
+
+    def __init__(self, voltage_limit=6.0, current_limit=180.0):
         self.voltage = 0.0
         self.current = 0.0
         self.output_state = False
@@ -115,11 +116,11 @@ class MockPowerSupplyController:
         self.current_limit = current_limit
 
     def set_voltage(self, volts):
-        self.voltage = min(volts, self.voltage_limit)
+        self.voltage = min(max(volts, 0.0), self.voltage_limit)
         return True
 
     def set_current(self, amps):
-        self.current = min(amps, self.current_limit)
+        self.current = min(max(amps, 0.0), self.current_limit)
         return True
 
     def output_on(self):
@@ -140,21 +141,25 @@ class MockPowerSupplyController:
         return self.current
 
     def get_voltage(self):
-        if not self.output_state: return 0.0
+        if not self.output_state:
+            return 0.0
         t = time.time()
-        # Simulated 2% oscillation + random noise
         fluctuation = (self.voltage * 0.02) * math.sin(t / 8.0)
         return self.voltage + fluctuation + random.uniform(-0.02, 0.02)
 
     def get_current(self):
-        if not self.output_state: return 0.0
+        if not self.output_state:
+            return 0.0
         t = time.time()
-        # Simulated 3% oscillation + random noise
         fluctuation = (self.current * 0.03) * math.cos(t / 10.0)
         return self.current + fluctuation + random.uniform(-0.01, 0.01)
 
     def get_readings(self):
-        return {'PS_Voltage': self.get_voltage(), 'PS_Current': self.get_current()}
+        return {
+            'PS_Voltage': self.get_voltage(),
+            'PS_Current': self.get_current(),
+            'PS_Output_On': self.output_state
+        }
 
     def get_status(self):
         return {
@@ -167,9 +172,19 @@ class MockPowerSupplyController:
             'in_current_limit': False
         }
 
+    def get_errors(self):
+        return []
+
+    def reset(self):
+        self.voltage = 0.0
+        self.current = 0.0
+        self.output_state = False
+        return True
+
     def emergency_shutdown(self):
-        self.output_off()
-        self.voltage = 0
+        self.output_state = False
+        self.voltage = 0.0
+        self.current = 0.0
         return True
 
 
@@ -888,6 +903,12 @@ class MainWindow:
                 # Re-initialize the analog PS controller with the live T8 handle
                 self._initialize_power_supply()
 
+            # Clear programmer overlay from PS plot when leaving practice mode
+            for plot in getattr(self, '_live_plots', []):
+                if hasattr(plot, 'plot_type') and plot.plot_type == 'ps':
+                    plot.set_programmer_overlay([], [], [])
+                    break
+
         self._rebuild_sensor_panel()
         self._update_plot_settings()
 
@@ -1019,10 +1040,15 @@ class MainWindow:
         The overlay will appear as dotted lines on the V&I plot.
         It becomes time-anchored once the user clicks Run Program.
         """
+        from datetime import datetime
         times, voltages, currents = self._programmer_preview_data
         for plot in getattr(self, '_live_plots', []):
             if hasattr(plot, 'plot_type') and plot.plot_type == 'ps':
                 plot.set_programmer_overlay(times, voltages, currents)
+                # Anchor the overlay to 'now' so it's visible immediately as a preview.
+                # This will be re-anchored to the true run start when Run Program is clicked.
+                if times:
+                    plot.set_overlay_start_time(datetime.now())
                 break
 
     def _on_run_program(self):
@@ -1144,13 +1170,14 @@ class MainWindow:
         self._programmer_ramp_running = True
         self.run_ramp_btn.config(text="Stop Program")
 
-        # Set overlay start time so the dotted preview anchors correctly on the ps plot
-        # Use stored preview data
+        # Set overlay start time so the dotted preview anchors correctly on the ps plot.
+        # Re-anchor to the actual run start time for accurate comparison.
+        from datetime import datetime as _dt
         times, voltages, currents = self._programmer_preview_data
         for plot in getattr(self, '_live_plots', []):
             if hasattr(plot, 'plot_type') and plot.plot_type == 'ps':
                 plot.set_programmer_overlay(times, voltages, currents)
-                plot.anchor_programmer_overlay(time.time())
+                plot.set_overlay_start_time(_dt.now())  # pass datetime, not time.time()
                 break
 
         self.status_var.set("Running Program")

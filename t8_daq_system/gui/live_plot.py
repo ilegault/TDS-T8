@@ -553,12 +553,6 @@ class LivePlot:
             if not self._use_absolute_scales:
                 self.ax2.autoscale_view()
 
-        # ── Legend ─────────────────────────────────────────────────────────
-        if self.lines:
-            handles = list(self.lines.values())
-            labels = [k[1] for k in self.lines.keys()]
-            self.ax.legend(handles, labels, loc='upper left', fontsize=7)
-
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.ax.grid(True, alpha=0.3)
 
@@ -587,14 +581,27 @@ class LivePlot:
                 ]
                 self._overlay_line_v, = self.ax.plot(
                     overlay_datetimes, self._overlay_voltages,
-                    color='blue', linestyle='--', linewidth=1.0, alpha=0.5,
+                    color='blue', linestyle=':', linewidth=1.5, alpha=0.6,
                     label='Programmed V'
                 )
                 if self.ax2 is not None:
                     self._overlay_line_a, = self.ax2.plot(
                         overlay_datetimes, self._overlay_currents,
-                        color='red', linestyle='--', linewidth=1.0, alpha=0.5,
+                        color='red', linestyle=':', linewidth=1.5, alpha=0.6,
                         label='Programmed I'
                     )
+
+        # ── Legend (built after overlay so all lines are included) ─────────
+        handles = list(self.lines.values())
+        labels = [k[1] for k in self.lines.keys()]
+        if self.plot_type == 'ps':
+            if self._overlay_line_v is not None:
+                handles.append(self._overlay_line_v)
+                labels.append('Programmed V')
+            if self._overlay_line_a is not None:
+                handles.append(self._overlay_line_a)
+                labels.append('Programmed I')
+        if handles:
+            self.ax.legend(handles, labels, loc='upper left', fontsize=7)
 
         self.canvas.draw_idle()
