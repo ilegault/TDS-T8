@@ -67,13 +67,21 @@ class LivePlot:
         self._temp_unit = "°C"
         self._press_unit = "mbar"
 
-        # Color cycles
+        # Color cycles (default fallbacks)
         self.colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
                        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
         self.ps_colors = {
             'PS_Voltage': '#d62728',   # Red
             'PS_Current': '#ff7f0e',   # Orange
         }
+
+        # Custom appearance (overridden by apply_appearance())
+        self._custom_tc_colors = list(self.colors)
+        self._custom_tc_styles = ['solid'] * 10
+        self._custom_tc_widths = [2] * 10
+        self._custom_press_colors = ['#17becf', '#bcbd22', '#7f7f7f', '#e377c2']
+        self._custom_press_styles = ['solid'] * 4
+        self._custom_press_widths = [2] * 4
 
         # ── Build matplotlib figure ───────────────────────────────────────
         self.fig = Figure(figsize=(5, 4), dpi=100)
@@ -329,6 +337,85 @@ class LivePlot:
         """Get the matplotlib Axes objects."""
         return self.ax, self.ax2
 
+    def apply_appearance(self, tc_colors=None, tc_styles=None, tc_widths=None,
+                         press_colors=None, press_styles=None, press_widths=None,
+                         ps_voltage_color=None, ps_current_color=None,
+                         ps_voltage_style=None, ps_current_style=None,
+                         ps_voltage_width=None, ps_current_width=None):
+        """
+        Apply appearance settings to existing and future plot lines.
+        Call this after loading settings or after the user saves in Settings dialog.
+        """
+        if tc_colors:
+            self._custom_tc_colors = list(tc_colors)
+        if tc_styles:
+            self._custom_tc_styles = list(tc_styles)
+        if tc_widths:
+            self._custom_tc_widths = [int(w) for w in tc_widths]
+        if press_colors:
+            self._custom_press_colors = list(press_colors)
+        if press_styles:
+            self._custom_press_styles = list(press_styles)
+        if press_widths:
+            self._custom_press_widths = [int(w) for w in press_widths]
+        if ps_voltage_color:
+            self.ps_colors['PS_Voltage'] = ps_voltage_color
+        if ps_current_color:
+            self.ps_colors['PS_Current'] = ps_current_color
+        if ps_voltage_style:
+            self._ps_voltage_style = ps_voltage_style
+        if ps_current_style:
+            self._ps_current_style = ps_current_style
+        if ps_voltage_width:
+            self._ps_voltage_width = int(ps_voltage_width)
+        if ps_current_width:
+            self._ps_current_width = int(ps_current_width)
+        # Apply immediately to any already-drawn lines
+        self._reapply_line_styles()
+        self.canvas.draw_idle()
+
+    def _linestyle_str_to_mpl(self, style_str):
+        """Convert a style name string to a matplotlib linestyle specifier."""
+        mapping = {'solid': '-', 'dashed': '--', 'dotted': ':', 'dashdot': '-.'}
+        return mapping.get(style_str, '-')
+
+    def _reapply_line_styles(self):
+        """Update color/linestyle/linewidth on all existing Line2D objects."""
+        tc_idx = 0
+        press_idx = 0
+        for key, line in self.lines.items():
+            category, name = key
+            if category == 'tc':
+                if self._custom_tc_colors:
+                    line.set_color(self._custom_tc_colors[tc_idx % len(self._custom_tc_colors)])
+                if self._custom_tc_styles:
+                    line.set_linestyle(self._linestyle_str_to_mpl(
+                        self._custom_tc_styles[tc_idx % len(self._custom_tc_styles)]
+                    ))
+                if self._custom_tc_widths:
+                    line.set_linewidth(self._custom_tc_widths[tc_idx % len(self._custom_tc_widths)])
+                tc_idx += 1
+            elif category == 'frg':
+                if self._custom_press_colors:
+                    line.set_color(self._custom_press_colors[press_idx % len(self._custom_press_colors)])
+                if self._custom_press_styles:
+                    line.set_linestyle(self._linestyle_str_to_mpl(
+                        self._custom_press_styles[press_idx % len(self._custom_press_styles)]
+                    ))
+                if self._custom_press_widths:
+                    line.set_linewidth(self._custom_press_widths[press_idx % len(self._custom_press_widths)])
+                press_idx += 1
+            elif category == 'ps':
+                color = self.ps_colors.get(name, '#666666')
+                line.set_color(color)
+                # PS voltage/current style
+                if name == 'PS_Voltage' and hasattr(self, '_ps_voltage_style'):
+                    line.set_linestyle(self._linestyle_str_to_mpl(self._ps_voltage_style))
+                    line.set_linewidth(self._ps_voltage_width)
+                elif name == 'PS_Current' and hasattr(self, '_ps_current_style'):
+                    line.set_linestyle(self._linestyle_str_to_mpl(self._ps_current_style))
+                    line.set_linewidth(self._ps_current_width)
+
     def set_programmer_overlay(self, times, voltages, currents):
         """
         Set the dotted preview overlay on the ps plot.
@@ -457,7 +544,11 @@ class LivePlot:
                         for v in values
                     ]
                 times, vals = self._prepare_data(timestamps, values, ws, now)
-                color = self.colors[color_idx % len(self.colors)]
+                color = self._custom_tc_colors[color_idx % len(self._custom_tc_colors)]
+                style = self._linestyle_str_to_mpl(
+                    self._custom_tc_styles[color_idx % len(self._custom_tc_styles)]
+                )
+                width = self._custom_tc_widths[color_idx % len(self._custom_tc_widths)]
                 color_idx += 1
 
                 line_key = ('tc', name)
@@ -468,8 +559,8 @@ class LivePlot:
                     self.lines[line_key].set_data(times, vals)
                     self.lines[line_key].set_visible(visible)
                 else:
-                    line, = self.ax.plot(times, vals, label=name, linewidth=2,
-                                         color=color, visible=visible)
+                    line, = self.ax.plot(times, vals, label=name, linewidth=width,
+                                         color=color, linestyle=style, visible=visible)
                     self.lines[line_key] = line
 
             if self._use_absolute_scales and self._temp_range:
@@ -489,7 +580,11 @@ class LivePlot:
                         for v in values
                     ]
                 times, vals = self._prepare_data(timestamps, values, ws, now)
-                color = self.colors[color_idx % len(self.colors)]
+                color = self._custom_press_colors[color_idx % len(self._custom_press_colors)]
+                style = self._linestyle_str_to_mpl(
+                    self._custom_press_styles[color_idx % len(self._custom_press_styles)]
+                )
+                width = self._custom_press_widths[color_idx % len(self._custom_press_widths)]
                 color_idx += 1
 
                 line_key = ('frg', name)
@@ -500,8 +595,8 @@ class LivePlot:
                     self.lines[line_key].set_data(times, vals)
                     self.lines[line_key].set_visible(visible)
                 else:
-                    line, = self.ax.plot(times, vals, label=name, linewidth=2,
-                                         color=color, visible=visible)
+                    line, = self.ax.plot(times, vals, label=name, linewidth=width,
+                                         color=color, linestyle=style, visible=visible)
                     self.lines[line_key] = line
 
             if self._use_absolute_scales and self._press_range:

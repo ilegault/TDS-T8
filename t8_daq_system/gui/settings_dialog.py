@@ -8,7 +8,7 @@ All fields map directly to AppSettings attributes.
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, colorchooser
 
 
 class SettingsDialog(tk.Toplevel):
@@ -239,70 +239,264 @@ class SettingsDialog(tk.Toplevel):
                               "turbo_pump_min_restart_delay_s", width=15, row=3)
 
     def _build_scales_tab(self, notebook):
-        """Tab for axis scale configuration."""
-        tab = ttk.Frame(notebook, padding=15)
-        notebook.add(tab, text="Axis Scales")
+        """Tab for axis scale and appearance configuration (scrollable)."""
+        tab = ttk.Frame(notebook, padding=0)
+        notebook.add(tab, text='Appearance')
 
-        ttk.Label(tab, text="Plot Axis Ranges", 
-                 font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 10))
+        # Scrollable canvas
+        canvas = tk.Canvas(tab, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(tab, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        inner = ttk.Frame(canvas, padding=10)
+        canvas_window = canvas.create_window((0, 0), window=inner, anchor='nw')
 
-        abs_frame = ttk.Frame(tab)
-        abs_frame.pack(fill=tk.X, pady=10)
+        def _on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+        inner.bind('<Configure>', _on_frame_configure)
 
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        canvas.bind('<Configure>', _on_canvas_configure)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        canvas.bind_all('<MouseWheel>', _on_mousewheel)
+
+        # ── Global axis mode ─────────────────────────────────────────────
         self._abs_scale_var = tk.BooleanVar()
-        ttk.Checkbutton(abs_frame, text="Use Absolute Scales",
-                       variable=self._abs_scale_var).pack(anchor='w')
+        ttk.Checkbutton(inner, text='Use Absolute Y-Axis Scales (uncheck = auto-scale)',
+                       variable=self._abs_scale_var).pack(anchor='w', pady=(0, 10))
 
-        ttk.Label(tab, text="Temperature", 
-                 font=('Arial', 10, 'bold')).pack(anchor='w', pady=(15, 10))
+        # ── Build three sections ─────────────────────────────────────────
+        # Initialize appearance variable holders before building sections
+        self._tc_color_vars = []
+        self._tc_color_btns = []
+        self._tc_style_vars = []
+        self._tc_width_vars = []
+        self._press_color_vars = []
+        self._press_color_btns = []
+        self._press_style_vars = []
+        self._press_width_vars = []
+        self._ps_v_color_var = '#d62728'
+        self._ps_i_color_var = '#ff7f0e'
+        self._ps_v_style_var = tk.StringVar(value='solid')
+        self._ps_i_style_var = tk.StringVar(value='solid')
+        self._ps_v_width_var = tk.StringVar(value='2')
+        self._ps_i_width_var = tk.StringVar(value='2')
 
-        temp_frame = ttk.LabelFrame(tab, padding=10)
-        temp_frame.pack(fill=tk.X, pady=5)
+        self._build_tc_appearance_section(inner)
+        self._build_pressure_appearance_section(inner)
+        self._build_ps_appearance_section(inner)
 
+    _STYLE_CHOICES = ['solid', 'dashed', 'dotted', 'dashdot']
+
+    def _make_color_picker_btn(self, parent, initial_color, on_color_chosen):
+        """Create a color picker button that shows the selected color as its background."""
+        btn = tk.Button(parent, text='  ', bg=initial_color, width=4, relief='raised',
+                        cursor='hand2')
+
+        def _pick():
+            result = colorchooser.askcolor(color=btn['bg'], parent=self)
+            if result and result[1]:
+                new_color = result[1]
+                btn.configure(bg=new_color)
+                on_color_chosen(new_color)
+
+        btn.configure(command=_pick)
+        return btn
+
+    def _build_tc_appearance_section(self, parent):
+        """Build the Temperatures Plot section inside the Appearance tab."""
         self._temp_min_var = tk.StringVar()
         self._temp_max_var = tk.StringVar()
-        self._create_entry_row(temp_frame, "Min (°C):", None, width=20, row=0, 
-                              var=self._temp_min_var)
-        self._create_entry_row(temp_frame, "Max (°C):", None, width=20, row=1, 
-                              var=self._temp_max_var)
 
-        ttk.Label(tab, text="Pressure", 
-                 font=('Arial', 10, 'bold')).pack(anchor='w', pady=(15, 10))
+        frame = ttk.LabelFrame(parent, text='Temperatures Plot', padding=8)
+        frame.pack(fill=tk.X, pady=5)
 
-        press_frame = ttk.LabelFrame(tab, padding=10)
-        press_frame.pack(fill=tk.X, pady=5)
+        axis_frame = ttk.Frame(frame)
+        axis_frame.pack(fill=tk.X, pady=(0, 5))
+        self._create_entry_row(axis_frame, 'Temp Min (°C):', None, width=15, row=0,
+                               var=self._temp_min_var)
+        self._create_entry_row(axis_frame, 'Temp Max (°C):', None, width=15, row=1,
+                               var=self._temp_max_var)
 
+        ttk.Label(frame, text='Per-Channel Appearance',
+                  font=('Arial', 9, 'bold')).pack(anchor='w', pady=(5, 2))
+
+        hdr = ttk.Frame(frame)
+        hdr.pack(fill=tk.X)
+        ttk.Label(hdr, text='Channel', width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Color',   width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Style',   width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Width',   width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+
+        tc_count = self._settings.tc_count
+        default_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+                          '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
+
+        self._tc_color_vars = []
+        self._tc_color_btns = []
+        self._tc_style_vars = []
+        self._tc_width_vars = []
+
+        for i in range(tc_count):
+            color = default_colors[i % len(default_colors)]
+            style_var = tk.StringVar(value='solid')
+            width_var = tk.StringVar(value='2')
+            self._tc_color_vars.append(color)
+            self._tc_style_vars.append(style_var)
+            self._tc_width_vars.append(width_var)
+
+            row = ttk.Frame(frame)
+            row.pack(fill=tk.X, pady=1)
+            ttk.Label(row, text=f'TC_{i+1}', width=9).pack(side=tk.LEFT, padx=4)
+
+            idx = i  # capture for closure
+
+            def _make_color_setter(idx_):
+                def _set(c):
+                    self._tc_color_vars[idx_] = c
+                return _set
+
+            btn = self._make_color_picker_btn(row, color, _make_color_setter(idx))
+            btn.pack(side=tk.LEFT, padx=4)
+            self._tc_color_btns.append(btn)
+
+            ttk.Combobox(row, textvariable=style_var, values=self._STYLE_CHOICES,
+                         state='readonly', width=9).pack(side=tk.LEFT, padx=4)
+            ttk.Spinbox(row, textvariable=width_var, from_=1, to=4, width=4).pack(
+                side=tk.LEFT, padx=4)
+
+    def _build_pressure_appearance_section(self, parent):
+        """Build the Pressures Plot section inside the Appearance tab."""
         self._press_min_var = tk.StringVar()
         self._press_max_var = tk.StringVar()
-        self._create_entry_row(press_frame, "Min:", None, width=20, row=0, 
-                              var=self._press_min_var)
-        self._create_entry_row(press_frame, "Max:", None, width=20, row=1, 
-                              var=self._press_max_var)
 
-        ttk.Label(tab, text="Power Supply", 
-                 font=('Arial', 10, 'bold')).pack(anchor='w', pady=(15, 10))
+        frame = ttk.LabelFrame(parent, text='Pressures Plot', padding=8)
+        frame.pack(fill=tk.X, pady=5)
 
-        ps_frame = ttk.LabelFrame(tab, padding=10)
-        ps_frame.pack(fill=tk.X, pady=5)
+        axis_frame = ttk.Frame(frame)
+        axis_frame.pack(fill=tk.X, pady=(0, 5))
+        self._create_entry_row(axis_frame, 'Press Min:', None, width=15, row=0,
+                               var=self._press_min_var)
+        self._create_entry_row(axis_frame, 'Press Max:', None, width=15, row=1,
+                               var=self._press_max_var)
 
+        ttk.Label(frame, text='Per-Gauge Appearance',
+                  font=('Arial', 9, 'bold')).pack(anchor='w', pady=(5, 2))
+
+        hdr = ttk.Frame(frame)
+        hdr.pack(fill=tk.X)
+        ttk.Label(hdr, text='Gauge',  width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Color',  width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Style',  width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Width',  width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+
+        frg_count = self._settings.frg_count
+        default_colors = ['#17becf', '#bcbd22', '#7f7f7f', '#e377c2']
+
+        self._press_color_vars = []
+        self._press_color_btns = []
+        self._press_style_vars = []
+        self._press_width_vars = []
+
+        for i in range(frg_count):
+            color = default_colors[i % len(default_colors)]
+            style_var = tk.StringVar(value='solid')
+            width_var = tk.StringVar(value='2')
+            self._press_color_vars.append(color)
+            self._press_style_vars.append(style_var)
+            self._press_width_vars.append(width_var)
+
+            row = ttk.Frame(frame)
+            row.pack(fill=tk.X, pady=1)
+            ttk.Label(row, text=f'FRG_{i+1}', width=9).pack(side=tk.LEFT, padx=4)
+
+            idx = i
+
+            def _make_press_color_setter(idx_):
+                def _set(c):
+                    self._press_color_vars[idx_] = c
+                return _set
+
+            btn = self._make_color_picker_btn(row, color, _make_press_color_setter(idx))
+            btn.pack(side=tk.LEFT, padx=4)
+            self._press_color_btns.append(btn)
+
+            ttk.Combobox(row, textvariable=style_var, values=self._STYLE_CHOICES,
+                         state='readonly', width=9).pack(side=tk.LEFT, padx=4)
+            ttk.Spinbox(row, textvariable=width_var, from_=1, to=4, width=4).pack(
+                side=tk.LEFT, padx=4)
+
+    def _build_ps_appearance_section(self, parent):
+        """Build the Power Supply Plot section inside the Appearance tab."""
         self._psv_min_var = tk.StringVar()
         self._psv_max_var = tk.StringVar()
         self._psi_min_var = tk.StringVar()
         self._psi_max_var = tk.StringVar()
 
-        self._create_entry_row(ps_frame, "Voltage Min (V):", None, width=20, row=0, 
-                              var=self._psv_min_var)
-        self._create_entry_row(ps_frame, "Voltage Max (V):", None, width=20, row=1, 
-                              var=self._psv_max_var)
-        self._create_entry_row(ps_frame, "Current Min (A):", None, width=20, row=2, 
-                              var=self._psi_min_var)
-        self._create_entry_row(ps_frame, "Current Max (A):", None, width=20, row=3, 
-                              var=self._psi_max_var)
+        frame = ttk.LabelFrame(parent, text='Power Supply Plot', padding=8)
+        frame.pack(fill=tk.X, pady=5)
 
-        self._create_entry_row(ps_frame, "Voltage Limit (V):", "ps_voltage_limit", 
-                              width=20, row=4)
-        self._create_entry_row(ps_frame, "Current Limit (A):", "ps_current_limit", 
-                              width=20, row=5)
+        axis_frame = ttk.Frame(frame)
+        axis_frame.pack(fill=tk.X, pady=(0, 5))
+        self._create_entry_row(axis_frame, 'Voltage Min (V):', None, width=15, row=0,
+                               var=self._psv_min_var)
+        self._create_entry_row(axis_frame, 'Voltage Max (V):', None, width=15, row=1,
+                               var=self._psv_max_var)
+        self._create_entry_row(axis_frame, 'Current Min (A):', None, width=15, row=2,
+                               var=self._psi_min_var)
+        self._create_entry_row(axis_frame, 'Current Max (A):', None, width=15, row=3,
+                               var=self._psi_max_var)
+
+        ttk.Label(frame, text='Line Appearance',
+                  font=('Arial', 9, 'bold')).pack(anchor='w', pady=(5, 2))
+
+        hdr = ttk.Frame(frame)
+        hdr.pack(fill=tk.X)
+        ttk.Label(hdr, text='Signal',   width=11, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Color',    width=6,  font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Style',    width=9,  font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Width',    width=6,  font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+
+        # PS Voltage row
+        v_row = ttk.Frame(frame)
+        v_row.pack(fill=tk.X, pady=1)
+        ttk.Label(v_row, text='PS Voltage', width=11).pack(side=tk.LEFT, padx=4)
+
+        def _set_v_color(c):
+            self._ps_v_color_var = c
+
+        self._ps_v_color_btn = self._make_color_picker_btn(v_row, self._ps_v_color_var, _set_v_color)
+        self._ps_v_color_btn.pack(side=tk.LEFT, padx=4)
+        ttk.Combobox(v_row, textvariable=self._ps_v_style_var, values=self._STYLE_CHOICES,
+                     state='readonly', width=9).pack(side=tk.LEFT, padx=4)
+        ttk.Spinbox(v_row, textvariable=self._ps_v_width_var, from_=1, to=4, width=4).pack(
+            side=tk.LEFT, padx=4)
+
+        # PS Current row
+        i_row = ttk.Frame(frame)
+        i_row.pack(fill=tk.X, pady=1)
+        ttk.Label(i_row, text='PS Current', width=11).pack(side=tk.LEFT, padx=4)
+
+        def _set_i_color(c):
+            self._ps_i_color_var = c
+
+        self._ps_i_color_btn = self._make_color_picker_btn(i_row, self._ps_i_color_var, _set_i_color)
+        self._ps_i_color_btn.pack(side=tk.LEFT, padx=4)
+        ttk.Combobox(i_row, textvariable=self._ps_i_style_var, values=self._STYLE_CHOICES,
+                     state='readonly', width=9).pack(side=tk.LEFT, padx=4)
+        ttk.Spinbox(i_row, textvariable=self._ps_i_width_var, from_=1, to=4, width=4).pack(
+            side=tk.LEFT, padx=4)
+
+        # Safety limits at bottom
+        ttk.Separator(frame, orient='horizontal').pack(fill=tk.X, pady=6)
+        limit_frame = ttk.Frame(frame)
+        limit_frame.pack(fill=tk.X)
+        self._create_entry_row(limit_frame, 'Voltage Limit (V):', 'ps_voltage_limit', width=15, row=0)
+        self._create_entry_row(limit_frame, 'Current Limit (A):', 'ps_current_limit', width=15, row=1)
 
     def _build_paths_tab(self, notebook):
         """Tab for file paths and power supply configuration."""
@@ -441,6 +635,57 @@ class SettingsDialog(tk.Toplevel):
         self._psi_max_var.set(str(s.ps_i_range_max))
         self._ps_voltage_limit_var.set(str(s.ps_voltage_limit))
         self._ps_current_limit_var.set(str(s.ps_current_limit))
+
+        # ── Appearance: TC colors/styles/widths ───────────────────────────
+        tc_colors  = [c.strip() for c in (s.tc_colors or '').split(',')]
+        tc_styles  = [x.strip() for x in (s.tc_line_style or '').split(',')]
+        tc_widths  = [x.strip() for x in (s.tc_line_width or '').split(',')]
+        default_tc_colors = ['#1f77b4','#ff7f0e','#2ca02c','#d62728',
+                              '#9467bd','#8c564b','#e377c2','#7f7f7f']
+        for i, (svar, wvar) in enumerate(zip(self._tc_style_vars, self._tc_width_vars)):
+            color = tc_colors[i] if i < len(tc_colors) else default_tc_colors[i % len(default_tc_colors)]
+            style = tc_styles[i] if i < len(tc_styles) else 'solid'
+            width = tc_widths[i] if i < len(tc_widths) else '2'
+            self._tc_color_vars[i] = color
+            if i < len(self._tc_color_btns):
+                try:
+                    self._tc_color_btns[i].configure(bg=color)
+                except Exception:
+                    pass
+            svar.set(style)
+            wvar.set(width)
+
+        # ── Appearance: Pressure colors/styles/widths ─────────────────────
+        press_colors = [c.strip() for c in (s.press_colors or '').split(',')]
+        press_styles = [x.strip() for x in (s.press_line_style or '').split(',')]
+        press_widths = [x.strip() for x in (s.press_line_width or '').split(',')]
+        default_press_colors = ['#17becf','#bcbd22','#7f7f7f','#e377c2']
+        for i, (svar, wvar) in enumerate(zip(self._press_style_vars, self._press_width_vars)):
+            color = press_colors[i] if i < len(press_colors) else default_press_colors[i % len(default_press_colors)]
+            style = press_styles[i] if i < len(press_styles) else 'solid'
+            width = press_widths[i] if i < len(press_widths) else '2'
+            self._press_color_vars[i] = color
+            if i < len(self._press_color_btns):
+                try:
+                    self._press_color_btns[i].configure(bg=color)
+                except Exception:
+                    pass
+            svar.set(style)
+            wvar.set(width)
+
+        # ── Appearance: PS colors/styles/widths ───────────────────────────
+        self._ps_v_color_var = s.ps_voltage_color
+        self._ps_i_color_var = s.ps_current_color
+        try:
+            self._ps_v_color_btn.configure(bg=s.ps_voltage_color)
+            self._ps_i_color_btn.configure(bg=s.ps_current_color)
+        except Exception:
+            pass
+        self._ps_v_style_var.set(s.ps_voltage_line_style)
+        self._ps_i_style_var.set(s.ps_current_line_style)
+        self._ps_v_width_var.set(s.ps_voltage_line_width)
+        self._ps_i_width_var.set(s.ps_current_line_width)
+
         self._log_folder_var.set(s.log_folder)
         self._frg_interface_var.set(s.frg_interface)
         self._frg_pins_var.set(s.frg_pins)
@@ -488,6 +733,21 @@ class SettingsDialog(tk.Toplevel):
             s.ps_i_range_max = float(self._psi_max_var.get())
             s.ps_voltage_limit = float(self._ps_voltage_limit_var.get())
             s.ps_current_limit = float(self._ps_current_limit_var.get())
+
+            # ── Appearance settings ───────────────────────────────────────
+            s.tc_colors = ','.join(self._tc_color_vars)
+            s.tc_line_style = ','.join(v.get() for v in self._tc_style_vars)
+            s.tc_line_width = ','.join(v.get() for v in self._tc_width_vars)
+            s.press_colors = ','.join(self._press_color_vars)
+            s.press_line_style = ','.join(v.get() for v in self._press_style_vars)
+            s.press_line_width = ','.join(v.get() for v in self._press_width_vars)
+            s.ps_voltage_color = self._ps_v_color_var
+            s.ps_current_color = self._ps_i_color_var
+            s.ps_voltage_line_style = self._ps_v_style_var.get()
+            s.ps_current_line_style = self._ps_i_style_var.get()
+            s.ps_voltage_line_width = self._ps_v_width_var.get()
+            s.ps_current_line_width = self._ps_i_width_var.get()
+
             s.log_folder = self._log_folder_var.get().strip()
             s.frg_interface = self._frg_interface_var.get()
             s.frg_pins = self._frg_pins_var.get().strip()

@@ -270,6 +270,13 @@ class RampExecutor:
             is_current_mode = self._profile.control_mode == ControlMode.CURRENT.value
             self._current_setpoint = self._profile.start_current if is_current_mode else self._profile.start_voltage
 
+        # Enable output before starting ramp
+        if self.power_supply is not None:
+            try:
+                self.power_supply.output_on()
+            except Exception as e:
+                print(f"[RampExecutor] Warning: output_on() failed: {e}")
+
         # Set state to RUNNING before starting thread to avoid race condition
         # where thread sets ERROR and then we overwrite it with RUNNING
         self._set_state(ExecutorState.RUNNING)

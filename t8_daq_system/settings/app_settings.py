@@ -61,6 +61,22 @@ _DEFAULTS = {
     "pp_default_ramp_duration": ("int", 60),
     "pp_default_start_v":    ("float", 0.0),
     "pp_default_start_a":    ("float", 0.0),
+    # ── Appearance / Plot Style defaults ─────────────────────────────────
+    # TC plot colors — one per channel, stored as comma-separated hex strings
+    "tc_colors":            ("str", "#1f77b4,#ff7f0e,#2ca02c,#d62728,#9467bd,#8c564b,#e377c2,#7f7f7f"),
+    "tc_line_style":        ("str", "solid,solid,solid,solid,solid,solid,solid,solid"),
+    "tc_line_width":        ("str", "2,2,2,2,2,2,2,2"),
+    # Pressure plot
+    "press_colors":         ("str", "#17becf,#bcbd22,#7f7f7f,#e377c2"),
+    "press_line_style":     ("str", "solid,solid,solid,solid"),
+    "press_line_width":     ("str", "2,2,2,2"),
+    # PS plot
+    "ps_voltage_color":     ("str", "#d62728"),
+    "ps_current_color":     ("str", "#ff7f0e"),
+    "ps_voltage_line_style":("str", "solid"),
+    "ps_current_line_style":("str", "solid"),
+    "ps_voltage_line_width":("str", "2"),
+    "ps_current_line_width":("str", "2"),
 }
 
 
@@ -123,6 +139,19 @@ class AppSettings:
         self.pp_default_ramp_duration: int = 60
         self.pp_default_start_v: float = 0.0
         self.pp_default_start_a: float = 0.0
+        # Appearance / Plot Style
+        self.tc_colors: str            = "#1f77b4,#ff7f0e,#2ca02c,#d62728,#9467bd,#8c564b,#e377c2,#7f7f7f"
+        self.tc_line_style: str        = "solid,solid,solid,solid,solid,solid,solid,solid"
+        self.tc_line_width: str        = "2,2,2,2,2,2,2,2"
+        self.press_colors: str         = "#17becf,#bcbd22,#7f7f7f,#e377c2"
+        self.press_line_style: str     = "solid,solid,solid,solid"
+        self.press_line_width: str     = "2,2,2,2"
+        self.ps_voltage_color: str     = "#d62728"
+        self.ps_current_color: str     = "#ff7f0e"
+        self.ps_voltage_line_style: str = "solid"
+        self.ps_current_line_style: str = "solid"
+        self.ps_voltage_line_width: str = "2"
+        self.ps_current_line_width: str = "2"
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API

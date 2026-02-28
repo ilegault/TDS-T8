@@ -120,7 +120,9 @@ class DataAcquisition:
             if self.ps_controller:
                 ps_readings = self.ps_controller.get_readings()
 
-        all_readings = {**tc_readings, **frg702_readings, **ps_readings}
+        # Merge readings but exclude status flags (PS_Output_On is not a sensor value)
+        ps_sensor_readings = {k: v for k, v in ps_readings.items() if k != 'PS_Output_On'}
+        all_readings = {**tc_readings, **frg702_readings, **ps_sensor_readings}
         return timestamp, all_readings, tc_readings, frg702_detail_readings, raw_voltages
 
     def start_fast_acquisition(self, callback=None):

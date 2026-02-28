@@ -312,6 +312,7 @@ class MainWindow:
         # Mode tracking
         self._viewing_historical = False
         self._practice_mode = False
+        self._practice_banner = None  # tk.Frame shown in practice mode
         self._loaded_data = None
         self._loaded_data_units = {'temp': 'C', 'press': 'PSI'}
         self._programmer_mode_active = False
@@ -510,6 +511,9 @@ class MainWindow:
         # Rebuild sensor config and refresh
         self._on_config_change()
 
+        # Apply appearance settings to all live plots
+        self._apply_appearance_to_plots()
+
         # Refresh pinout display if open
         if hasattr(self, '_pinout_window') and self._pinout_window is not None:
             try:
@@ -517,6 +521,27 @@ class MainWindow:
                     self._pinout_window.refresh_config(self.config, self._app_settings)
             except tk.TclError:
                 self._pinout_window = None
+
+    def _apply_appearance_to_plots(self):
+        """Push appearance settings from AppSettings to all live plot instances."""
+        s = self._app_settings
+        tc_colors  = [c.strip() for c in s.tc_colors.split(',')]
+        tc_styles  = [x.strip() for x in s.tc_line_style.split(',')]
+        tc_widths  = [x.strip() for x in s.tc_line_width.split(',')]
+        press_colors = [c.strip() for c in s.press_colors.split(',')]
+        press_styles = [x.strip() for x in s.press_line_style.split(',')]
+        press_widths = [x.strip() for x in s.press_line_width.split(',')]
+        for plot in getattr(self, '_live_plots', []):
+            plot.apply_appearance(
+                tc_colors=tc_colors, tc_styles=tc_styles, tc_widths=tc_widths,
+                press_colors=press_colors, press_styles=press_styles, press_widths=press_widths,
+                ps_voltage_color=s.ps_voltage_color,
+                ps_current_color=s.ps_current_color,
+                ps_voltage_style=s.ps_voltage_line_style,
+                ps_current_style=s.ps_current_line_style,
+                ps_voltage_width=s.ps_voltage_line_width,
+                ps_current_width=s.ps_current_line_width,
+            )
 
     def _open_settings_dialog(self):
         """Open the persistent Settings dialog."""
@@ -649,6 +674,7 @@ class MainWindow:
         # Top frame - Control buttons
         control_frame = ttk.Frame(self.root)
         control_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.control_frame = control_frame  # Save reference for banner placement
 
         # Control buttons
         self.start_btn = ttk.Button(
@@ -868,6 +894,10 @@ class MainWindow:
         self._update_plot_settings()
         profiler.checkpoint("Plot settings updated")
 
+        # Apply persisted appearance settings on startup
+        self._apply_appearance_to_plots()
+        profiler.checkpoint("Appearance settings applied to plots")
+
     def _toggle_practice_mode(self):
         """Toggle practice mode on/off."""
         self._practice_mode = not self._practice_mode
@@ -889,6 +919,34 @@ class MainWindow:
             self.ramp_executor.set_power_supply(self.ps_controller)
 
             self.ps_resource_var.set("Mock Power Supply")
+
+            # ── Feature C: Window title ───────────────────────────────────
+            self.root.title('[PRACTICE MODE] T8 DAQ System with Power Supply Control')
+
+            # ── Feature C: Orange banner below control buttons ────────────
+            if self._practice_banner is None:
+                self._practice_banner = tk.Frame(self.root, bg='#FF8C00', height=28)
+                self._practice_banner.pack(fill=tk.X, padx=0, pady=0,
+                                           after=self.control_frame)
+                banner_label = tk.Label(
+                    self._practice_banner,
+                    text='⚠  PRACTICE MODE — No real hardware is being controlled  ⚠',
+                    bg='#FF8C00', fg='white',
+                    font=('Arial', 10, 'bold')
+                )
+                banner_label.pack(expand=True)
+
+            # ── Feature C: Practice button style ─────────────────────────
+            try:
+                style = ttk.Style()
+                style.configure('PracticeOn.TButton',
+                                background='#FF8C00',
+                                foreground='white',
+                                font=('Arial', 9, 'bold'))
+                self.practice_btn.configure(style='PracticeOn.TButton')
+            except Exception:
+                pass  # Theme may not support background color changes
+
         else:
             self.practice_btn.config(text="Practice Mode: OFF")
             self.ps_resource_var.set("None")
@@ -908,6 +966,20 @@ class MainWindow:
                 if hasattr(plot, 'plot_type') and plot.plot_type == 'ps':
                     plot.set_programmer_overlay([], [], [])
                     break
+
+            # ── Feature C: Revert window title ────────────────────────────
+            self.root.title('T8 DAQ System with Power Supply Control')
+
+            # ── Feature C: Destroy orange banner ─────────────────────────
+            if self._practice_banner is not None:
+                self._practice_banner.destroy()
+                self._practice_banner = None
+
+            # ── Feature C: Revert practice button style ───────────────────
+            try:
+                self.practice_btn.configure(style='TButton')
+            except Exception:
+                pass
 
         self._rebuild_sensor_panel()
         self._update_plot_settings()
