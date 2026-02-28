@@ -133,6 +133,14 @@ class LivePlot:
         self._is_live = True
         self._frozen_right_edge = None  # datetime: right edge of frozen 2-min window
 
+        # Programmer overlay (dotted preview lines)
+        self._overlay_times = []       # list of floats (seconds relative to ramp start)
+        self._overlay_voltages = []    # list of floats
+        self._overlay_currents = []    # list of floats
+        self._overlay_line_v = None    # matplotlib Line2D or None
+        self._overlay_line_a = None    # matplotlib Line2D or None
+        self._overlay_start_time = None  # datetime when ramp started, or None
+
     # ──────────────────────────────────────────────────────────────────────
     # Scrollbar callback  (Change 5)
     # ──────────────────────────────────────────────────────────────────────
@@ -320,6 +328,25 @@ class LivePlot:
     def get_axes(self):
         """Get the matplotlib Axes objects."""
         return self.ax, self.ax2
+
+    def set_programmer_overlay(self, times, voltages, currents):
+        """
+        Set the dotted preview overlay on the ps plot.
+        Call with empty lists to clear the overlay.
+
+        Args:
+            times:    list of floats in seconds (relative offsets from ramp start)
+            voltages: list of floats in volts
+            currents: list of floats in amps
+        """
+        self._overlay_times = times
+        self._overlay_voltages = voltages
+        self._overlay_currents = currents
+        self._overlay_start_time = None  # Reset; set when ramp starts
+
+    def set_overlay_start_time(self, start_datetime):
+        """Call this when the ramp actually begins to anchor the overlay in time."""
+        self._overlay_start_time = start_datetime
 
     # ──────────────────────────────────────────────────────────────────────
     # Internal rendering helpers
@@ -534,5 +561,40 @@ class LivePlot:
 
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.ax.grid(True, alpha=0.3)
+
+        # ── Programmer overlay (dotted preview lines) for ps plot ──────────
+        if self.plot_type == 'ps' and self._overlay_times and self._overlay_voltages:
+            # Remove stale overlay lines
+            if self._overlay_line_v is not None:
+                try:
+                    self._overlay_line_v.remove()
+                except ValueError:
+                    pass
+                self._overlay_line_v = None
+            if self._overlay_line_a is not None and self.ax2 is not None:
+                try:
+                    self._overlay_line_a.remove()
+                except ValueError:
+                    pass
+                self._overlay_line_a = None
+
+            if self._overlay_start_time is not None:
+                # Convert relative seconds to absolute datetime for x-axis alignment
+                from datetime import timedelta
+                overlay_datetimes = [
+                    self._overlay_start_time + timedelta(seconds=t)
+                    for t in self._overlay_times
+                ]
+                self._overlay_line_v, = self.ax.plot(
+                    overlay_datetimes, self._overlay_voltages,
+                    color='blue', linestyle='--', linewidth=1.0, alpha=0.5,
+                    label='Programmed V'
+                )
+                if self.ax2 is not None:
+                    self._overlay_line_a, = self.ax2.plot(
+                        overlay_datetimes, self._overlay_currents,
+                        color='red', linestyle='--', linewidth=1.0, alpha=0.5,
+                        label='Programmed I'
+                    )
 
         self.canvas.draw_idle()
