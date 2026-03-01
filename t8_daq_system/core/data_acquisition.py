@@ -203,6 +203,8 @@ class DataAcquisition:
                     # ── Debug terminal output ─────────────────────────────────
                     if DEBUG_POWER_PROGRAMMER:
                         # Gather block / timing info from the ramp executor
+                        step_start_v = step_end_v = step_start_a = step_end_a = None
+                        progress = 0.0
                         try:
                             elapsed   = self.ramp_executor.get_elapsed_time()
                             profile   = self.ramp_executor._profile
@@ -212,6 +214,23 @@ class DataAcquisition:
                                 step      = profile.steps[step_idx]
                                 block_num = step_idx + 1
                                 block_type = step.step_type.upper()  # "RAMP" or "HOLD"
+
+                                # Compute start values for this block by evaluating setpoint
+                                # at the exact moment the block began
+                                cumulative_time = sum(
+                                    s.duration_sec for s in profile.steps[:step_idx]
+                                )
+                                time_into_step = elapsed - cumulative_time
+                                progress = (
+                                    time_into_step / step.duration_sec
+                                    if step.duration_sec > 0 else 1.0
+                                )
+
+                                # Start values are the profile setpoints at block start time
+                                step_start_v = profile.get_setpoint_at_time(cumulative_time)
+                                step_end_v   = step.target_voltage
+                                step_start_a = profile.get_current_setpoint_at_time(cumulative_time)
+                                step_end_a   = step.target_current
                             else:
                                 block_num  = "?"
                                 block_type = "UNKNOWN"
@@ -224,10 +243,22 @@ class DataAcquisition:
                         v_pass = "PASS" if voltage_error <= _PP_VOLTAGE_TOLERANCE else "FAIL"
                         i_pass = "PASS" if current_error <= _PP_CURRENT_TOLERANCE else "FAIL"
 
+                        # Build block table debug lines
+                        if step_start_v is not None:
+                            block_debug = (
+                                f"\n  BLOCK TABLE VALUES:\n"
+                                f"    From table: Start V={step_start_v:.4f}, End V={step_end_v}\n"
+                                f"    From table: Start A={step_start_a:.4f}, End A={step_end_a}\n"
+                                f"    Progress in block: {progress:.4f}\n"
+                            )
+                        else:
+                            block_debug = ""
+
                         print(
                             f"\n=== POWER PROGRAMMER DEBUG [Practice Mode] ===\n"
                             f"  Time : {elapsed:.2f} s / {total_dur:.2f} s\n"
                             f"  Block: {block_num} — {block_type}\n"
+                            f"{block_debug}"
                             f"\n  TARGET VALUES:\n"
                             f"    Voltage Setpoint : {voltage_setpoint:8.3f} V\n"
                             f"    Current Setpoint : {current_setpoint:8.2f} A\n"

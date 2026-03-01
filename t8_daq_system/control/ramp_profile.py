@@ -287,6 +287,56 @@ class RampProfile:
         # Past end of profile - return final value
         return current_val
 
+    def get_current_setpoint_at_time(self, elapsed_sec: float) -> float:
+        """
+        Calculate the current (Amps) setpoint at a given elapsed time.
+
+        Always uses target_current from steps, regardless of control_mode.
+        For ramp steps, linearly interpolates between start_current and target_current.
+        For hold steps, maintains the current value from the previous step.
+
+        Args:
+            elapsed_sec: Elapsed time since profile start in seconds
+
+        Returns:
+            Current setpoint in Amps
+        """
+        start_val = self.start_current
+
+        if elapsed_sec <= 0:
+            return start_val
+
+        if not self.steps:
+            return start_val
+
+        cumulative_time = 0.0
+        current_val = start_val
+
+        for step in self.steps:
+            step_start_time = cumulative_time
+            step_end_time = cumulative_time + step.duration_sec
+
+            if elapsed_sec <= step_end_time:
+                time_into_step = elapsed_sec - step_start_time
+                progress = time_into_step / step.duration_sec if step.duration_sec > 0 else 1.0
+
+                if step.step_type == StepType.RAMP.value:
+                    target = step.target_current
+                    if target is None:
+                        return current_val
+                    return current_val + (target - current_val) * progress
+                else:
+                    # Hold step - maintain current value
+                    return current_val
+
+            # Move to next step - update current_val to end-of-step value
+            if step.step_type == StepType.RAMP.value and step.target_current is not None:
+                current_val = step.target_current
+
+            cumulative_time = step_end_time
+
+        return current_val
+
     def get_final_voltage(self) -> float:
         """
         Get the setpoint value at the end of the profile.

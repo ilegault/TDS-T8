@@ -104,14 +104,17 @@ class TestRampExecutorExecution(unittest.TestCase):
         self.executor.stop()
 
     def test_start_sets_current_limit(self):
-        """Test that start sets the current limit on power supply."""
+        """Test that start sets the current limit on power supply at startup."""
         self.executor.load_profile(self.profile)
         self.executor.start()
 
         # Give it time to initialize
         time.sleep(0.05)
 
-        self.mock_ps.set_current.assert_called_with(25.0)
+        # The startup call with current_limit (25.0) must have happened.
+        # The run loop also calls set_current() with interpolated per-step values,
+        # so we use assert_any_call rather than assert_called_with (last-call check).
+        self.mock_ps.set_current.assert_any_call(25.0)
         self.executor.stop()
 
     def test_stop_execution(self):

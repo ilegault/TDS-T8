@@ -374,13 +374,31 @@ class RampExecutor:
                     self._current_setpoint = self._profile.get_final_voltage()
                     break
 
-                # Calculate current setpoint
+                # Calculate primary setpoint (voltage in voltage mode, current in current mode)
                 self._current_setpoint = self._profile.get_setpoint_at_time(elapsed)
 
-                # Get current step info
+                # Calculate secondary setpoint: current interpolated per-block in voltage mode
+                # This ensures current_setpoint tracks start_a→end_a just like voltage
+                is_current_mode = self._profile.control_mode == ControlMode.CURRENT.value
+                if not is_current_mode:
+                    current_setpoint = self._profile.get_current_setpoint_at_time(elapsed)
+                else:
+                    current_setpoint = self._current_setpoint
+
+                # Get current step info for debug output
                 step_info = self._profile.get_step_at_time(elapsed)
                 if step_info[0] is not None:
                     self._current_step_index = step_info[0]
+                    step_idx = step_info[0]
+                    step_obj = step_info[1]
+                    time_into_step = step_info[2]
+                    progress = time_into_step / step_obj.duration_sec if step_obj.duration_sec > 0 else 1.0
+                    print(
+                        f"[BLOCK DEBUG] Block #{step_idx + 1}"
+                        f"  Start A={self._profile.start_current if step_idx == 0 else '...'}"
+                        f"  End A={step_obj.target_current}"
+                        f"  Progress={progress:.4f}"
+                    )
 
             # Notify step change
             if self._current_step_index != last_step_index:
@@ -393,16 +411,17 @@ class RampExecutor:
                     except Exception:
                         pass
 
-            # Send setpoint to power supply
+            # Send setpoints to power supply
             if self.power_supply:
                 try:
-                    with self._lock:
-                        is_current_mode = self._profile.control_mode == ControlMode.CURRENT.value
-                    
                     if is_current_mode:
+                        # Current mode: ramp current, hold voltage
                         self.power_supply.set_current(self._current_setpoint)
                     else:
+                        # Voltage mode: ramp voltage AND interpolate current per-block
+                        # current_setpoint = start_a + (end_a - start_a) * progress
                         self.power_supply.set_voltage(self._current_setpoint)
+                        self.power_supply.set_current(current_setpoint)
                 except Exception as e:
                     with self._lock:
                         mode_str = "current" if is_current_mode else "voltage"

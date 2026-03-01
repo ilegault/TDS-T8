@@ -1214,38 +1214,58 @@ class MainWindow:
                 )
                 return
 
+        # Compute actual max current and voltage across all blocks (never hardcode 180.0)
+        max_current_a = max(
+            max(float(b.get("start_a", 0.0)), float(b.get("end_a", b.get("start_a", 0.0))))
+            for b in blocks
+        )
+        max_voltage_v = max(
+            max(float(b["start_v"]), float(b["end_v"]))
+            for b in blocks
+        )
+        # current_limit and voltage_limit must be > 0 per RampProfile.validate()
+        max_current_a = max(max_current_a, 0.001)
+        max_voltage_v = max(max_voltage_v, 0.001)
+
         profile = RampProfile(
             name=f"Programmer_{datetime.now().strftime('%H%M%S')}",
             control_mode=ControlMode.CURRENT.value if is_current_mode else ControlMode.VOLTAGE.value,
             start_voltage=first_v,
             start_current=first_a,
-            voltage_limit=6.0,
-            current_limit=180.0
+            voltage_limit=max_voltage_v,
+            current_limit=max_current_a
         )
 
         for block in blocks:
             duration = float(block["duration"])
             step_type = StepType.RAMP.value if block["type"] == "Ramp" else StepType.HOLD.value
-            
+
+            # Per-block current and voltage targets (for interpolation during execution)
+            block_start_a = float(block.get("start_a", block.get("current_a", 0.0)))
+            block_end_a = float(block.get("end_a", block_start_a)) if block["type"] == "Ramp" else block_start_a
+            block_start_v = float(block["start_v"])
+            block_end_v = float(block["end_v"]) if block["type"] == "Ramp" else block_start_v
+
+            print(f"[BLOCK DEBUG] Block #{blocks.index(block) + 1}")
+            print(f"  From table: Start V={block_start_v}, End V={block_end_v}")
+            print(f"  From table: Start A={block_start_a}, End A={block_end_a}")
+
             if is_current_mode:
-                target = float(block.get("end_a", block.get("start_a", 0.0))) if block["type"] == "Ramp" else float(block.get("start_a", 0.0))
-                v_limit = max(float(block["start_v"]), float(block["end_v"]))
-                profile.voltage_limit = max(profile.voltage_limit, v_limit)
-                
+                target_a = block_end_a
                 step = RampStep(
                     step_type=step_type,
                     duration_sec=duration,
-                    target_current=target
+                    target_current=target_a
                 )
             else:
-                target = float(block["end_v"]) if block["type"] == "Ramp" else float(block["start_v"])
-                i_limit = max(float(block.get("start_a", 0.0)), float(block.get("end_a", 0.0)))
-                profile.current_limit = max(profile.current_limit, i_limit)
-
+                target_v = block_end_v
+                # Also store target_current so ramp_executor can interpolate current per-block
+                target_a = block_end_a
                 step = RampStep(
                     step_type=step_type,
                     duration_sec=duration,
-                    target_voltage=target
+                    target_voltage=target_v,
+                    target_current=target_a
                 )
             profile.add_step(step)
 
