@@ -106,7 +106,17 @@ from t8_daq_system.gui.programmer_preview_plot import ProgrammerPreviewPlot
 
 
 class MockPowerSupplyController:
-    """Simulated power supply for practice mode."""
+    """
+    Simulated power supply for practice mode.
+
+    In normal practice mode, get_voltage() / get_current() add small sinusoidal
+    noise to make the display look realistic.
+
+    When Power Programmer execution is active (programmer_active = True) the
+    analog simulation is handled entirely by DataAcquisition.read_all_sensors()
+    using the shared pp_* scaling functions, so noise is suppressed here to
+    allow clean validation of the signal chain.
+    """
 
     def __init__(self, voltage_limit=6.0, current_limit=180.0):
         self.voltage = 0.0
@@ -114,6 +124,10 @@ class MockPowerSupplyController:
         self.output_state = False
         self.voltage_limit = voltage_limit
         self.current_limit = current_limit
+        # Set True while the Power Programmer ramp is running so that
+        # get_readings() returns exact setpoints (no noise) and the DA
+        # layer can perform the proper analog round-trip validation.
+        self.programmer_active = False
 
     def set_voltage(self, volts):
         self.voltage = min(max(volts, 0.0), self.voltage_limit)
@@ -143,6 +157,10 @@ class MockPowerSupplyController:
     def get_voltage(self):
         if not self.output_state:
             return 0.0
+        # Suppress noise during programmer execution — the DA layer simulates
+        # the full analog round-trip and the validation requires exact values.
+        if self.programmer_active:
+            return self.voltage
         t = time.time()
         fluctuation = (self.voltage * 0.02) * math.sin(t / 8.0)
         return self.voltage + fluctuation + random.uniform(-0.02, 0.02)
@@ -150,6 +168,8 @@ class MockPowerSupplyController:
     def get_current(self):
         if not self.output_state:
             return 0.0
+        if self.programmer_active:
+            return self.current
         t = time.time()
         fluctuation = (self.current * 0.03) * math.cos(t / 10.0)
         return self.current + fluctuation + random.uniform(-0.01, 0.01)
@@ -1238,8 +1258,11 @@ class MainWindow:
             messagebox.showerror("Start Error", "Failed to start ramp executor.")
             return
 
-        # Mark as running
+        # Mark as running and enable programmer simulation mode on the mock
+        # controller so DataAcquisition uses the proper analog round-trip.
         self._programmer_ramp_running = True
+        if isinstance(self.ps_controller, MockPowerSupplyController):
+            self.ps_controller.programmer_active = True
         self.run_ramp_btn.config(text="Stop Program")
 
         # Set overlay start time so the dotted preview anchors correctly on the ps plot.
@@ -1280,8 +1303,10 @@ class MainWindow:
             except Exception as e:
                 messagebox.showwarning("Stop Warning", f"Error during safe stop: {e}")
 
-        # 3. Update UI
+        # 3. Update UI and disable programmer simulation mode
         self._programmer_ramp_running = False
+        if isinstance(self.ps_controller, MockPowerSupplyController):
+            self.ps_controller.programmer_active = False
         self.run_ramp_btn.config(text="Run Program")
 
         # Keep overlay visible but don't update start time (dotted lines stay)

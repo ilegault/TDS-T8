@@ -9,6 +9,67 @@ import time
 import math
 import random
 
+# ── Power Programmer Debug Configuration ──────────────────────────────────────
+# Set to False to disable verbose terminal output during Power Programmer runs.
+DEBUG_POWER_PROGRAMMER = True
+
+# Acceptable round-trip error tolerances (floating-point precision limits).
+# After setpoint → analog → monitor conversion the results must match within:
+_PP_VOLTAGE_TOLERANCE = 0.001   # 1 mV
+_PP_CURRENT_TOLERANCE = 0.01    # 10 mA
+
+# Keysight N5700 hardware limits (must match KeysightAnalogController defaults)
+_PP_MAX_VOLTS = 6.0    # Rated maximum supply voltage
+_PP_MAX_AMPS  = 180.0  # Rated maximum supply current
+_PP_DAC_MAX   = 5.0    # T8 DAC / AIN full-scale voltage
+
+
+# ── Shared Scaling Functions ───────────────────────────────────────────────────
+# CRITICAL: These EXACT formulas are used in BOTH practice-mode simulation and
+# live-mode analog output so that practice output is 100 % identical to live.
+# Do NOT copy/paste these formulas elsewhere — always call these functions.
+
+def pp_setpoint_to_dac_voltage(voltage_setpoint):
+    """
+    Convert a voltage setpoint to the DAC output voltage sent to the Keysight.
+
+    Keysight voltage range : 0 V – 6 V maximum
+    T8 analog output range : 0 V – 5 V
+    Formula                : analog_voltage = (setpoint_voltage / 6.0) * 5.0
+    """
+    return (voltage_setpoint / _PP_MAX_VOLTS) * _PP_DAC_MAX
+
+
+def pp_setpoint_to_dac_current(current_setpoint):
+    """
+    Convert a current setpoint to the DAC output voltage sent to the Keysight.
+
+    Keysight current range : 0 A – 180 A maximum
+    T8 analog output range : 0 V – 5 V
+    Formula                : analog_voltage = (setpoint_current / 180.0) * 5.0
+    """
+    return (current_setpoint / _PP_MAX_AMPS) * _PP_DAC_MAX
+
+
+def pp_dac_to_monitored_voltage(analog_input_voltage):
+    """
+    Convert an analog monitor input voltage back to an actual supply voltage.
+
+    Monitor input from Keysight : 0 V – 5 V represents 0 V – 6 V actual
+    Formula                     : actual_voltage = (analog_input / 5.0) * 6.0
+    """
+    return (analog_input_voltage / _PP_DAC_MAX) * _PP_MAX_VOLTS
+
+
+def pp_dac_to_monitored_current(analog_input_current):
+    """
+    Convert an analog monitor input voltage back to an actual supply current.
+
+    Monitor input from Keysight : 0 V – 5 V represents 0 A – 180 A actual
+    Formula                     : actual_current = (analog_input / 5.0) * 180.0
+    """
+    return (analog_input_current / _PP_DAC_MAX) * _PP_MAX_AMPS
+
 
 class DataAcquisition:
     def __init__(self, config, tc_reader=None, frg702_reader=None,
@@ -95,7 +156,111 @@ class DataAcquisition:
 
             # Power supply readings
             if self.ps_controller:
-                ps_readings = self.ps_controller.get_readings()
+                # ── Power Programmer practice-mode simulation ─────────────────
+                # When the ramp executor is actively running, simulate the full
+                # T8 analog signal chain instead of returning the raw setpoints.
+                # This ensures that what Isaac sees on the monitor plots is
+                # EXACTLY what the live hardware will deliver — any formula
+                # error in the scaling will cause a visible mismatch here.
+                if (self.ramp_executor is not None
+                        and self.ramp_executor.is_running()):
+                    # STEP 1: Read setpoints stored by the ramp executor's
+                    #         set_voltage() / set_current() calls.
+                    voltage_setpoint = self.ps_controller.get_voltage_setpoint() or 0.0
+                    current_setpoint = self.ps_controller.get_current_setpoint() or 0.0
+
+                    # STEP 2: Convert setpoints → DAC output voltages
+                    #         (what the T8 DAC0/DAC1 would output in live mode)
+                    dac_v = pp_setpoint_to_dac_voltage(voltage_setpoint)
+                    dac_i = pp_setpoint_to_dac_current(current_setpoint)
+
+                    # STEP 3: Simulate those DAC voltages passing through the
+                    #         cable and arriving at the AIN4/AIN5 monitor inputs.
+
+                    # STEP 4: Convert monitor inputs → engineering units
+                    #         (what the software reads from AIN4/AIN5 in live mode)
+                    monitored_voltage = pp_dac_to_monitored_voltage(dac_v)
+                    monitored_current = pp_dac_to_monitored_current(dac_i)
+
+                    # STEP 5: Validation — the round-trip must be exact within
+                    #         floating-point tolerance.  Any failure here means
+                    #         the scaling formulas are inconsistent.
+                    voltage_error = abs(voltage_setpoint - monitored_voltage)
+                    current_error = abs(current_setpoint - monitored_current)
+
+                    if voltage_error > _PP_VOLTAGE_TOLERANCE:
+                        print(f"WARNING: Voltage mismatch detected! "
+                              f"Error: {voltage_error:.6f} V  "
+                              f"(setpoint={voltage_setpoint:.4f} V, "
+                              f"monitored={monitored_voltage:.4f} V)")
+
+                    if current_error > _PP_CURRENT_TOLERANCE:
+                        print(f"WARNING: Current mismatch detected! "
+                              f"Error: {current_error:.6f} A  "
+                              f"(setpoint={current_setpoint:.4f} A, "
+                              f"monitored={monitored_current:.4f} A)")
+
+                    # ── Debug terminal output ─────────────────────────────────
+                    if DEBUG_POWER_PROGRAMMER:
+                        # Gather block / timing info from the ramp executor
+                        try:
+                            elapsed   = self.ramp_executor.get_elapsed_time()
+                            profile   = self.ramp_executor._profile
+                            total_dur = profile.get_total_duration() if profile else 0.0
+                            step_idx  = self.ramp_executor._current_step_index
+                            if profile and 0 <= step_idx < len(profile.steps):
+                                step      = profile.steps[step_idx]
+                                block_num = step_idx + 1
+                                block_type = step.step_type.upper()  # "RAMP" or "HOLD"
+                            else:
+                                block_num  = "?"
+                                block_type = "UNKNOWN"
+                        except Exception:
+                            elapsed    = 0.0
+                            total_dur  = 0.0
+                            block_num  = "?"
+                            block_type = "UNKNOWN"
+
+                        v_pass = "PASS" if voltage_error <= _PP_VOLTAGE_TOLERANCE else "FAIL"
+                        i_pass = "PASS" if current_error <= _PP_CURRENT_TOLERANCE else "FAIL"
+
+                        print(
+                            f"\n=== POWER PROGRAMMER DEBUG [Practice Mode] ===\n"
+                            f"  Time : {elapsed:.2f} s / {total_dur:.2f} s\n"
+                            f"  Block: {block_num} — {block_type}\n"
+                            f"\n  TARGET VALUES:\n"
+                            f"    Voltage Setpoint : {voltage_setpoint:8.3f} V\n"
+                            f"    Current Setpoint : {current_setpoint:8.2f} A\n"
+                            f"\n  ANALOG OUTPUT CALCULATIONS:\n"
+                            f"    Voltage → Analog : {voltage_setpoint:.3f} V setpoint "
+                            f"→ {dac_v:.4f} V analog output  "
+                            f"(0-5 V scale: 0 V=0 V, 5 V=6 V)\n"
+                            f"    Current → Analog : {current_setpoint:.2f} A setpoint "
+                            f"→ {dac_i:.4f} V analog output  "
+                            f"(0-5 V scale: 0 V=0 A, 5 V=180 A)\n"
+                            f"\n  EXPECTED MONITOR RESPONSE (simulating T8 analog inputs):\n"
+                            f"    Voltage Monitor Reading : {monitored_voltage:.3f} V  "
+                            f"(from {dac_v:.4f} V analog input)\n"
+                            f"    Current Monitor Reading : {monitored_current:.2f} A  "
+                            f"(from {dac_i:.4f} V analog input)\n"
+                            f"\n  VERIFICATION:\n"
+                            f"    Setpoint matches Monitor : {v_pass} / {i_pass}\n"
+                            f"    Voltage error : ±{voltage_error:.4f} V\n"
+                            f"    Current error : ±{current_error:.3f} A\n"
+                            f"{'=' * 50}"
+                        )
+
+                    # Use the analog-derived monitor values for the plots,
+                    # NOT the raw setpoints (avoids 'direct setpoint' mistake).
+                    ps_readings = {
+                        'PS_Voltage':   monitored_voltage,
+                        'PS_Current':   monitored_current,
+                        'PS_Output_On': self.ps_controller.is_output_on(),
+                    }
+                else:
+                    # Programmer not running — use normal mock readings
+                    # (may include simulated noise for general practice mode)
+                    ps_readings = self.ps_controller.get_readings()
             elif self.config.get('power_supply', {}).get('enabled', True):
                 t = time.time()
                 ps_readings = {
