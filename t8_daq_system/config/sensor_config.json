@@ -35,7 +35,7 @@
   ],
   "xgs600": {
     "enabled": true,
-    "port": "COM3",
+    "port": "COM4",
     "baudrate": 9600,
     "timeout": 1.0,
     "address": "00"

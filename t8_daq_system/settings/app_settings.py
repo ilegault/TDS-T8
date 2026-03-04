@@ -37,7 +37,7 @@ _DEFAULTS = {
     "ps_i_range_min":     ("float", 0.0),
     "ps_i_range_max":     ("float", 100.0),
     "log_folder":         ("str",   ""),
-    "xgs600_port":        ("str",   "COM3"),
+    "xgs600_port":        ("str",   "COM4"),
     "xgs600_baudrate":    ("int",   9600),
     "xgs600_timeout":     ("float", 1.0),
     "xgs600_address":     ("str",   "00"),
@@ -115,7 +115,7 @@ class AppSettings:
         self.ps_i_range_min: float   = 0.0
         self.ps_i_range_max: float   = 100.0
         self.log_folder: str         = ""
-        self.xgs600_port: str        = "COM3"
+        self.xgs600_port: str        = "COM4"
         self.xgs600_baudrate: int    = 9600
         self.xgs600_timeout: float   = 1.0
         self.xgs600_address: str     = "00"

@@ -8,6 +8,10 @@ Protocol: #{address}{command}{data}\r -> >{data}\r or ?FF for error
 import serial
 import time
 
+# XGS-600 manual: max 10 queries/second before responsiveness degrades.
+# Enforce 200ms minimum between successive commands.
+_MIN_COMMAND_INTERVAL = 0.20  # seconds
+
 
 class XGS600Controller:
     """Serial communication interface for the XGS-600 gauge controller."""
@@ -23,8 +27,8 @@ class XGS600Controller:
         Initialize XGS-600 controller connection parameters.
 
         Args:
-            port: Serial port (e.g., 'COM3', '/dev/ttyUSB0')
-            baudrate: Baud rate (9600 or 19200)
+            port: Serial port (e.g., 'COM4', '/dev/ttyUSB0')
+            baudrate: Baud rate (9600)
             timeout: Read timeout in seconds
             address: Controller address ('00' for RS-232)
             debug: Enable verbose serial logging
@@ -35,6 +39,8 @@ class XGS600Controller:
         self.address = address
         self.debug = debug
         self._serial = None
+        self._connected = False
+        self._last_command_time = 0.0
 
     def connect(self, silent=False):
         """
@@ -48,11 +54,11 @@ class XGS600Controller:
         """
         if self.debug:
             print(f"XGS-600: Attempting connection on {self.port} at {self.baudrate} baud...")
-            
+
         try:
             self._serial = serial.Serial(
                 port=self.port,
-                baudrate=self.baudrate,
+                baudrate=9600,
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
@@ -72,7 +78,7 @@ class XGS600Controller:
             # Verify connection by requesting software version
             if self.debug:
                 print("XGS-600: Sending software version query (#0005) for verification...")
-                
+
             response = self.send_command("05")
             if response is None:
                 if not silent:
@@ -80,6 +86,7 @@ class XGS600Controller:
                 self.disconnect()
                 return False
 
+            self._connected = True
             if not silent:
                 print(f"XGS-600 connected on {self.port}, version: {response}")
             return True
@@ -90,6 +97,7 @@ class XGS600Controller:
             if self._serial and self._serial.is_open:
                 self._serial.close()
             self._serial = None
+            self._connected = False
             return False
 
     def disconnect(self):
@@ -102,6 +110,7 @@ class XGS600Controller:
             except serial.SerialException:
                 pass
         self._serial = None
+        self._connected = False
 
     def send_command(self, command):
         """
@@ -109,18 +118,25 @@ class XGS600Controller:
 
         Args:
             command: Command string without address prefix or terminator
-                     (e.g., '05' for version, '02T1' for read sensor T1)
+                     (e.g., '05' for version, '0F' for pressure dump)
 
         Returns:
             Response string (without '>' prefix and '\\r' terminator),
-            or None if error/timeout
+            None if ?FF (unsupported command — expected, not an error),
+            or None on timeout/connection loss (sets _connected = False).
         """
         if not self._serial or not self._serial.is_open:
             if self.debug:
                 print("XGS-600: Cannot send command - serial port not open.")
+            self._connected = False
             return None
 
-        # Build full command: #{address}{command}\r
+        # Enforce minimum interval between commands (max 10 queries/sec per manual)
+        elapsed = time.monotonic() - self._last_command_time
+        if elapsed < _MIN_COMMAND_INTERVAL:
+            time.sleep(_MIN_COMMAND_INTERVAL - elapsed)
+
+        # Build full command: #{address}{command}\r  (carriage return required)
         full_command = f"#{self.address}{command}\r"
 
         try:
@@ -132,17 +148,19 @@ class XGS600Controller:
 
             # Send command
             self._serial.write(full_command.encode('ascii'))
+            self._last_command_time = time.monotonic()
 
-            # Small delay to allow controller to process and respond
+            # Small delay to allow controller to process and begin responding
             time.sleep(0.05)
 
-            # Read response until \r
-            # Note: read_until will wait up to self.timeout
+            # Read response until \r (waits up to self.timeout)
             response = self._serial.read_until(b'\r', size=256)
 
             if not response:
                 if self.debug:
                     print("XGS-600 RX: <TIMEOUT> (no data received)")
+                # Timeout means the connection is lost — flag for reconnection
+                self._connected = False
                 return None
 
             if self.debug:
@@ -155,12 +173,18 @@ class XGS600Controller:
                     print(f"XGS-600: Failed to decode response as ASCII: {response}")
                 return None
 
-            # Check for error response
-            if response_str.startswith('?'):
-                print(f"XGS-600 error response: {response_str} for command: {command}")
+            # ?FF = command unsupported (e.g., ion gauge query with no ion boards).
+            # This is expected behaviour — return None silently, do not log an error.
+            if response_str.startswith('?FF'):
                 return None
 
-            # Strip leading '>' from successful response
+            # Other ? errors are unexpected; log them in debug mode.
+            if response_str.startswith('?'):
+                if self.debug:
+                    print(f"XGS-600 error response: {response_str} for command: {command}")
+                return None
+
+            # Success — strip the leading '>' and return the data string
             if response_str.startswith('>'):
                 return response_str[1:]
 
@@ -168,57 +192,84 @@ class XGS600Controller:
 
         except (serial.SerialException, serial.SerialTimeoutException) as e:
             print(f"XGS-600 serial error: {e}")
-            return None
-
-    def read_pressure(self, sensor_code):
-        """
-        Read pressure from a single gauge by sensor code.
-
-        Args:
-            sensor_code: Sensor identifier (e.g., 'T1' for first convection gauge,
-                         'I1' for first ion gauge, or user label like 'UCHAMBER')
-
-        Returns:
-            Pressure as float (in gauge units, typically mbar), or None on error
-        """
-        if not self.is_connected():
-            return None
-
-        response = self.send_command(f"02{sensor_code}")
-        if response is None:
-            return None
-
-        try:
-            pressure = float(response)
-            return pressure
-        except ValueError:
-            print(f"XGS-600: Could not parse pressure '{response}' for sensor {sensor_code}")
+            self._connected = False
             return None
 
     def read_all_pressures(self):
         """
-        Read all gauges using pressure dump command (#000F).
+        Read all gauges using the pressure dump command (0F).
+
+        This is the preferred polling method — one command returns every sensor,
+        counting as a single query against the 10 queries/sec limit.
+
+        Response format: >7.592E+02,NOCBL    ,7.592E+02,NOCBL
+          Index 0 = T1, index 1 = T2, index 2 = T3, index 3 = T4
+          NOCBL entries (no cable / sensor not installed) are returned as None.
 
         Returns:
-            List of pressure floats (None for unparseable values),
-            ordered left to right by board slot. Returns None if command fails.
+            List of pressure floats or None per slot (None for NOCBL or errors),
+            ordered left-to-right by board slot. Returns None if command fails.
         """
-        if not self.is_connected():
+        if not self._serial or not self._serial.is_open:
             return None
 
         response = self.send_command("0F")
         if response is None:
             return None
 
+        readings = response.split(',')
+        readings = [r.strip() for r in readings]
+
         pressures = []
-        for value_str in response.split(','):
-            value_str = value_str.strip()
-            try:
-                pressures.append(float(value_str))
-            except ValueError:
+        for value_str in readings:
+            # NOCBL means no cable / sensor not present — treat as None
+            if not value_str or value_str == 'NOCBL':
                 pressures.append(None)
+            else:
+                try:
+                    pressures.append(float(value_str))
+                except ValueError:
+                    pressures.append(None)
 
         return pressures
+
+    def read_pressure(self, sensor_code):
+        """
+        Read pressure from a single convection gauge by sensor code.
+
+        Only convection gauge codes (T1–T4) are supported. Ion gauge codes
+        (I1–I4) are rejected here because there are no ion gauge boards installed
+        and querying them returns ?FF.
+
+        Args:
+            sensor_code: Sensor identifier — must be a convection gauge (e.g., 'T1', 'T3')
+
+        Returns:
+            Pressure as float (Torr), or None on error or unsupported sensor
+        """
+        if not self._serial or not self._serial.is_open:
+            return None
+
+        # Do not query ion gauge commands (codes 30–55) — no ion boards installed
+        if sensor_code.upper().startswith('I'):
+            if self.debug:
+                print(f"XGS-600: Skipping ion gauge query for {sensor_code} — no ion boards installed")
+            return None
+
+        response = self.send_command(f"02{sensor_code}")
+        if response is None:
+            return None
+
+        value_str = response.strip()
+        if not value_str or value_str == 'NOCBL':
+            return None
+
+        try:
+            return float(value_str)
+        except ValueError:
+            if self.debug:
+                print(f"XGS-600: Could not parse pressure '{value_str}' for sensor {sensor_code}")
+            return None
 
     def read_controller_info(self):
         """
@@ -241,16 +292,14 @@ class XGS600Controller:
 
     def is_connected(self):
         """
-        Check if the controller is responsive.
+        Return whether the controller is currently connected and responsive.
+
+        Uses the cached connection state set by send_command() rather than
+        sending a probe command, to avoid unnecessary serial traffic.
 
         Returns:
-            True if serial port is open and controller responds, False otherwise
+            True if the serial port is open and the last command succeeded.
         """
         if not self._serial or not self._serial.is_open:
             return False
-
-        try:
-            response = self.send_command("05")
-            return response is not None
-        except Exception:
-            return False
+        return self._connected
