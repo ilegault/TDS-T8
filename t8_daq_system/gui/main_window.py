@@ -642,15 +642,9 @@ class MainWindow:
         """Update UI to reflect connection state"""
         if connected:
             self.status_var.set("Connected")
-            # Enable start button and other controls ONLY if not currently running
-            if not self.is_running:
-                if hasattr(self, 'start_btn'):
-                    self.start_btn.config(state='normal')
+            self._auto_start_acquisition()
         else:
             self.status_var.set("Disconnected")
-            # Disable controls
-            if hasattr(self, 'start_btn'):
-                self.start_btn.config(state='disabled')
 
     def _build_gui(self):
         """Create all the GUI elements."""
@@ -696,17 +690,7 @@ class MainWindow:
         control_frame.pack(fill=tk.X, padx=10, pady=5)
         self.control_frame = control_frame  # Save reference for banner placement
 
-        # Control buttons
-        self.start_btn = ttk.Button(
-            control_frame, text="Start", command=self._on_start, state='disabled'
-        )
-        self.start_btn.pack(side=tk.LEFT, padx=5)
-
-        self.stop_btn = ttk.Button(
-            control_frame, text="Stop", command=self._on_stop, state='disabled'
-        )
-        self.stop_btn.pack(side=tk.LEFT, padx=5)
-
+        # Logging button (acquisition is always auto-started on connection)
         self.log_btn = ttk.Button(
             control_frame, text="Start Logging", command=self._on_toggle_logging,
             state='disabled'
@@ -820,6 +804,12 @@ class MainWindow:
         ttk.Separator(safety_frame, orient='vertical').pack(side=tk.LEFT, padx=10, fill='y')
         ttk.Label(safety_frame, text="Timeline History:", font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=2)
 
+        self._slider_mode_btn = ttk.Button(
+            safety_frame, text="History %", width=12,
+            command=self._toggle_slider_mode
+        )
+        self._slider_mode_btn.pack(side=tk.LEFT, padx=4)
+
         self.master_scroll_var = tk.DoubleVar(value=1.0)
         self.master_scrollbar = ttk.Scale(
             safety_frame, from_=0.0, to=1.0, orient=tk.HORIZONTAL,
@@ -924,7 +914,6 @@ class MainWindow:
         if self._practice_mode:
             self._hardware_init_attempted = True  # Practice mode counts as initialized
             self.practice_btn.config(text="Practice Mode: ON")
-            self.start_btn.config(state='normal')
             self.status_var.set("Practice Mode Active")
 
             if not self.config.get('frg702_gauges'):
@@ -939,6 +928,7 @@ class MainWindow:
             self.ramp_executor.set_power_supply(self.ps_controller)
 
             self.ps_resource_var.set("Mock Power Supply")
+            self._auto_start_acquisition()
 
             # ── Feature C: Window title ───────────────────────────────────
             self.root.title('[PRACTICE MODE] T8 DAQ System with Power Supply Control')
@@ -971,8 +961,10 @@ class MainWindow:
             self.practice_btn.config(text="Practice Mode: OFF")
             self.ps_resource_var.set("None")
 
+            # Stop practice acquisition before switching to real hardware
+            self._on_stop()
+
             if not self.connection or not self.connection.is_connected():
-                self.start_btn.config(state='disabled')
                 self.status_var.set("Disconnected")
                 self.ps_controller = None
             else:
@@ -980,6 +972,7 @@ class MainWindow:
                 self._initialize_hardware_readers()
                 # Re-initialize the analog PS controller with the live T8 handle
                 self._initialize_power_supply()
+                self._auto_start_acquisition()
 
             # Clear programmer overlay from PS plot when leaving practice mode
             for plot in getattr(self, '_live_plots', []):
@@ -1507,8 +1500,6 @@ class MainWindow:
             filename = os.path.basename(filepath)
             self.status_var.set(f"Viewing: {filename}")
 
-            self.start_btn.config(state='disabled')
-            self.stop_btn.config(state='disabled')
             self.log_btn.config(state='disabled')
 
             if not hasattr(self, 'return_live_btn'):
@@ -1537,8 +1528,8 @@ class MainWindow:
 
         lj_ok = self.connection and self.connection.is_connected()
         if lj_ok or self._practice_mode:
-            self.start_btn.config(state='normal')
             self.status_var.set("Connected")
+            self.log_btn.config(state='normal' if self.is_running else 'disabled')
         else:
             self.status_var.set("Disconnected")
 
@@ -1812,10 +1803,31 @@ class MainWindow:
         if hasattr(self, 'plot_ps'):
             self.plot_ps.sync_scroll(val)
 
+    def _auto_start_acquisition(self):
+        """Auto-start acquisition if not already running."""
+        if not self.is_running:
+            self._on_start()
+
+    def _toggle_slider_mode(self):
+        """Toggle timeline slider between 'History %' and '2-min Window' modes."""
+        for plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
+            if hasattr(self, plot_attr):
+                plot = getattr(self, plot_attr)
+                current = getattr(plot, '_slider_mode', 'history_pct')
+                new_mode = 'window_2min' if current == 'history_pct' else 'history_pct'
+                plot.set_slider_mode(new_mode)
+        # Update button label based on new mode
+        if hasattr(self, 'plot_tc'):
+            mode = self.plot_tc._slider_mode
+        elif hasattr(self, 'plot_pressure'):
+            mode = self.plot_pressure._slider_mode
+        else:
+            return
+        label = "2-min Window" if mode == 'window_2min' else "History %"
+        self._slider_mode_btn.config(text=label)
+
     def _on_start(self):
         self.is_running = True
-        self.start_btn.config(state='disabled')
-        self.stop_btn.config(state='normal')
         self.log_btn.config(state='normal')
         self.status_var.set("Running")
 
@@ -1882,9 +1894,7 @@ class MainWindow:
         if self.daq:
             self.daq.stop_fast_acquisition()
 
-        self.start_btn.config(state='normal')
-        self.stop_btn.config(state='disabled')
-
+        self.log_btn.config(state='disabled')
         self.status_var.set("Stopped")
 
         if self.ramp_executor.is_active():
@@ -1895,6 +1905,16 @@ class MainWindow:
 
     def _on_toggle_logging(self):
         if not self.is_logging:
+            # Clear all graphs and the data buffer so logging starts fresh
+            self.data_buffer.clear()
+            for plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
+                if hasattr(self, plot_attr):
+                    getattr(self, plot_attr).clear()
+            # Reset timeline slider to live position
+            if hasattr(self, 'master_scroll_var'):
+                self.master_scroll_var.set(1.0)
+                self._on_master_scroll(1.0)
+
             dialog = LoggingDialog(self.root)
             self.root.wait_window(dialog)
 

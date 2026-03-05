@@ -141,6 +141,10 @@ class LivePlot:
         self._is_live = True
         self._frozen_right_edge = None  # datetime: right edge of frozen 2-min window
 
+        # Slider mode: 'history_pct' shows all data up to slider position,
+        # 'window_2min' shows a fixed 2-minute viewport at the slider position.
+        self._slider_mode = 'history_pct'
+
         # Programmer overlay (dotted preview lines)
         self._overlay_times = []       # list of floats (seconds relative to ramp start)
         self._overlay_voltages = []    # list of floats
@@ -181,6 +185,20 @@ class LivePlot:
                 )
                 # Redraw immediately when scroll changes in frozen mode
                 self._do_update_frozen()
+
+    def set_slider_mode(self, mode):
+        """
+        Switch between slider display modes.
+
+        Args:
+            mode: 'history_pct' — show all data from session start up to the
+                  slider position (zoom-out view of the full session).
+                  'window_2min' — always show a fixed 2-minute viewport whose
+                  position is determined by the slider (current/default behavior).
+        """
+        self._slider_mode = mode
+        if not self._is_live:
+            self._do_update_frozen()
 
     def _get_all_timestamps(self):
         """Return all timestamps from the data buffer (from any available sensor)."""
@@ -458,7 +476,12 @@ class LivePlot:
                      data_units={'temp': 'C', 'press': 'mbar'})
 
     def _do_update_frozen(self):
-        """Render a 2-min window ending at _frozen_right_edge (frozen mode)."""
+        """Render frozen view ending at _frozen_right_edge.
+
+        In 'window_2min' mode the viewport is always WINDOW_SECONDS wide.
+        In 'history_pct' mode all data from the session start to
+        _frozen_right_edge is shown (no time-window clipping).
+        """
         if self._frozen_right_edge is None:
             return
         # Collect all data from buffer and filter to this plot's sensor types
@@ -471,7 +494,8 @@ class LivePlot:
                 plot_data[name] = vals
             if ts and not all_timestamps:
                 all_timestamps = ts
-        self._render(all_timestamps, plot_data, self.WINDOW_SECONDS,
+        ws = self.WINDOW_SECONDS if self._slider_mode == 'window_2min' else None
+        self._render(all_timestamps, plot_data, ws,
                      data_units={'temp': 'C', 'press': 'mbar'},
                      right_edge=self._frozen_right_edge)
 

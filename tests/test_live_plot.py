@@ -222,5 +222,111 @@ class TestLivePlotUpdateFromLoadedData(unittest.TestCase):
         plot.update_from_loaded_data({'timestamps': []})
 
 
+class TestLivePlotSliderMode(unittest.TestCase):
+    """Test the dual-mode timeline slider (History % vs 2-min Window)."""
+
+    @patch('t8_daq_system.gui.live_plot.FigureCanvasTkAgg')
+    @patch('t8_daq_system.gui.live_plot.Figure')
+    def _make_plot(self, mock_figure, mock_canvas, plot_type='tc'):
+        """Helper: create a LivePlot with mocked figure and canvas."""
+        mock_frame = MagicMock()
+        mock_buffer = MagicMock()
+        mock_buffer.get_sensor_names.return_value = []
+        mock_buffer.get_sensor_data.return_value = ([], [])
+
+        mock_ax = MagicMock()
+        mock_ax.plot.return_value = [MagicMock()]
+        mock_fig = MagicMock()
+        mock_fig.add_subplot.return_value = mock_ax
+        mock_figure.return_value = mock_fig
+
+        mock_canvas_instance = MagicMock()
+        mock_canvas_instance.get_tk_widget.return_value = MagicMock()
+        mock_canvas.return_value = mock_canvas_instance
+
+        from t8_daq_system.gui.live_plot import LivePlot
+        return LivePlot(mock_frame, mock_buffer, plot_type=plot_type)
+
+    def test_default_slider_mode_is_history_pct(self):
+        """Default slider mode should be 'history_pct'."""
+        plot = self._make_plot()
+        self.assertEqual(plot._slider_mode, 'history_pct')
+
+    def test_set_slider_mode_window_2min(self):
+        """set_slider_mode('window_2min') should update _slider_mode."""
+        plot = self._make_plot()
+        plot.set_slider_mode('window_2min')
+        self.assertEqual(plot._slider_mode, 'window_2min')
+
+    def test_set_slider_mode_history_pct(self):
+        """set_slider_mode('history_pct') should update _slider_mode."""
+        plot = self._make_plot()
+        plot.set_slider_mode('window_2min')  # start from different state
+        plot.set_slider_mode('history_pct')
+        self.assertEqual(plot._slider_mode, 'history_pct')
+
+    def test_set_slider_mode_triggers_redraw_when_frozen(self):
+        """set_slider_mode should call _do_update_frozen when plot is frozen."""
+        plot = self._make_plot()
+        plot._is_live = False
+        plot._frozen_right_edge = MagicMock()  # not None — frozen state
+
+        with patch.object(plot, '_do_update_frozen') as mock_update:
+            plot.set_slider_mode('window_2min')
+            mock_update.assert_called_once()
+
+    def test_set_slider_mode_no_redraw_when_live(self):
+        """set_slider_mode should NOT call _do_update_frozen when plot is live."""
+        plot = self._make_plot()
+        plot._is_live = True
+
+        with patch.object(plot, '_do_update_frozen') as mock_update:
+            plot.set_slider_mode('window_2min')
+            mock_update.assert_not_called()
+
+    def test_frozen_window_2min_passes_window_seconds_to_render(self):
+        """In 'window_2min' mode, _do_update_frozen must render with WINDOW_SECONDS."""
+        from datetime import datetime as dt
+        plot = self._make_plot()
+        plot._slider_mode = 'window_2min'
+        plot._frozen_right_edge = dt.now()
+
+        with patch.object(plot, '_render') as mock_render, \
+             patch.object(plot, 'data_buffer') as mock_buf:
+            mock_buf.get_sensor_names.return_value = []
+            mock_buf.get_sensor_data.return_value = ([], [])
+            plot._do_update_frozen()
+            # _render should be called with ws=WINDOW_SECONDS (120)
+            args, kwargs = mock_render.call_args
+            # window_seconds is the 3rd positional arg
+            ws_passed = args[2] if len(args) > 2 else kwargs.get('window_seconds')
+            self.assertEqual(ws_passed, plot.WINDOW_SECONDS,
+                             "window_2min mode should pass WINDOW_SECONDS to _render")
+
+    def test_frozen_history_pct_passes_none_window_to_render(self):
+        """In 'history_pct' mode, _do_update_frozen must render with window_seconds=None."""
+        from datetime import datetime as dt
+        plot = self._make_plot()
+        plot._slider_mode = 'history_pct'
+        plot._frozen_right_edge = dt.now()
+
+        with patch.object(plot, '_render') as mock_render, \
+             patch.object(plot, 'data_buffer') as mock_buf:
+            mock_buf.get_sensor_names.return_value = []
+            mock_buf.get_sensor_data.return_value = ([], [])
+            plot._do_update_frozen()
+            args, kwargs = mock_render.call_args
+            ws_passed = args[2] if len(args) > 2 else kwargs.get('window_seconds')
+            self.assertIsNone(ws_passed,
+                              "history_pct mode should pass None to _render (show all data)")
+
+    def test_clear_resets_lines(self):
+        """clear() should empty the lines dict and trigger a canvas redraw."""
+        plot = self._make_plot()
+        plot.lines = {('tc', 'TC_1'): MagicMock()}  # simulate existing lines
+        plot.clear()
+        self.assertEqual(len(plot.lines), 0, "clear() should empty lines dict")
+
+
 if __name__ == '__main__':
     unittest.main()

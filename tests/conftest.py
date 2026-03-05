@@ -20,6 +20,10 @@ from unittest.mock import MagicMock
 # BEFORE the test collector tries to import test files.
 # ---------------------------------------------------------------------------
 
+# ---- winreg (Windows registry — unavailable on Linux/macOS) ----
+if "winreg" not in sys.modules:
+    sys.modules["winreg"] = MagicMock()
+
 # ---- LabJack LJM ----
 _mock_ljm = MagicMock()
 _mock_ljm.LJMError = type("LJMError", (Exception,), {})
