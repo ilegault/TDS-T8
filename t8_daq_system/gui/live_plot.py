@@ -328,6 +328,10 @@ class LivePlot:
         self.ax.set_xlabel('Time')
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
 
+        # Reset overlay lines (they were removed by ax.clear())
+        self._overlay_line_v = None
+        self._overlay_line_a = None
+
         if self.plot_type == 'tc':
             self.ax.set_ylabel(f'Temperature ({self._temp_unit})')
         elif self.plot_type == 'pressure':
@@ -687,13 +691,13 @@ class LivePlot:
             if self._overlay_line_v is not None:
                 try:
                     self._overlay_line_v.remove()
-                except ValueError:
+                except (ValueError, NotImplementedError):
                     pass
                 self._overlay_line_v = None
             if self._overlay_line_a is not None and self.ax2 is not None:
                 try:
                     self._overlay_line_a.remove()
-                except ValueError:
+                except (ValueError, NotImplementedError):
                     pass
                 self._overlay_line_a = None
 

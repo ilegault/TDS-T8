@@ -1850,22 +1850,12 @@ class MainWindow:
             self._latest_readings = (timestamp, all_readings)
             self._latest_tc_readings = tc_readings
             self._latest_frg702_details = frg702_details
-
-            # Feed live pinout display if open
-            if hasattr(self, '_pinout_window') and self._pinout_window is not None:
-                try:
-                    if self._pinout_window.winfo_exists():
-                        self._pinout_window.update_readings(
-                            all_readings=all_readings,
-                            raw_voltages=raw_voltages,
-                            frg702_details=frg702_details
-                        )
-                except tk.TclError:
-                    self._pinout_window = None
+            self._latest_raw_voltages = raw_voltages
 
             if self.is_logging:
                 log_readings = {}
-                t_unit = self.t_unit_var.get()
+                # Avoid calling tk.StringVar.get() from background thread
+                t_unit = getattr(self, '_current_t_unit', 'C')
                 for name, value in all_readings.items():
                     if value is None:
                         log_readings[name] = None
@@ -1971,6 +1961,9 @@ class MainWindow:
     def _update_gui(self):
         """Update the GUI (called periodically)."""
         gui_profiler.loop_start()
+
+        # Update cache of GUI-owned variables for background threads
+        self._current_t_unit = self.t_unit_var.get()
 
         gui_profiler.start("skip_counter_check")
         # Only redraw plots every Nth call to avoid overwhelming matplotlib
@@ -2091,6 +2084,18 @@ class MainWindow:
         # Update FRG-702 detailed status
         if hasattr(self, '_latest_frg702_details') and self._latest_frg702_details:
             self.sensor_panel.update_frg702_status(self._latest_frg702_details)
+
+        # Update live pinout display if open (Change 6: moved from DAQ thread to GUI thread)
+        if hasattr(self, '_pinout_window') and self._pinout_window is not None:
+            try:
+                if self._pinout_window.winfo_exists():
+                    self._pinout_window.update_readings(
+                        all_readings=current,
+                        raw_voltages=getattr(self, '_latest_raw_voltages', {}),
+                        frg702_details=getattr(self, '_latest_frg702_details', {})
+                    )
+            except tk.TclError:
+                self._pinout_window = None
 
         # Update indicators
         for name, value in current.items():
