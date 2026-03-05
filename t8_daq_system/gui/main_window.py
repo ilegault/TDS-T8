@@ -453,7 +453,7 @@ class MainWindow:
         for i in range(s.frg_count):
             frg702_gauges.append({
                 "name": f"FRG702_{i+1}",
-                "sensor_code": f"T{i+1}",
+                "sensor_code": f"T{2*i+1}",
                 "pin": frg_pin_list[i],
                 "units": s.p_unit,
                 "enabled": True
@@ -1063,6 +1063,10 @@ class MainWindow:
             self._update_programmer_preview()
 
         self._programmer_panel._refresh_status = _patched_refresh
+
+        # 8. If blocks were restored before the plot existed, force one preview render now
+        if self._programmer_blocks:
+            self._update_programmer_preview()
 
     def _update_programmer_preview(self):
         if self._programmer_panel and self._programmer_preview_plot:
