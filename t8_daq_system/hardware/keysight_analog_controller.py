@@ -330,8 +330,8 @@ class KeysightAnalogController:
                 print(f"Scaled: {actual_voltage:.3f}V  (formula: {raw_v:.4f} / {self._MONITOR_RANGE_V} * {self.rated_max_volts})")
                 print(f"================================")
 
-            # Safety check for reasonable values
-            if actual_voltage < 0 or actual_voltage > self.rated_max_volts * 1.083:
+            # Safety check for reasonable values - allow for small negative noise (-0.05V raw)
+            if raw_v < -0.05 or actual_voltage > self.rated_max_volts * 1.083:
                 print(f"WARNING: Voltage reading {actual_voltage:.3f}V is out of expected range (0-{self.rated_max_volts}V)")
                 print(f"         Raw AIN reading was: {raw_v:.4f}V")
 
@@ -366,8 +366,8 @@ class KeysightAnalogController:
                 print(f"Scaled: {actual_current:.2f}A  (formula: {raw_v:.4f} / {self._MONITOR_RANGE_V} * {self.rated_max_amps})")
                 print(f"================================")
 
-            # Safety check for reasonable values
-            if actual_current < 0 or actual_current > self.rated_max_amps * 1.028:
+            # Safety check for reasonable values - allow for small negative noise (-0.05V raw)
+            if raw_v < -0.05 or actual_current > self.rated_max_amps * 1.028:
                 print(f"WARNING: Current reading {actual_current:.2f}A is out of expected range (0-{self.rated_max_amps}A)")
                 print(f"         Raw AIN reading was: {raw_v:.4f}V")
 
