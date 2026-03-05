@@ -310,8 +310,14 @@ class DataAcquisition:
                     raw_voltages = {}
 
             if self.frg702_reader:
-                frg702_readings = self.frg702_reader.read_all()
+                # Single serial read — derive the flat pressure dict from the
+                # detail dict so the plot buffer and status panel always share
+                # the exact same measurement (no second round-trip to hardware).
                 frg702_detail_readings = self.frg702_reader.read_all_with_status()
+                frg702_readings = {
+                    name: info['pressure']
+                    for name, info in frg702_detail_readings.items()
+                }
 
             if self.ps_controller:
                 ps_readings = self.ps_controller.get_readings()

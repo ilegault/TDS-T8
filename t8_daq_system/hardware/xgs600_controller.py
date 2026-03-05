@@ -22,7 +22,7 @@ class XGS600Controller:
     DEFAULT_ADDRESS = "00"
 
     def __init__(self, port, baudrate=DEFAULT_BAUDRATE, timeout=DEFAULT_TIMEOUT,
-                 address=DEFAULT_ADDRESS, debug=True):
+                 address=DEFAULT_ADDRESS, debug=False):
         """
         Initialize XGS-600 controller connection parameters.
 
@@ -157,8 +157,7 @@ class XGS600Controller:
             response = self._serial.read_until(b'\r', size=256)
 
             if not response:
-                if self.debug:
-                    print("XGS-600 RX: <TIMEOUT> (no data received)")
+                print("XGS-600: serial timeout — no response received")
                 # Timeout means the connection is lost — flag for reconnection
                 self._connected = False
                 return None

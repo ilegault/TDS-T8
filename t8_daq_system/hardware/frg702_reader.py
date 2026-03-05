@@ -93,41 +93,41 @@ class FRG702Reader:
             return MODE_COMBINED
         return MODE_PIRANI_ONLY
 
-    def read_all(self):
+    @staticmethod
+    def _to_mbar(pressure, raw_unit):
         """
-        Read all enabled FRG-702 gauges via XGS-600.
+        Normalise a raw pressure reading to mbar.
+
+        The XGS-600 outputs values in whatever unit is configured on its front
+        panel (typically Torr).  All internal storage uses mbar so that the
+        existing unit-conversion pipeline is always applied to a known baseline.
+
+        Args:
+            pressure: Raw float from the controller, or None.
+            raw_unit: Unit string the controller is configured to output
+                      ('Torr', 'mbar', 'Pa').  Comes from gauge config 'units'.
 
         Returns:
-            dict like {'FRG702_Chamber': 1.5e-6} or {'FRG702_Chamber': None}
-            Values are pressure in mbar, or None for error states.
+            Pressure converted to mbar, or None.
         """
-        readings = {}
-
-        # Fail fast if controller not connected
-        if not self.controller.is_connected():
-            return {g['name']: None for g in self.gauges if g['enabled']}
-
-        for gauge in self.gauges:
-            if not gauge['enabled']:
-                continue
-
-            sensor_code = gauge['sensor_code']
-
-            try:
-                pressure = self.controller.read_pressure(sensor_code)
-                readings[gauge['name']] = pressure
-            except Exception as e:
-                print(f"Error reading {gauge['name']}: {e}")
-                readings[gauge['name']] = None
-
-        return readings
+        if pressure is None or raw_unit == 'mbar':
+            return pressure
+        factor = UNIT_CONVERSIONS.get(raw_unit, 1.0)
+        # UNIT_CONVERSIONS maps mbar→unit (e.g. mbar→Torr = ×0.750062),
+        # so to go unit→mbar we divide by the factor.
+        return pressure / factor
 
     def read_all_with_status(self):
         """
-        Read all enabled FRG-702 gauges, returning pressure and status.
+        Read all enabled FRG-702 gauges, returning pressure (in mbar) and status.
+
+        This is the single hardware-read method.  All values are converted from
+        the gauge's configured output unit (e.g. Torr) to mbar before being
+        returned so that the rest of the pipeline works with a consistent unit.
 
         Returns:
             dict like {'FRG702_Chamber': {'pressure': 1.5e-6, 'status': 'valid'}}
+            Pressure values are always in mbar (or None on error).
         """
         readings = {}
 
@@ -138,17 +138,19 @@ class FRG702Reader:
                     'pressure': None,
                     'status': 'error',
                     'mode': MODE_UNKNOWN
-                } for g in self.gauges if g['enabled']
+                } for g in self.gauges if g.get('enabled', True)
             }
 
         for gauge in self.gauges:
-            if not gauge['enabled']:
+            if not gauge.get('enabled', True):
                 continue
 
             sensor_code = gauge['sensor_code']
+            raw_unit = gauge.get('units', 'mbar')
 
             try:
-                pressure = self.controller.read_pressure(sensor_code)
+                raw_pressure = self.controller.read_pressure(sensor_code)
+                pressure = self._to_mbar(raw_pressure, raw_unit)
 
                 if pressure is not None:
                     readings[gauge['name']] = {
@@ -173,6 +175,19 @@ class FRG702Reader:
 
         return readings
 
+    def read_all(self):
+        """
+        Read all enabled FRG-702 gauges via XGS-600.
+
+        Delegates to read_all_with_status() to avoid a second serial round-trip
+        and keep the buffer and status panel in sync.
+
+        Returns:
+            dict like {'FRG702_Chamber': 1.5e-6} — pressure in mbar, or None.
+        """
+        detail = self.read_all_with_status()
+        return {name: info['pressure'] for name, info in detail.items()}
+
     def read_single(self, channel_name):
         """
         Read just one FRG-702 gauge by name.
@@ -184,9 +199,11 @@ class FRG702Reader:
             Pressure in mbar, or None if not found/error
         """
         for gauge in self.gauges:
-            if gauge['name'] == channel_name and gauge['enabled']:
+            if gauge['name'] == channel_name and gauge.get('enabled', True):
+                raw_unit = gauge.get('units', 'mbar')
                 try:
-                    return self.controller.read_pressure(gauge['sensor_code'])
+                    raw = self.controller.read_pressure(gauge['sensor_code'])
+                    return self._to_mbar(raw, raw_unit)
                 except Exception as e:
                     print(f"Error reading {channel_name}: {e}")
                     return None
