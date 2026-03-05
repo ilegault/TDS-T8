@@ -804,11 +804,22 @@ class MainWindow:
         ttk.Separator(safety_frame, orient='vertical').pack(side=tk.LEFT, padx=10, fill='y')
         ttk.Label(safety_frame, text="Timeline History:", font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=2)
 
-        self._slider_mode_btn = ttk.Button(
-            safety_frame, text="History %", width=12,
-            command=self._toggle_slider_mode
+        # Two radio-style buttons — the active/current mode is shown disabled
+        # ("pressed") so it's obvious which mode is live.  Click the other
+        # button to switch.  Default mode is '2-min Window'.
+        self._btn_2min = ttk.Button(
+            safety_frame, text="2-min Window", width=13,
+            command=lambda: self._set_slider_mode('window_2min')
         )
-        self._slider_mode_btn.pack(side=tk.LEFT, padx=4)
+        self._btn_2min.pack(side=tk.LEFT, padx=(4, 1))
+        self._btn_hist = ttk.Button(
+            safety_frame, text="Full History", width=12,
+            command=lambda: self._set_slider_mode('history_pct')
+        )
+        self._btn_hist.pack(side=tk.LEFT, padx=(1, 4))
+        # Start with 2-min Window active (matches LivePlot default)
+        self._btn_2min.config(state='disabled')
+        self._btn_hist.config(state='normal')
 
         self.master_scroll_var = tk.DoubleVar(value=1.0)
         self.master_scrollbar = ttk.Scale(
@@ -1808,23 +1819,20 @@ class MainWindow:
         if not self.is_running:
             self._on_start()
 
-    def _toggle_slider_mode(self):
-        """Toggle timeline slider between 'History %' and '2-min Window' modes."""
+    def _set_slider_mode(self, mode):
+        """
+        Set the timeline slider mode for all plots.
+
+        Args:
+            mode: 'window_2min' — fixed 2-minute viewport (the default).
+                  'history_pct' — show all data from session start to slider.
+        """
         for plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
             if hasattr(self, plot_attr):
-                plot = getattr(self, plot_attr)
-                current = getattr(plot, '_slider_mode', 'history_pct')
-                new_mode = 'window_2min' if current == 'history_pct' else 'history_pct'
-                plot.set_slider_mode(new_mode)
-        # Update button label based on new mode
-        if hasattr(self, 'plot_tc'):
-            mode = self.plot_tc._slider_mode
-        elif hasattr(self, 'plot_pressure'):
-            mode = self.plot_pressure._slider_mode
-        else:
-            return
-        label = "2-min Window" if mode == 'window_2min' else "History %"
-        self._slider_mode_btn.config(text=label)
+                getattr(self, plot_attr).set_slider_mode(mode)
+        # Keep the active-mode button disabled ("pressed") and the other normal
+        self._btn_2min.config(state='disabled' if mode == 'window_2min' else 'normal')
+        self._btn_hist.config(state='disabled' if mode == 'history_pct' else 'normal')
 
     def _on_start(self):
         self.is_running = True

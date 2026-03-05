@@ -141,9 +141,10 @@ class LivePlot:
         self._is_live = True
         self._frozen_right_edge = None  # datetime: right edge of frozen 2-min window
 
-        # Slider mode: 'history_pct' shows all data up to slider position,
-        # 'window_2min' shows a fixed 2-minute viewport at the slider position.
-        self._slider_mode = 'history_pct'
+        # Slider mode: 'window_2min' (default) shows a fixed 2-minute viewport
+        # whose right edge tracks the slider position.  'history_pct' shows all
+        # data from session start up to the slider position (zoom-out view).
+        self._slider_mode = 'window_2min'
 
         # Programmer overlay (dotted preview lines)
         self._overlay_times = []       # list of floats (seconds relative to ramp start)
