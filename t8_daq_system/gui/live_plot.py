@@ -180,10 +180,17 @@ class LivePlot:
                     self._frozen_right_edge = oldest + timedelta(seconds=val * span)
                 else:
                     self._frozen_right_edge = newest
-                self._mode_label.config(
-                    text=self._frozen_right_edge.strftime('%H:%M:%S'),
-                    foreground='gray'
-                )
+                if self._slider_mode == 'window_2min':
+                    window_start = self._frozen_right_edge - timedelta(seconds=self.WINDOW_SECONDS)
+                    self._mode_label.config(
+                        text=f"{window_start.strftime('%H:%M:%S')} → {self._frozen_right_edge.strftime('%H:%M:%S')}",
+                        foreground='gray'
+                    )
+                else:
+                    self._mode_label.config(
+                        text=self._frozen_right_edge.strftime('%H:%M:%S'),
+                        foreground='gray'
+                    )
                 # Redraw immediately when scroll changes in frozen mode
                 self._do_update_frozen()
 
@@ -222,21 +229,67 @@ class LivePlot:
 
     def set_sensor_visible(self, sensor_name, visible):
         """
-        Show or hide a sensor's line in this plot.  (Change 6)
-
-        Args:
-            sensor_name: Sensor identifier (e.g. 'TC_1', 'PS_Voltage')
-            visible:     True to show, False to hide
+        Show or hide a sensor's line in this plot.
+        When auto-scale is active and a line is hidden/shown, the Y-axis
+        immediately re-scales to only the visible data.
         """
         if not visible:
             self._hidden_sensors.add(sensor_name)
         else:
             self._hidden_sensors.discard(sensor_name)
+
         # Update any already-created line object immediately
         for key, line in self.lines.items():
             if key[1] == sensor_name:
                 line.set_visible(visible)
+
+        # If auto-scale is active, recompute limits from visible lines only
+        if not self._use_absolute_scales:
+            self._autoscale_visible_only()
+
         self.canvas.draw_idle()
+
+    def _autoscale_visible_only(self):
+        """
+        Recompute Y-axis limits based solely on data in currently-visible lines.
+        Called after any hide/show toggle when auto-scale mode is active.
+        """
+        if self.plot_type == 'pressure':
+            # Log scale — let matplotlib handle it; just call relim + autoscale
+            self.ax.relim()
+            self.ax.autoscale_view()
+            return
+
+        def _get_bounds(ax):
+            """Return (ymin, ymax) across all visible lines on this axis, or None."""
+            y_all = []
+            for line in ax.get_lines():
+                if not line.get_visible():
+                    continue
+                ydata = line.get_ydata()
+                # Filter out NaN/None
+                valid = [y for y in ydata if y is not None and y == y]
+                if valid:
+                    y_all.extend(valid)
+            if not y_all:
+                return None
+            return min(y_all), max(y_all)
+
+        bounds_main = _get_bounds(self.ax)
+        if bounds_main is not None:
+            lo, hi = bounds_main
+            margin = (hi - lo) * 0.05 if hi != lo else 1.0
+            self.ax.set_ylim(lo - margin, hi + margin)
+        else:
+            # No visible data — leave axis alone
+            pass
+
+        if self.ax2 is not None:
+            bounds_ax2 = _get_bounds(self.ax2)
+            if bounds_ax2 is not None:
+                lo2, hi2 = bounds_ax2
+                margin2 = (hi2 - lo2) * 0.05 if hi2 != lo2 else 1.0
+                self.ax2.set_ylim(lo2 - margin2, hi2 + margin2)
 
     def update(self, sensor_names):
         """
@@ -345,6 +398,10 @@ class LivePlot:
                 self.ax2.set_ylabel('PS Current (A)',
                                     color=self.ps_colors['PS_Current'],
                                     rotation=270, labelpad=15)
+                self.ax2.yaxis.set_label_position('right')
+                self.ax2.tick_params(axis='y', labelcolor=self.ps_colors['PS_Current'])
+                self.ax.tick_params(axis='y', labelcolor=self.ps_colors['PS_Voltage'])
+                self.fig.subplots_adjust(left=0.12, right=0.85, top=0.95, bottom=0.18)
 
         self.canvas.draw_idle()
 
@@ -399,6 +456,20 @@ class LivePlot:
                 self._ps_current_width = int(ps_current_width)
             except (ValueError, TypeError):
                 pass
+        # ── Re-apply axis label colors and layout for ps plot ──────────────────
+        if self.plot_type == 'ps':
+            self.ax.set_ylabel('PS Voltage (V)', color=self.ps_colors['PS_Voltage'])
+            self.ax.tick_params(axis='y', labelcolor=self.ps_colors['PS_Voltage'])
+            if self.ax2 is not None:
+                self.ax2.set_ylabel(
+                    'PS Current (A)',
+                    color=self.ps_colors['PS_Current'],
+                    rotation=270, labelpad=15
+                )
+                self.ax2.yaxis.set_label_position('right')
+                self.ax2.tick_params(axis='y', labelcolor=self.ps_colors['PS_Current'])
+            # Re-enforce the fixed margins that keep both labels on-screen
+            self.fig.subplots_adjust(left=0.12, right=0.85, top=0.95, bottom=0.18)
         # Apply immediately to any already-drawn lines
         self._reapply_line_styles()
         self.canvas.draw_idle()
@@ -685,6 +756,29 @@ class LivePlot:
 
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.ax.grid(True, alpha=0.3)
+
+        # ── Set X axis limits ────────────────────────────────────────────────
+        if right_edge is not None:
+            # Frozen mode
+            if window_seconds is not None:
+                # 2-min window: show exactly [right_edge - window_seconds, right_edge]
+                x_right = right_edge
+                x_left  = right_edge - timedelta(seconds=window_seconds)
+            else:
+                # History-pct mode: show all data from oldest timestamp to right_edge
+                if timestamps:
+                    x_left  = timestamps[0]
+                else:
+                    x_left  = right_edge - timedelta(seconds=self.WINDOW_SECONDS)
+                x_right = right_edge
+            self.ax.set_xlim(x_left, x_right)
+        else:
+            # Live mode: show [now - window_seconds, now]
+            now_dt = datetime.now()
+            self.ax.set_xlim(
+                now_dt - timedelta(seconds=window_seconds or self.WINDOW_SECONDS),
+                now_dt
+            )
 
         # ── Programmer overlay (dotted preview lines) for ps plot ──────────
         if self.plot_type == 'ps' and self._overlay_times and self._overlay_voltages:

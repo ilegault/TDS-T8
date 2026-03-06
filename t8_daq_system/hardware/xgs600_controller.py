@@ -12,6 +12,12 @@ import time
 # Enforce 200ms minimum between successive commands.
 _MIN_COMMAND_INTERVAL = 0.20  # seconds
 
+# Mirror the pressure debug flag from frg702_reader so both modules log together.
+try:
+    from t8_daq_system.hardware.frg702_reader import DEBUG_PRESSURE
+except ImportError:
+    DEBUG_PRESSURE = False
+
 
 class XGS600Controller:
     """Serial communication interface for the XGS-600 gauge controller."""
@@ -164,6 +170,9 @@ class XGS600Controller:
 
             if self.debug:
                 print(f"XGS-600 RX: {repr(response)} (hex: {response.hex()})")
+
+            if DEBUG_PRESSURE:
+                print(f"[XGS600 SERIAL] Sent: {repr(full_command)}  Received: {repr(response)}")
 
             try:
                 response_str = response.decode('ascii').strip('\r\n')

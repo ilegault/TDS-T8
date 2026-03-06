@@ -77,6 +77,13 @@ _DEFAULTS = {
     "ps_current_line_style":("str", "solid"),
     "ps_voltage_line_width":("str", "2"),
     "ps_current_line_width":("str", "2"),
+    # Power Programmer preview plot
+    "pp_voltage_color":      ("str", "#1f77b4"),   # blue default
+    "pp_current_color":      ("str", "#d62728"),   # red default
+    "pp_voltage_line_style": ("str", "solid"),
+    "pp_current_line_style": ("str", "dashed"),
+    "pp_voltage_line_width": ("str", "2"),
+    "pp_current_line_width": ("str", "2"),
 }
 
 
@@ -152,6 +159,12 @@ class AppSettings:
         self.ps_current_line_style: str = "solid"
         self.ps_voltage_line_width: str = "2"
         self.ps_current_line_width: str = "2"
+        self.pp_voltage_color: str       = "#1f77b4"
+        self.pp_current_color: str       = "#d62728"
+        self.pp_voltage_line_style: str  = "solid"
+        self.pp_current_line_style: str  = "dashed"
+        self.pp_voltage_line_width: str  = "2"
+        self.pp_current_line_width: str  = "2"
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API

@@ -563,6 +563,18 @@ class MainWindow:
                 ps_current_width=s.ps_current_line_width,
             )
 
+        # Apply appearance to the Power Programmer preview plot (if open)
+        if (hasattr(self, '_programmer_preview_plot')
+                and self._programmer_preview_plot is not None):
+            self._programmer_preview_plot.apply_appearance(
+                voltage_color=s.pp_voltage_color,
+                current_color=s.pp_current_color,
+                voltage_style=s.pp_voltage_line_style,
+                current_style=s.pp_current_line_style,
+                voltage_width=s.pp_voltage_line_width,
+                current_width=s.pp_current_line_width,
+            )
+
     def _open_settings_dialog(self):
         """Open the persistent Settings dialog."""
         SettingsDialog(self.root, self._app_settings,
@@ -1282,6 +1294,11 @@ class MainWindow:
             messagebox.showerror("Load Error", "Failed to load profile into executor.")
             return
 
+        # In practice mode, turn on the mock output so get_voltage() / get_current()
+        # returns actual values instead of 0.0
+        if hasattr(self.ps_controller, 'output_on'):
+            self.ps_controller.output_on()
+
         if not self.ramp_executor.start():
             messagebox.showerror("Start Error", "Failed to start ramp executor.")
             return
@@ -1328,6 +1345,8 @@ class MainWindow:
                 _time.sleep(0.5)  # Allow supply to ramp down
                 self.ps_controller.set_current(0.0)
                 _time.sleep(0.1)
+                if hasattr(self.ps_controller, 'output_off'):
+                    self.ps_controller.output_off()
             except Exception as e:
                 messagebox.showwarning("Stop Warning", f"Error during safe stop: {e}")
 

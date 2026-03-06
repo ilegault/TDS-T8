@@ -200,6 +200,14 @@ class DataAcquisition:
                               f"(setpoint={current_setpoint:.4f} A, "
                               f"monitored={monitored_current:.4f} A)")
 
+                    if DEBUG_POWER_PROGRAMMER:
+                        print(
+                            f"[PP PRACTICE] "
+                            f"Setpoint → V={voltage_setpoint:.4f}V  A={current_setpoint:.4f}A  |  "
+                            f"DAC_V={dac_v:.4f}V  DAC_A={dac_i:.4f}V  |  "
+                            f"Monitor → V={monitored_voltage:.4f}V  A={monitored_current:.4f}A"
+                        )
+
                     # ── Debug terminal output ─────────────────────────────────
                     if DEBUG_POWER_PROGRAMMER:
                         # Gather block / timing info from the ramp executor
@@ -318,6 +326,19 @@ class DataAcquisition:
                     name: info['pressure']
                     for name, info in frg702_detail_readings.items()
                 }
+
+                if getattr(self.frg702_reader, 'DEBUG_PRESSURE', False):
+                    from t8_daq_system.hardware.frg702_reader import UNIT_CONVERSIONS, FRG702Reader
+                    display_unit = self.config.get('pressure_unit', 'mbar')
+                    for name, detail in frg702_detail_readings.items():
+                        mbar = detail.get('pressure')
+                        if mbar is not None:
+                            converted = FRG702Reader.convert_pressure(mbar, display_unit)
+                            print(
+                                f"[DISPLAY CHAIN] {name}: "
+                                f"{mbar:.4e} mbar  →  {converted:.4e} {display_unit}  "
+                                f"(conversion factor: {UNIT_CONVERSIONS.get(display_unit, 1.0)})"
+                            )
 
             if self.ps_controller:
                 ps_readings = self.ps_controller.get_readings()

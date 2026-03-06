@@ -498,6 +498,56 @@ class SettingsDialog(tk.Toplevel):
         self._create_entry_row(limit_frame, 'Voltage Limit (V):', 'ps_voltage_limit', width=15, row=0)
         self._create_entry_row(limit_frame, 'Current Limit (A):', 'ps_current_limit', width=15, row=1)
 
+        # ── Power Programmer Plot Appearance ───────────────────────────────────
+        s = self._settings
+        self._pp_v_color_var = s.pp_voltage_color
+        self._pp_a_color_var = s.pp_current_color
+        self._pp_v_style_var = tk.StringVar(value=s.pp_voltage_line_style)
+        self._pp_a_style_var = tk.StringVar(value=s.pp_current_line_style)
+        self._pp_v_width_var = tk.StringVar(value=s.pp_voltage_line_width)
+        self._pp_a_width_var = tk.StringVar(value=s.pp_current_line_width)
+
+        pp_frame = ttk.LabelFrame(parent, text='Power Programmer Plot', padding=8)
+        pp_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(pp_frame, text='Line Appearance',
+                  font=('Arial', 9, 'bold')).pack(anchor='w', pady=(0, 2))
+
+        pp_hdr = ttk.Frame(pp_frame)
+        pp_hdr.pack(fill=tk.X)
+        ttk.Label(pp_hdr, text='Signal',  width=11, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(pp_hdr, text='Color',   width=6,  font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(pp_hdr, text='Style',   width=9,  font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(pp_hdr, text='Width',   width=6,  font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+
+        # PP Voltage row
+        ppv_row = ttk.Frame(pp_frame)
+        ppv_row.pack(fill=tk.X, pady=1)
+        ttk.Label(ppv_row, text='PP Voltage', width=11).pack(side=tk.LEFT, padx=4)
+
+        def _set_ppv_color(c):
+            self._pp_v_color_var = c
+
+        self._pp_v_color_btn = self._make_color_picker_btn(ppv_row, self._pp_v_color_var, _set_ppv_color)
+        self._pp_v_color_btn.pack(side=tk.LEFT, padx=4)
+        ttk.Combobox(ppv_row, textvariable=self._pp_v_style_var,
+                     values=self._STYLE_CHOICES, state='readonly', width=9).pack(side=tk.LEFT, padx=4)
+        ttk.Spinbox(ppv_row, textvariable=self._pp_v_width_var, from_=1, to=4, width=4).pack(side=tk.LEFT, padx=4)
+
+        # PP Current row
+        ppa_row = ttk.Frame(pp_frame)
+        ppa_row.pack(fill=tk.X, pady=1)
+        ttk.Label(ppa_row, text='PP Current', width=11).pack(side=tk.LEFT, padx=4)
+
+        def _set_ppa_color(c):
+            self._pp_a_color_var = c
+
+        self._pp_a_color_btn = self._make_color_picker_btn(ppa_row, self._pp_a_color_var, _set_ppa_color)
+        self._pp_a_color_btn.pack(side=tk.LEFT, padx=4)
+        ttk.Combobox(ppa_row, textvariable=self._pp_a_style_var,
+                     values=self._STYLE_CHOICES, state='readonly', width=9).pack(side=tk.LEFT, padx=4)
+        ttk.Spinbox(ppa_row, textvariable=self._pp_a_width_var, from_=1, to=4, width=4).pack(side=tk.LEFT, padx=4)
+
     def _build_paths_tab(self, notebook):
         """Tab for file paths and power supply configuration."""
         tab = ttk.Frame(notebook, padding=15)
@@ -686,6 +736,19 @@ class SettingsDialog(tk.Toplevel):
         self._ps_v_width_var.set(s.ps_voltage_line_width)
         self._ps_i_width_var.set(s.ps_current_line_width)
 
+        # ── Appearance: PP colors/styles/widths ───────────────────────────
+        self._pp_v_color_var = s.pp_voltage_color
+        self._pp_a_color_var = s.pp_current_color
+        try:
+            self._pp_v_color_btn.configure(bg=s.pp_voltage_color)
+            self._pp_a_color_btn.configure(bg=s.pp_current_color)
+        except Exception:
+            pass
+        self._pp_v_style_var.set(s.pp_voltage_line_style)
+        self._pp_a_style_var.set(s.pp_current_line_style)
+        self._pp_v_width_var.set(s.pp_voltage_line_width)
+        self._pp_a_width_var.set(s.pp_current_line_width)
+
         self._log_folder_var.set(s.log_folder)
         self._frg_interface_var.set(s.frg_interface)
         self._frg_pins_var.set(s.frg_pins)
@@ -747,6 +810,12 @@ class SettingsDialog(tk.Toplevel):
             s.ps_current_line_style = self._ps_i_style_var.get()
             s.ps_voltage_line_width = self._ps_v_width_var.get()
             s.ps_current_line_width = self._ps_i_width_var.get()
+            s.pp_voltage_color      = self._pp_v_color_var
+            s.pp_current_color      = self._pp_a_color_var
+            s.pp_voltage_line_style = self._pp_v_style_var.get()
+            s.pp_current_line_style = self._pp_a_style_var.get()
+            s.pp_voltage_line_width = self._pp_v_width_var.get()
+            s.pp_current_line_width = self._pp_a_width_var.get()
 
             s.log_folder = self._log_folder_var.get().strip()
             s.frg_interface = self._frg_interface_var.get()

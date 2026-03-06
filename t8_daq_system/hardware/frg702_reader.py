@@ -6,6 +6,8 @@ analog voltage conversion. Pressure values are read directly from the controller
 """
 
 
+DEBUG_PRESSURE = True   # Set False to silence once working correctly
+
 # Unit conversion factors from mbar
 UNIT_CONVERSIONS = {
     'mbar': 1.0,
@@ -157,12 +159,18 @@ class FRG702Reader:
                         'pressure': pressure,
                         'status': STATUS_VALID,
                         'mode': MODE_UNKNOWN,
+                        '_raw_str':   str(raw_pressure) if raw_pressure is not None else '?',
+                        '_raw_value': raw_pressure,
+                        '_raw_unit':  raw_unit,
                     }
                 else:
                     readings[gauge['name']] = {
                         'pressure': None,
                         'status': 'error',
                         'mode': MODE_UNKNOWN,
+                        '_raw_str':   '?',
+                        '_raw_value': None,
+                        '_raw_unit':  raw_unit,
                     }
 
             except Exception as e:
@@ -171,7 +179,27 @@ class FRG702Reader:
                     'pressure': None,
                     'status': 'error',
                     'mode': MODE_UNKNOWN,
+                    '_raw_str':   '?',
+                    '_raw_value': None,
+                    '_raw_unit':  raw_unit,
                 }
+
+        if DEBUG_PRESSURE:
+            for name, result in readings.items():
+                raw_val  = result.get('_raw_value')
+                raw_unit = result.get('_raw_unit', '?')
+                mbar_val = result.get('pressure')
+                print(
+                    f"[PRESSURE DEBUG] Sensor: {name}\n"
+                    f"  Serial raw string : {result.get('_raw_str', '?')}\n"
+                    f"  Parsed float      : {raw_val}\n"
+                    f"  XGS-600 unit      : {raw_unit}  (from gauge config 'units' field)\n"
+                    f"  Conversion factor : UNIT_CONVERSIONS['{raw_unit}'] = "
+                    f"{UNIT_CONVERSIONS.get(raw_unit, '???')}\n"
+                    f"  mbar = raw / factor = {raw_val} / {UNIT_CONVERSIONS.get(raw_unit, 1.0)}"
+                    f" = {mbar_val}\n"
+                    f"  Status            : {result.get('status')}"
+                )
 
         return readings
 

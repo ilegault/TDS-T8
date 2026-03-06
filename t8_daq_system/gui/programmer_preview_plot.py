@@ -33,13 +33,20 @@ class ProgrammerPreviewPlot:
         self._ax_v = self.fig.add_subplot(111)
         self._ax_a = self._ax_v.twinx()
 
-        self._ax_v.set_xlabel('Time (s)')
-        self._ax_v.set_ylabel('Voltage (V)', color='blue')
-        self._ax_v.tick_params(axis='y', labelcolor='blue')
+        self._v_color = '#1f77b4'
+        self._a_color = '#d62728'
+        self._v_style = 'solid'
+        self._a_style = 'dashed'
+        self._v_width = 2
+        self._a_width = 2
 
-        self._ax_a.set_ylabel('Current (A)', color='red', rotation=270, labelpad=15)
+        self._ax_v.set_xlabel('Time (s)')
+        self._ax_v.set_ylabel('Voltage (V)', color=self._v_color)
+        self._ax_v.tick_params(axis='y', labelcolor=self._v_color)
+
+        self._ax_a.set_ylabel('Current (A)', color=self._a_color, rotation=270, labelpad=15)
         self._ax_a.yaxis.set_label_position('right')
-        self._ax_a.tick_params(axis='y', labelcolor='red')
+        self._ax_a.tick_params(axis='y', labelcolor=self._a_color)
 
         self.fig.suptitle('Power Program Preview', fontsize=11, fontweight='bold')
         self._ax_v.grid(True, alpha=0.3)
@@ -103,14 +110,21 @@ class ProgrammerPreviewPlot:
         # Hide placeholder
         self._placeholder.set_visible(False)
 
+        _style_map = {'solid': '-', 'dashed': '--', 'dotted': ':', 'dashdot': '-.'}
         # Draw voltage and current lines
         self._line_v, = self._ax_v.plot(
             times, voltages,
-            color='blue', linewidth=2, label='Voltage (V)'
+            color=self._v_color,
+            linewidth=self._v_width,
+            linestyle=_style_map.get(self._v_style, '-'),
+            label='Voltage (V)'
         )
         self._line_a, = self._ax_a.plot(
             times, currents,
-            color='red', linewidth=2, label='Current (A)'
+            color=self._a_color,
+            linewidth=self._a_width,
+            linestyle=_style_map.get(self._a_style, '-'),
+            label='Current (A)'
         )
 
         # Draw vertical dotted gray lines at block boundaries
@@ -124,6 +138,49 @@ class ProgrammerPreviewPlot:
         self._ax_v.autoscale_view()
         self._ax_a.relim()
         self._ax_a.autoscale_view()
+
+        self.canvas.draw_idle()
+
+    def apply_appearance(self, voltage_color=None, current_color=None,
+                         voltage_style=None, current_style=None,
+                         voltage_width=None, current_width=None):
+        """Apply color/style settings from the Settings dialog."""
+        _style_map = {'solid': '-', 'dashed': '--', 'dotted': ':', 'dashdot': '-.'}
+
+        if voltage_color:
+            self._v_color = voltage_color
+        if current_color:
+            self._a_color = current_color
+        if voltage_style:
+            self._v_style = voltage_style
+        if current_style:
+            self._a_style = current_style
+        if voltage_width:
+            try:
+                self._v_width = int(voltage_width)
+            except (ValueError, TypeError):
+                pass
+        if current_width:
+            try:
+                self._a_width = int(current_width)
+            except (ValueError, TypeError):
+                pass
+
+        # Re-apply to axis labels and ticks
+        self._ax_v.set_ylabel('Voltage (V)', color=self._v_color)
+        self._ax_v.tick_params(axis='y', labelcolor=self._v_color)
+        self._ax_a.set_ylabel('Current (A)', color=self._a_color, rotation=270, labelpad=15)
+        self._ax_a.tick_params(axis='y', labelcolor=self._a_color)
+
+        # Re-apply to existing lines
+        if self._line_v is not None:
+            self._line_v.set_color(self._v_color)
+            self._line_v.set_linestyle(_style_map.get(self._v_style, '-'))
+            self._line_v.set_linewidth(self._v_width)
+        if self._line_a is not None:
+            self._line_a.set_color(self._a_color)
+            self._line_a.set_linestyle(_style_map.get(self._a_style, '-'))
+            self._line_a.set_linewidth(self._a_width)
 
         self.canvas.draw_idle()
 
