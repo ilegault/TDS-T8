@@ -173,13 +173,30 @@ class DataAcquisition:
 
             # Power supply readings
             if self.ps_controller:
+                # ── TempRamp PID practice-mode simulation ─────────────────────
+                # When a TempRamp PID run is active, derive simulated PS readings
+                # from the executor's last computed V/I values so the power
+                # supply monitor shows exactly what the real hardware will output.
+                # Uses the same pp_dac_to_monitored_* scaling functions as live
+                # mode to guarantee practice output matches real output precisely.
+                if (self.temp_ramp_executor is not None
+                        and self.temp_ramp_executor.is_running()):
+                    _v_dac = getattr(self.temp_ramp_executor, '_last_voltage_dac', 0.0)
+                    _i_dac = getattr(self.temp_ramp_executor, '_last_current_dac', 0.0)
+                    monitored_voltage = pp_dac_to_monitored_voltage(_v_dac)
+                    monitored_current = pp_dac_to_monitored_current(_i_dac)
+                    ps_readings = {
+                        'PS_Voltage':   monitored_voltage,
+                        'PS_Current':   monitored_current,
+                        'PS_Output_On': True,
+                    }
                 # ── Power Programmer practice-mode simulation ─────────────────
                 # When the ramp executor is actively running, simulate the full
                 # T8 analog signal chain instead of returning the raw setpoints.
                 # This ensures that what Isaac sees on the monitor plots is
                 # EXACTLY what the live hardware will deliver — any formula
                 # error in the scaling will cause a visible mismatch here.
-                if (self.ramp_executor is not None
+                elif (self.ramp_executor is not None
                         and self.ramp_executor.is_running()):
                     # STEP 1: Read setpoints stored by the ramp executor's
                     #         set_voltage() / set_current() calls.

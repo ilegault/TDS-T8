@@ -24,6 +24,28 @@ DAC_MAX_VOLTS        = 5.0      # T8 DAC output ceiling (0–5 V)
 MIN_RAMP_RATE_K_PER_MIN = 0.05  # Safety floor — ignore noise below this
 PRACTICE_THERMAL_MASS   = 120.0  # Seconds for simulated temperature to respond
 
+# ── Debug / Safety Configuration ─────────────────────────────────────────────
+# Set DEBUG_TEMP_RAMP = True to print PID internals every tick to the terminal.
+# Set to False before real hardware runs if terminal output becomes too verbose.
+DEBUG_TEMP_RAMP = True
+
+# Current limit fraction for DAC1 (Pin 10, Current Program) during a TempRamp run.
+#
+# TUNGSTEN (positive TCR, 17:1 resistance ratio cold-to-hot):
+# Must be 1.0 (= full 5.0V DAC output = 180A ceiling).
+# Tungsten runs in CV mode. As it heats, resistance rises 17x and current
+# self-limits naturally via Ohm's law. Artificially capping DAC1 below full
+# scale causes the Keysight to flip into CC mode while tungsten is still cold,
+# which fights the PID voltage ramp.
+#
+# The CV→CC crossover seen when using front panel knobs is NORMAL Keysight
+# behavior (supply hits the current ceiling and switches modes). Keeping DAC1
+# at 1.0 prevents this from happening during a software-controlled ramp.
+#
+# Only reduce below 1.0 for NEGATIVE TCR materials (some ceramics, VO2) where
+# fast current clamping is required to prevent thermal runaway.
+TEMP_RAMP_CURRENT_LIMIT_FRACTION = 1.0  # 1.0 = 180A full scale — correct for tungsten
+
 
 class TempRampExecutor:
     """
@@ -79,6 +101,14 @@ class TempRampExecutor:
 
         # Log of (elapsed_sec, setpoint_k, actual_k, pid_output) per tick
         self._run_log = []
+
+        # Last computed DAC voltages and derived real-world V/I values.
+        # Written every tick by _run_loop; read by DataAcquisition for
+        # practice-mode power supply simulation.
+        self._last_voltage_dac = 0.0
+        self._last_current_dac = 0.0
+        self._last_voltage_setpoint_v = 0.0
+        self._last_current_limit_a = 0.0
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -267,8 +297,27 @@ class TempRampExecutor:
                 in_startup_phase = False
 
             # ── 6. Convert PID output to DAC voltages (0–5 V range) ───────────
+            #
+            # DAC0 → Pin 9 (Voltage Program): PID is the sole control variable.
+            # The supply stays in CV mode for tungsten (positive TCR material).
             voltage_dac = min(pid_output * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
-            current_dac = min(pid_output * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
+
+            # DAC1 → Pin 10 (Current Program): FIXED ceiling, NOT tied to pid_output.
+            # For tungsten: TEMP_RAMP_CURRENT_LIMIT_FRACTION = 1.0
+            # → 1.0 * 5.0V = 5.0V DAC output → 180A ceiling on Keysight.
+            # This keeps the supply in pure CV mode for the entire ramp.
+            # Actual current flowing = V_output / R_tungsten (Ohm's law only).
+            current_dac = min(TEMP_RAMP_CURRENT_LIMIT_FRACTION * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
+
+            # Derive real-world values for status reporting and practice simulation
+            voltage_setpoint_v = (voltage_dac / DAC_MAX_VOLTS) * MAX_VOLTAGE
+            current_limit_a    = (current_dac / DAC_MAX_VOLTS) * MAX_CURRENT
+
+            # Cache on instance so DataAcquisition can read from outside this thread
+            self._last_voltage_dac      = voltage_dac
+            self._last_current_dac      = current_dac
+            self._last_voltage_setpoint_v = voltage_setpoint_v
+            self._last_current_limit_a  = current_limit_a
 
             # ── 7. Safety: hard DAC ceiling ────────────────────────────────────
             if voltage_dac > DAC_MAX_VOLTS or current_dac > DAC_MAX_VOLTS:
@@ -312,7 +361,33 @@ class TempRampExecutor:
                     'total_blocks':      len(self._blocks),
                     'saturated_warning': saturated_warning,
                     'tc_missing_error':  False,
+                    # V/I values for GUI display and practice-mode simulation
+                    'voltage_setpoint_v': voltage_setpoint_v,
+                    'current_limit_a':   current_limit_a,
+                    'voltage_dac':       voltage_dac,
+                    'current_dac':       current_dac,
+                    'error_k':           setpoint_k - current_temp_k,
+                    'pid_debug':         self._pid.get_debug_terms(),
                 })
+
+            # ── 11b. Debug terminal output ────────────────────────────────────
+            if DEBUG_TEMP_RAMP:
+                _dbg = self._pid.get_debug_terms()
+                _sat = (pid_output >= 1.0 - 1e-6) or (pid_output <= 1e-6 and elapsed_total > 1.0)
+                print(
+                    f"[TempRamp DBG] "
+                    f"t={elapsed_total:7.1f}s | "
+                    f"SP={setpoint_k:.2f}K T={current_temp_k:.2f}K "
+                    f"err={setpoint_k - current_temp_k:+.2f}K | "
+                    f"P={_dbg['p_term']:+.5f} "
+                    f"I={_dbg['i_term']:+.5f} "
+                    f"D={_dbg['d_term']:+.5f} "
+                    f"accum={_dbg['integral_accumulator']:+.3f} | "
+                    f"out={pid_output:.4f}{' ⚠SAT' if _sat else ''} | "
+                    f"V_set={voltage_setpoint_v:.4f}V "
+                    f"I_lim={current_limit_a:.2f}A | "
+                    f"DAC0={voltage_dac:.4f}V DAC1={current_dac:.4f}V"
+                )
 
             # ── 12. Sleep remainder of tick ────────────────────────────────────
             elapsed_tick = time.time() - loop_start

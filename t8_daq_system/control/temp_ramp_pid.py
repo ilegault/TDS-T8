@@ -52,12 +52,20 @@ class PIDController:
         self._prev_time = None
         self._prev_output = 0.0
 
+        # Debug: last computed P, I, D contributions
+        self._last_p_term = 0.0
+        self._last_i_term = 0.0
+        self._last_d_term = 0.0
+
     def reset(self):
         """Reset integrator and history — call before starting a new run."""
         self._integral = 0.0
         self._prev_error = 0.0
         self._prev_time = None
         self._prev_output = 0.0
+        self._last_p_term = 0.0
+        self._last_i_term = 0.0
+        self._last_d_term = 0.0
 
     def compute(self, setpoint_k: float, measured_k: float,
                 current_time: float) -> float:
@@ -89,9 +97,10 @@ class PIDController:
 
         derivative = (error - self._prev_error) / dt
 
-        raw_output = (self._kp * error
-                      + self._ki * self._integral
-                      + self._kd * derivative)
+        self._last_p_term = self._kp * error
+        self._last_i_term = self._ki * self._integral
+        self._last_d_term = self._kd * derivative
+        raw_output = self._last_p_term + self._last_i_term + self._last_d_term
 
         clamped = max(self._output_min, min(self._output_max, raw_output))
 
@@ -100,6 +109,19 @@ class PIDController:
         self._prev_output = clamped
 
         return clamped
+
+    def get_debug_terms(self) -> dict:
+        """Return the P, I, D contributions from the most recent compute() call.
+
+        Use this for transparent debugging during practice-mode runs to verify
+        the PID is behaving correctly before connecting real hardware.
+        """
+        return {
+            'p_term': self._last_p_term,
+            'i_term': self._last_i_term,
+            'd_term': self._last_d_term,
+            'integral_accumulator': self._integral,
+        }
 
     def update_gains(self, kp: float, ki: float, kd: float):
         """Update PID gains (can be called between runs)."""

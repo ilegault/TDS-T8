@@ -1460,6 +1460,25 @@ class MainWindow:
                 self.run_ramp_btn.config(text="Run Program")
                 self.status_var.set("Temp Ramp Complete")
 
+            # ── Feed V/I to power supply display ──────────────────────────────
+            # The status dict now carries the PID's computed voltage setpoint
+            # and fixed current ceiling so the PS panel shows live values
+            # during a TempRamp run instead of staying blank.
+            _v = status.get('voltage_setpoint_v', 0.0)
+            _i = status.get('current_limit_a', 0.0)
+
+            # Update the main power supply live plot via the data buffer
+            if hasattr(self, 'data_buffer') and hasattr(self, 'plot_ps'):
+                self.data_buffer.add_reading({'PS_Voltage': _v, 'PS_Current': _i})
+                self.plot_ps.update(['PS_Voltage', 'PS_Current'])
+
+            # Feed the embedded V/I plot inside the ramp panel if it exists
+            if (self._programmer_panel is not None
+                    and hasattr(self._programmer_panel, '_temp_ramp_panel')):
+                _rp = self._programmer_panel._temp_ramp_panel
+                if _rp is not None and hasattr(_rp, 'update_plot_data'):
+                    _rp.update_plot_data(_v, _i)
+
         self.root.after(0, _update)
 
     def _stop_programmer_ramp_safe(self):
