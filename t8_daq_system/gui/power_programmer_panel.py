@@ -65,6 +65,7 @@ class PowerProgrammerPanel:
 
         self._blocks = []  # list of block dicts
         self._mode = "Voltage"  # "Voltage", "Current", or "TempRamp"
+        self._safe_test_mode = False  # Controlled by Safe Test Mode checkbox
 
         self._table_frame = None  # kept as ref so _rebuild_table_columns can destroy/recreate
         self._tree = None
@@ -115,6 +116,19 @@ class PowerProgrammerPanel:
         )
         mode_cb.pack(side=tk.LEFT, padx=2)
         mode_cb.bind("<<ComboboxSelected>>", self._on_mode_change)
+
+        # ── Row 2b: Safe Test Mode checkbox (TempRamp only) ───────────────
+        self._safe_test_frame = ttk.Frame(self._parent)
+        # Not packed initially — shown only in TempRamp mode via _on_mode_change
+
+        self._safe_test_var = tk.BooleanVar(value=False)
+        self._safe_test_cb = ttk.Checkbutton(
+            self._safe_test_frame,
+            text="⚠ Safe Test Mode  (max 1 V / 9 A — for wiring verification only)",
+            variable=self._safe_test_var,
+            command=self._on_safe_test_toggle,
+        )
+        self._safe_test_cb.pack(side=tk.LEFT, padx=6)
 
         # ── Row 3: Table ──────────────────────────────────────────────────
         self._table_frame = ttk.Frame(self._parent)
@@ -185,7 +199,26 @@ class PowerProgrammerPanel:
             self._blocks = []
             self._build_table_for_mode()
 
+        # Show safe test checkbox only in TempRamp mode
+        if hasattr(self, '_safe_test_frame'):
+            if new_mode == "TempRamp":
+                self._safe_test_frame.pack(fill=tk.X, pady=(2, 0), padx=4,
+                                           before=self._table_frame)
+            else:
+                self._safe_test_frame.pack_forget()
+
         self._refresh_status()
+
+    def _on_safe_test_toggle(self):
+        """Update internal flag when Safe Test Mode checkbox changes."""
+        self._safe_test_mode = self._safe_test_var.get()
+        state = "ENABLED" if self._safe_test_mode else "DISABLED"
+        print(f"[PowerProgrammerPanel] Safe Test Mode {state} "
+              f"(max 1.0 V / 9.0 A ceiling)")
+
+    def get_safe_test_mode(self) -> bool:
+        """Return True if Safe Test Mode is currently checked."""
+        return self._safe_test_mode
 
     # ──────────────────────────────────────────────────────────────────────
     # Block operations

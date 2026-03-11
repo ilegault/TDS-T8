@@ -46,6 +46,12 @@ DEBUG_TEMP_RAMP = True
 # fast current clamping is required to prevent thermal runaway.
 TEMP_RAMP_CURRENT_LIMIT_FRACTION = 1.0  # 1.0 = 180A full scale — correct for tungsten
 
+# ── Safe Test Mode limits ──────────────────────────────────────────────────────
+# When safe_test_mode=True is passed to TempRampExecutor, these override the
+# normal MAX_VOLTAGE and TEMP_RAMP_CURRENT_LIMIT_FRACTION values.
+SAFE_TEST_MAX_VOLTAGE            = 1.0   # V — hard ceiling in safe test mode
+SAFE_TEST_CURRENT_LIMIT_FRACTION = 0.05  # × 180 A = 9 A ceiling in safe test mode
+
 
 class TempRampExecutor:
     """
@@ -64,7 +70,8 @@ class TempRampExecutor:
     def __init__(self, power_supply, get_temperature_celsius_fn,
                  history: TempRampHistory,
                  on_status_callback=None,
-                 practice_mode=False):
+                 practice_mode=False,
+                 safe_test_mode=False):
         """
         Args:
             power_supply:
@@ -89,6 +96,7 @@ class TempRampExecutor:
         self._history = history
         self._on_status = on_status_callback
         self.practice_mode = practice_mode
+        self.safe_test_mode = safe_test_mode
 
         self._blocks = []
         self._pid = PIDController()
@@ -298,16 +306,22 @@ class TempRampExecutor:
 
             # ── 6. Convert PID output to DAC voltages (0–5 V range) ───────────
             #
-            # DAC0 → Pin 9 (Voltage Program): PID is the sole control variable.
-            # The supply stays in CV mode for tungsten (positive TCR material).
-            voltage_dac = min(pid_output * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
+            # Select active limits based on safe_test_mode
+            if self.safe_test_mode:
+                _active_max_v  = SAFE_TEST_MAX_VOLTAGE
+                _active_i_frac = SAFE_TEST_CURRENT_LIMIT_FRACTION
+            else:
+                _active_max_v  = MAX_VOLTAGE
+                _active_i_frac = TEMP_RAMP_CURRENT_LIMIT_FRACTION
+
+            # DAC0 → Pin 9 (Voltage Program): PID output scaled to active voltage ceiling.
+            # In normal mode 1.0 → 5.0 V DAC → 6.0 V supply.
+            # In safe mode 1.0 → (1.0/6.0)×5.0 = 0.833 V DAC → 1.0 V supply.
+            voltage_dac = min(pid_output * (_active_max_v / MAX_VOLTAGE) * DAC_MAX_VOLTS,
+                              DAC_MAX_VOLTS)
 
             # DAC1 → Pin 10 (Current Program): FIXED ceiling, NOT tied to pid_output.
-            # For tungsten: TEMP_RAMP_CURRENT_LIMIT_FRACTION = 1.0
-            # → 1.0 * 5.0V = 5.0V DAC output → 180A ceiling on Keysight.
-            # This keeps the supply in pure CV mode for the entire ramp.
-            # Actual current flowing = V_output / R_tungsten (Ohm's law only).
-            current_dac = min(TEMP_RAMP_CURRENT_LIMIT_FRACTION * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
+            current_dac = min(_active_i_frac * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
 
             # Derive real-world values for status reporting and practice simulation
             voltage_setpoint_v = (voltage_dac / DAC_MAX_VOLTS) * MAX_VOLTAGE
@@ -368,6 +382,7 @@ class TempRampExecutor:
                     'current_dac':       current_dac,
                     'error_k':           setpoint_k - current_temp_k,
                     'pid_debug':         self._pid.get_debug_terms(),
+                    'safe_test_mode':    self.safe_test_mode,
                 })
 
             # ── 11b. Debug terminal output ────────────────────────────────────

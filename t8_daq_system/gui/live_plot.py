@@ -74,9 +74,14 @@ class LivePlot:
         self.colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
                        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
         self.ps_colors = {
-            'PS_Voltage': '#d62728',   # Red
-            'PS_Current': '#ff7f0e',   # Orange
+            'PS_Voltage':          '#d62728',   # Red
+            'PS_Current':          '#ff7f0e',   # Orange
+            'PS_Voltage_Setpoint': '#4488FF',   # Light blue — setpoint
+            'PS_CC_Limit':         '#FF8800',   # Orange — current ceiling
         }
+
+        # Optional legend label overrides: {sensor_key -> display label}
+        self._legend_label_overrides: dict = {}
 
         # Custom appearance (overridden by apply_appearance())
         self._custom_tc_colors = list(self.colors)
@@ -543,6 +548,18 @@ class LivePlot:
         """Call this when the ramp actually begins to anchor the overlay in time."""
         self._overlay_start_time = start_datetime
 
+    def set_legend_label_overrides(self, overrides: dict):
+        """
+        Override the legend label for specific sensor keys.
+
+        Args:
+            overrides: dict mapping internal key → display label.
+                       Pass an empty dict {} to clear all overrides.
+        Example:
+            plot_ps.set_legend_label_overrides({'PS_Current': 'CC Limit (A)'})
+        """
+        self._legend_label_overrides = dict(overrides)
+
     # ──────────────────────────────────────────────────────────────────────
     # Internal rendering helpers
     # ──────────────────────────────────────────────────────────────────────
@@ -590,7 +607,8 @@ class LivePlot:
         elif self.plot_type == 'pressure':
             return name.startswith('FRG702_')
         elif self.plot_type == 'ps':
-            return name in ('PS_Voltage', 'PS_Current')
+            return name in ('PS_Voltage', 'PS_Current',
+                            'PS_Voltage_Setpoint', 'PS_CC_Limit')
         return False
 
     def _prepare_data(self, timestamps, values, window_seconds, right_edge=None):
@@ -719,8 +737,16 @@ class LivePlot:
         # ── PS V & I plot ──────────────────────────────────────────────────
         elif self.plot_type == 'ps':
             ps_axis_map = {
-                'PS_Voltage': (self.ax,  self._ps_v_range),
-                'PS_Current': (self.ax2, self._ps_i_range),
+                'PS_Voltage':          (self.ax,  self._ps_v_range),
+                'PS_Voltage_Setpoint': (self.ax,  self._ps_v_range),   # Same left axis as voltage
+                'PS_Current':          (self.ax2, self._ps_i_range),
+                'PS_CC_Limit':         (self.ax2, self._ps_i_range),   # Same right axis as current
+            }
+            _linestyle_map = {
+                'PS_Voltage':          '-',
+                'PS_Voltage_Setpoint': '--',
+                'PS_Current':          '-',
+                'PS_CC_Limit':         ':',
             }
             for name, (target_ax, abs_range) in ps_axis_map.items():
                 if target_ax is None:
@@ -728,6 +754,7 @@ class LivePlot:
                 values = list(plot_data.get(name, []))
                 times, vals = self._prepare_data(timestamps, values, ws, now)
                 color = self.ps_colors.get(name, '#666666')
+                _ls = _linestyle_map.get(name, '--')
 
                 line_key = ('ps', name)
                 active_line_keys.add(line_key)
@@ -738,7 +765,7 @@ class LivePlot:
                     self.lines[line_key].set_visible(visible)
                 else:
                     line, = target_ax.plot(times, vals, label=name, linewidth=2,
-                                           color=color, linestyle='--', visible=visible)
+                                           color=color, linestyle=_ls, visible=visible)
                     self.lines[line_key] = line
 
                 if self._use_absolute_scales and abs_range:
@@ -824,7 +851,10 @@ class LivePlot:
 
         # ── Legend (built after overlay so all lines are included) ─────────
         handles = list(self.lines.values())
-        labels = [k[1] for k in self.lines.keys()]
+        labels = [
+            self._legend_label_overrides.get(k[1], k[1])
+            for k in self.lines.keys()
+        ]
         if self.plot_type == 'ps':
             if self._overlay_line_v is not None:
                 handles.append(self._overlay_line_v)

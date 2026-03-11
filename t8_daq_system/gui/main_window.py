@@ -1386,6 +1386,13 @@ class MainWindow:
         gains = self._temp_ramp_history.suggest_gains(target_rate)
         print(f"[TempRamp] Using gains: kp={gains['kp']}, ki={gains['ki']}, kd={gains['kd']}")
 
+        # Read safe test mode from programmer panel if available
+        _safe_test = (
+            self._programmer_panel.get_safe_test_mode()
+            if self._programmer_panel is not None
+            else False
+        )
+
         # Create a fresh executor for this run
         self._temp_ramp_executor = TempRampExecutor(
             power_supply=self.ps_controller,
@@ -1394,7 +1401,8 @@ class MainWindow:
             ),
             history=self._temp_ramp_history,
             on_status_callback=self._on_temp_ramp_status,
-            practice_mode=self._practice_mode
+            practice_mode=self._practice_mode,
+            safe_test_mode=_safe_test
         )
         self._temp_ramp_executor._pid.update_gains(
             gains['kp'], gains['ki'], gains['kd']
@@ -1450,7 +1458,10 @@ class MainWindow:
         )
 
         def _update():
-            self.status_var.set(status_text)
+            _display_text = status_text
+            if status.get('safe_test_mode'):
+                _display_text += "  [SAFE TEST MODE — 1V/9A]"
+            self.status_var.set(_display_text)
 
             # Detect executor finishing naturally (no longer running)
             if (self._temp_ramp_executor is not None
@@ -1459,18 +1470,38 @@ class MainWindow:
                 self._programmer_ramp_running = False
                 self.run_ramp_btn.config(text="Run Program")
                 self.status_var.set("Temp Ramp Complete")
+                # Restore default plot state after TempRamp completes naturally
+                if hasattr(self, 'plot_ps'):
+                    self.plot_ps.set_legend_label_overrides({})
+                    self.plot_ps.update(['PS_Voltage', 'PS_Current'])
 
             # ── Feed V/I to power supply display ──────────────────────────────
-            # The status dict now carries the PID's computed voltage setpoint
-            # and fixed current ceiling so the PS panel shows live values
-            # during a TempRamp run instead of staying blank.
-            _v = status.get('voltage_setpoint_v', 0.0)
-            _i = status.get('current_limit_a', 0.0)
+            # The status dict carries the PID's computed voltage setpoint and
+            # fixed current ceiling.  Push these under SEPARATE keys so they
+            # appear as distinct lines from the DAQ-monitored PS_Voltage / PS_Current.
+            _v_setpoint = status.get('voltage_setpoint_v', 0.0)
+            _i_cc_limit = status.get('current_limit_a', 0.0)
 
             # Update the main power supply live plot via the data buffer
             if hasattr(self, 'data_buffer') and hasattr(self, 'plot_ps'):
-                self.data_buffer.add_reading({'PS_Voltage': _v, 'PS_Current': _i})
-                self.plot_ps.update(['PS_Voltage', 'PS_Current'])
+                self.data_buffer.add_reading({
+                    'PS_Voltage_Setpoint': _v_setpoint,
+                    'PS_CC_Limit':         _i_cc_limit,
+                })
+                # Render all four lines: DAQ-monitored + PID setpoint + CC limit
+                self.plot_ps.update([
+                    'PS_Voltage',           # Monitored voltage (from DAQ / AIN4)
+                    'PS_Current',           # Monitored current (from DAQ / AIN5)
+                    'PS_Voltage_Setpoint',  # PID commanded voltage
+                    'PS_CC_Limit',          # Fixed current ceiling
+                ])
+                # Apply human-readable legend labels
+                self.plot_ps.set_legend_label_overrides({
+                    'PS_Voltage':          'Voltage (V)',
+                    'PS_Current':          'Current (A)',
+                    'PS_Voltage_Setpoint': 'PID V Setpoint',
+                    'PS_CC_Limit':         'CC Limit (A)',
+                })
 
             # Feed the embedded V/I plot inside the ramp panel if it exists
             if (self._programmer_panel is not None
@@ -1502,6 +1533,10 @@ class MainWindow:
             self._programmer_ramp_running = False
             self.run_ramp_btn.config(text="Run Program")
             self.status_var.set("Temp Ramp Stopped")
+            # Restore default legend and revert to standard 2-line plot
+            if hasattr(self, 'plot_ps'):
+                self.plot_ps.set_legend_label_overrides({})
+                self.plot_ps.update(['PS_Voltage', 'PS_Current'])
             return
 
         # ── Existing V/I ramp executor stop path ──────────────────────────────
