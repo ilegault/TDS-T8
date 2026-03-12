@@ -135,25 +135,30 @@ class DataAcquisition:
 
         if self.practice_mode:
             # Generate simulated thermocouple data
+            _t = time.time()
+            _enabled_idx = 0
             for tc in self.config.get('thermocouples', []):
-                if tc.get('enabled', True):
-                    t = time.time()
-                    # When a TempRamp run is active, source the simulated TC
-                    # temperature from the executor's thermal model rather than
-                    # the generic sine wave so the live display reflects the PID.
-                    if (self.temp_ramp_executor is not None
-                            and self.temp_ramp_executor.is_running()):
-                        sim_temp_k = self.temp_ramp_executor._practice_temp_k or 293.15
-                        val = sim_temp_k - 273.15  # convert K → °C for display
-                    else:
-                        val = 20.0 + 5.0 * math.sin(t / 10.0) + random.uniform(-0.5, 0.5)
-                    tc_readings[tc['name']] = val
-                    # Simulate raw TC voltage: typical range ±0.1V (100mV)
-                    # Approximate back-calculation from temperature for Type K
-                    # Just a plausible simulated value for practice mode
-                    raw_voltages[f"{tc['name']}_rawV"] = round(
-                        (val - 20.0) * 4.1e-5 + random.uniform(-2e-6, 2e-6), 8
-                    )
+                if not tc.get('enabled', True):
+                    continue
+                _name = tc['name']
+                if (_enabled_idx == 0
+                        and self.temp_ramp_executor is not None
+                        and self.temp_ramp_executor.is_running()):
+                    # Primary TC follows the PID-simulated temperature
+                    sim_temp_k = self.temp_ramp_executor._practice_temp_k or 293.15
+                    val = sim_temp_k - 273.15  # convert K → °C for display
+                else:
+                    # Secondary TCs (or when no TempRamp is active): independent
+                    # sine-wave noise around room temperature so they don't clone TC_1.
+                    val = 20.0 + 5.0 * math.sin(_t / 10.0 + _enabled_idx * 1.3) + random.uniform(-0.5, 0.5)
+                tc_readings[_name] = val
+                # Simulate raw TC voltage: typical range ±0.1V (100mV)
+                # Approximate back-calculation from temperature for Type K
+                # Just a plausible simulated value for practice mode
+                raw_voltages[f"{_name}_rawV"] = round(
+                    (val - 20.0) * 4.1e-5 + random.uniform(-2e-6, 2e-6), 8
+                )
+                _enabled_idx += 1
 
             # Generate simulated FRG-702 data
             for gauge in self.config.get('frg702_gauges', []):
@@ -214,7 +219,9 @@ class DataAcquisition:
                     # STEP 4: Convert monitor inputs → engineering units
                     #         (what the software reads from AIN4/AIN5 in live mode)
                     monitored_voltage = pp_dac_to_monitored_voltage(dac_v)
-                    monitored_current = pp_dac_to_monitored_current(dac_i)
+                    # In practice mode there is no physical load. Simulate near-zero current
+                    # with a tiny noise term so the plot isn't a flat zero line.
+                    monitored_current = 0.0
 
                     # STEP 5: Validation — the round-trip must be exact within
                     #         floating-point tolerance.  Any failure here means

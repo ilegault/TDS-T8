@@ -2128,6 +2128,14 @@ class MainWindow:
                 #   physical TC wire → raw mV input → EF temperature conversion
                 if raw_voltages:
                     log_readings.update(raw_voltages)
+                # Merge the latest PID setpoint / CC limit into the row if they are in the buffer.
+                # These keys are written to the buffer by _on_temp_ramp_status on a separate timer,
+                # so they must be pulled from the buffer rather than the DAQ callback dict.
+                if hasattr(self, 'data_buffer'):
+                    latest = self.data_buffer.get_all_current()
+                    for _key in ('PS_Voltage_Setpoint', 'PS_CC_Limit'):
+                        if _key in latest and _key not in log_readings:
+                            log_readings[_key] = latest[_key]
                 self.logger.log_reading(log_readings)
 
             if safety_shutdown:
@@ -2227,6 +2235,8 @@ class MainWindow:
             for tc in enabled_tcs:
                 sensor_names.append(f"{tc['name']}_rawV")
 
+            # Guard: remove any None or empty-string entries that could produce phantom CSV columns
+            sensor_names = [n for n in sensor_names if n]
             filepath = self.logger.start_logging(sensor_names, custom_name, metadata)
             self.is_logging = True
             self.log_btn.config(text="Stop Logging")

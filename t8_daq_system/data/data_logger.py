@@ -87,8 +87,16 @@ class DataLogger:
         if not self.file or not self.metadata:
             return
 
-        # Write metadata as JSON in a comment line
-        metadata_json = json.dumps(self.metadata, separators=(',', ':'))
+        # Serialize any list/tuple values to comma-joined strings so the resulting JSON
+        # never contains nested `[...]` arrays that can confuse downstream CSV parsers
+        # when the metadata comment line is misread as a quoted CSV field.
+        safe_meta = {}
+        for k, v in self.metadata.items():
+            if isinstance(v, (list, tuple)):
+                safe_meta[k] = ', '.join(str(x) for x in v)
+            else:
+                safe_meta[k] = v
+        metadata_json = json.dumps(safe_meta, separators=(',', ':'))
         self.file.write(f"{self.METADATA_PREFIX}{metadata_json}\n")
         self.file.flush()
 
