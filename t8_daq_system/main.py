@@ -58,7 +58,7 @@ from t8_daq_system.utils.startup_profiler import profiler
 class Logger:
     def __init__(self, filename):
         self.terminal = sys.stdout
-        self.log = open(filename, "w")
+        self.log = open(filename, "w", encoding="utf-8")
 
     def write(self, message):
         self.terminal.write(message)

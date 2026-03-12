@@ -30,8 +30,8 @@ class LivePlot:
     # Default axis ranges (absolute scales)
     DEFAULT_TEMP_RANGE = (0, 300)       # Celsius
     DEFAULT_PRESS_RANGE = (1e-9, 1e-3)  # mbar
-    DEFAULT_PS_V_RANGE = (0, 60)        # V
-    DEFAULT_PS_I_RANGE = (0, 60)        # A
+    DEFAULT_PS_V_RANGE = (0, 6)         # V (Keysight N5700 max is 6V)
+    DEFAULT_PS_I_RANGE = (0, 180)       # A (Keysight N5700 max is 180A)
 
     # Fixed 2-minute rolling window for all plots
     WINDOW_SECONDS = 120
@@ -714,7 +714,7 @@ class LivePlot:
                                          color=color, linestyle=style, visible=visible)
                     self.lines[line_key] = line
 
-            if self._use_absolute_scales and self._temp_range:
+            if self._use_absolute_scales and self._temp_range and self.plot_type == 'tc':
                 self.ax.set_ylim(self._temp_range)
 
         # ── Pressure plot ──────────────────────────────────────────────────
@@ -750,7 +750,7 @@ class LivePlot:
                                          color=color, linestyle=style, visible=visible)
                     self.lines[line_key] = line
 
-            if self._use_absolute_scales and self._press_range:
+            if self._use_absolute_scales and self._press_range and self.plot_type == 'pressure':
                 self.ax.set_ylim(self._press_range)
 
         # ── PS V & I plot ──────────────────────────────────────────────────
@@ -772,6 +772,13 @@ class LivePlot:
                     continue
                 values = list(plot_data.get(name, []))
                 times, vals = self._prepare_data(timestamps, values, ws, now)
+
+                # Debug: log values for PS_Voltage_Setpoint if they look suspiciously high
+                if name == 'PS_Voltage_Setpoint' and vals:
+                    max_val = max([v for v in vals if v is not None] or [0])
+                    if max_val > 6.1: # Allow a tiny bit of overshoot/noise but not 300
+                        print(f"[DEBUG] CRITICAL: PS_Voltage_Setpoint has high value {max_val:.1f} in LivePlot")
+
                 color = self.ps_colors.get(name, '#666666')
                 _ls = _linestyle_map.get(name, '--')
 
@@ -787,7 +794,7 @@ class LivePlot:
                                            color=color, linestyle=_ls, visible=visible)
                     self.lines[line_key] = line
 
-                if self._use_absolute_scales and abs_range:
+                if self._use_absolute_scales and abs_range and self.plot_type == 'ps':
                     target_ax.set_ylim(abs_range)
 
         # ── Remove stale line objects ──────────────────────────────────────

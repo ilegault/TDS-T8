@@ -65,8 +65,8 @@ class TestLivePlotAxesConfiguration(unittest.TestCase):
         self.assertTrue(self.plot._use_absolute_scales)
         self.assertEqual(self.plot._temp_range, self.plot.DEFAULT_TEMP_RANGE)
         self.assertEqual(self.plot._press_range, self.plot.DEFAULT_PRESS_RANGE)
-        self.assertEqual(self.plot._ps_v_range, self.plot.DEFAULT_PS_V_RANGE)
-        self.assertEqual(self.plot._ps_i_range, self.plot.DEFAULT_PS_I_RANGE)
+        self.assertEqual(self.plot._ps_v_range, (0, 6))    # New default 6V
+        self.assertEqual(self.plot._ps_i_range, (0, 180))  # New default 180A
 
     def test_set_absolute_scales_disabled(self):
         """Test disabling absolute scales."""
@@ -326,6 +326,44 @@ class TestLivePlotSliderMode(unittest.TestCase):
         plot.lines = {('tc', 'TC_1'): MagicMock()}  # simulate existing lines
         plot.clear()
         self.assertEqual(len(plot.lines), 0, "clear() should empty lines dict")
+
+    @patch('t8_daq_system.gui.live_plot.FigureCanvasTkAgg')
+    @patch('t8_daq_system.gui.live_plot.Figure')
+    def test_ps_voltage_setpoint_scaling(self, mock_figure, mock_canvas):
+        """Test that PS_Voltage_Setpoint uses the correct PS voltage scale, not temperature."""
+        from t8_daq_system.gui.live_plot import LivePlot
+        mock_frame = MagicMock()
+        mock_buffer = MagicMock()
+
+        # Set up mock axis
+        mock_ax = MagicMock()
+        mock_ax2 = MagicMock()
+        mock_fig = MagicMock()
+        mock_fig.add_subplot.return_value = mock_ax
+        mock_ax.twinx.return_value = mock_ax2
+        mock_figure.return_value = mock_fig
+
+        # Create PS plot
+        plot = LivePlot(mock_frame, mock_buffer, plot_type='ps')
+        plot.set_absolute_scales(True) # Force absolute scales
+
+        # Mock data for PS_Voltage_Setpoint
+        now = datetime.now()
+        plot_data = {
+            'PS_Voltage_Setpoint': [1.0, 2.0, 3.0]
+        }
+        timestamps = [now - timedelta(seconds=i) for i in range(3)]
+
+        # Render
+        plot._render(timestamps, plot_data)
+
+        # Verify that set_ylim was called with the PS voltage range (0, 6), NOT temperature range (0, 300)
+        # It's called for both PS_Voltage and PS_Voltage_Setpoint in the loop
+        mock_ax.set_ylim.assert_any_call((0, 6))
+
+        # Ensure it was NEVER called with temperature range (0, 300) on this PS plot
+        for call in mock_ax.set_ylim.call_args_list:
+            self.assertNotEqual(call[0][0], (0, 300))
 
 
 if __name__ == '__main__':

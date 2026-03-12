@@ -1496,7 +1496,9 @@ class MainWindow:
                     and hasattr(self._programmer_panel, '_temp_ramp_panel')):
                 _rp = self._programmer_panel._temp_ramp_panel
                 if _rp is not None and hasattr(_rp, 'update_plot_data'):
-                    _rp.update_plot_data(_v, _i)
+                    # Debug: log the values being sent to the embedded plot
+                    print(f"[DEBUG] TempRamp status -> embedded plot: V={_v_setpoint:.3f}V, I={_i_cc_limit:.2f}A")
+                    _rp.update_plot_data(_v_setpoint, _i_cc_limit)
 
         self.root.after(0, _update)
 
@@ -1663,7 +1665,8 @@ class MainWindow:
                 self.sensor_panel.update(display_last)
         else:
             if hasattr(self, 'plot_tc'):
-                self.plot_tc.update(tc_names, data_units={'temp': self.t_unit_var.get()})
+                # TC data in buffer is always in Celsius (converted at acquisition)
+                self.plot_tc.update(tc_names, data_units={'temp': 'C'})
             if hasattr(self, 'plot_pressure'):
                 self.plot_pressure.update(frg_names, data_units={'press': self.p_unit_var.get()})
             if hasattr(self, 'plot_ps'):
@@ -2348,7 +2351,8 @@ class MainWindow:
                 self.master_scroll_var.set(1.0)
 
             if hasattr(self, 'plot_tc'):
-                self.plot_tc.update(tc_names, data_units={'temp': self.t_unit_var.get()})
+                # TC data in buffer is always in Celsius (converted at acquisition)
+                self.plot_tc.update(tc_names, data_units={'temp': 'C'})
             if hasattr(self, 'plot_pressure'):
                 self.plot_pressure.update(frg_names, data_units={'press': self.p_unit_var.get()})
             if hasattr(self, 'plot_ps'):

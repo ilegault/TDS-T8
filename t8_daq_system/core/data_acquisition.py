@@ -237,9 +237,9 @@ class DataAcquisition:
                     if DEBUG_POWER_PROGRAMMER:
                         print(
                             f"[PP PRACTICE] "
-                            f"Setpoint → V={voltage_setpoint:.4f}V  A={current_setpoint:.4f}A  |  "
+                            f"Setpoint -> V={voltage_setpoint:.4f}V  A={current_setpoint:.4f}A  |  "
                             f"DAC_V={dac_v:.4f}V  DAC_A={dac_i:.4f}V  |  "
-                            f"Monitor → V={monitored_voltage:.4f}V  A={monitored_current:.4f}A"
+                            f"Monitor -> V={monitored_voltage:.4f}V  A={monitored_current:.4f}A"
                         )
 
                     # ── Debug terminal output ─────────────────────────────────
@@ -305,11 +305,11 @@ class DataAcquisition:
                             f"    Voltage Setpoint : {voltage_setpoint:8.3f} V\n"
                             f"    Current Setpoint : {current_setpoint:8.2f} A\n"
                             f"\n  ANALOG OUTPUT CALCULATIONS:\n"
-                            f"    Voltage → Analog : {voltage_setpoint:.3f} V setpoint "
-                            f"→ {dac_v:.4f} V analog output  "
+                            f"    Voltage -> Analog : {voltage_setpoint:.3f} V setpoint "
+                            f"-> {dac_v:.4f} V analog output  "
                             f"(0-5 V scale: 0 V=0 V, 5 V=6 V)\n"
-                            f"    Current → Analog : {current_setpoint:.2f} A setpoint "
-                            f"→ {dac_i:.4f} V analog output  "
+                            f"    Current -> Analog : {current_setpoint:.2f} A setpoint "
+                            f"-> {dac_i:.4f} V analog output  "
                             f"(0-5 V scale: 0 V=0 A, 5 V=180 A)\n"
                             f"\n  EXPECTED MONITOR RESPONSE (simulating T8 analog inputs):\n"
                             f"    Voltage Monitor Reading : {monitored_voltage:.3f} V  "
@@ -370,7 +370,7 @@ class DataAcquisition:
                             converted = FRG702Reader.convert_pressure(mbar, display_unit)
                             print(
                                 f"[DISPLAY CHAIN] {name}: "
-                                f"{mbar:.4e} mbar  →  {converted:.4e} {display_unit}  "
+                                f"{mbar:.4e} mbar  ->  {converted:.4e} {display_unit}  "
                                 f"(conversion factor: {UNIT_CONVERSIONS.get(display_unit, 1.0)})"
                             )
 

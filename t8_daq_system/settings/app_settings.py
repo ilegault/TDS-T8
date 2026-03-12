@@ -33,9 +33,9 @@ _DEFAULTS = {
     "press_range_min":    ("float", 1e-9),
     "press_range_max":    ("float", 1e-3),
     "ps_v_range_min":     ("float", 0.0),
-    "ps_v_range_max":     ("float", 100.0),
+    "ps_v_range_max":     ("float", 6.0),
     "ps_i_range_min":     ("float", 0.0),
-    "ps_i_range_max":     ("float", 100.0),
+    "ps_i_range_max":     ("float", 180.0),
     "log_folder":         ("str",   ""),
     "xgs600_port":        ("str",   "COM4"),
     "xgs600_baudrate":    ("int",   9600),
@@ -115,9 +115,9 @@ class AppSettings:
         self.press_range_min: float  = 1e-9
         self.press_range_max: float  = 1e-3
         self.ps_v_range_min: float   = 0.0
-        self.ps_v_range_max: float   = 100.0
+        self.ps_v_range_max: float   = 6.0
         self.ps_i_range_min: float   = 0.0
-        self.ps_i_range_max: float   = 100.0
+        self.ps_i_range_max: float   = 180.0
         self.log_folder: str         = ""
         self.xgs600_port: str        = "COM4"
         self.xgs600_baudrate: int    = 9600

@@ -41,8 +41,8 @@ class RampPanel:
 
     # Max data points to keep in the embedded plot history
     PLOT_MAX_POINTS = 600
-    VOLTAGE_LIMIT = 60.0
-    CURRENT_LIMIT = 100.0
+    VOLTAGE_LIMIT = 6.0    # Keysight N5700 max voltage
+    CURRENT_LIMIT = 180.0  # Keysight N5700 max current
 
     def __init__(self, parent_frame, ramp_executor: RampExecutor = None,
                  profiles_folder: str = None):
@@ -283,6 +283,12 @@ class RampPanel:
         times = list(self._plot_times)
         voltages = list(self._plot_voltages)
         currents = list(self._plot_currents)
+
+        # Debug: log min/max values being plotted in RampPanel
+        if voltages or currents:
+            v_max = max(voltages) if voltages else 0
+            i_max = max(currents) if currents else 0
+            print(f"[DEBUG] RampPanel plotting: maxV={v_max:.3f}V, maxI={i_max:.2f}A")
 
         self._line_v.set_data(times, voltages)
         self._line_a.set_data(times, currents)
