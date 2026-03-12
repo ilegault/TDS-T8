@@ -253,10 +253,12 @@ fabric.properties
 .DS_Store
 Thumbs.db
 
-.zencoder/docs/
-.zencoder/docs/*
-.zencoder/rules/*
-.zencoder/rules/repo.md
+.zencoder/
+t8_daq_system/t8_daq_system/
+tests/test_keysight_connection.py
+tests/test_unicode_fix.py
+AGENTS.md
+.claude/
 
 logs/*
 
