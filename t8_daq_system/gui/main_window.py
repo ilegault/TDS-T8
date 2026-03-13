@@ -416,9 +416,10 @@ class MainWindow:
         keysight_i_pin_str = s.ps_current_monitor_pin  # e.g. "AIN5"
         keysight_v_pin = int(keysight_v_pin_str.replace("AIN", "")) if keysight_v_pin_str.startswith("AIN") else None
         keysight_i_pin = int(keysight_i_pin_str.replace("AIN", "")) if keysight_i_pin_str.startswith("AIN") else None
+        tc_name_list = s.get_tc_name_list(s.tc_count, tc_pin_list, tc_type_list)
         conflict_errors = []
         for i, ch in enumerate(tc_pin_list):
-            tc_name = f"TC_{i+1}"
+            tc_name = tc_name_list[i]
             if keysight_v_pin is not None and ch == keysight_v_pin:
                 conflict_errors.append(
                     f"TC pin conflict: {tc_name} is assigned to AIN{ch} which is also used by "
@@ -440,7 +441,7 @@ class MainWindow:
 
         for i in range(s.tc_count):
             thermocouples.append({
-                "name": f"TC_{i+1}",
+                "name": tc_name_list[i],
                 "channel": tc_pin_list[i],
                 "type": tc_type_list[i],
                 "units": s.tc_unit,
@@ -456,10 +457,12 @@ class MainWindow:
         for pin in frg_pin_list:
             if pin in tc_channels_used:
                 print(f"[CONFIG WARNING] FRG pin {pin} conflicts with a TC channel!")
+        frg_name_list = s.get_frg_name_list(s.frg_count, s.frg_interface, frg_pin_list)
         for i in range(s.frg_count):
+            sensor_code = f"T{2*i+1}"
             frg702_gauges.append({
-                "name": f"FRG702_{i+1}",
-                "sensor_code": f"T{2*i+1}",
+                "name": frg_name_list[i],
+                "sensor_code": sensor_code,
                 "pin": frg_pin_list[i],
                 "units": s.p_unit,
                 "enabled": True

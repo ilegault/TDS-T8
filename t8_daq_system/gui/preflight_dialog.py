@@ -202,11 +202,11 @@ class PreflightDialog(tk.Toplevel):
             if s.frg_interface == "Analog":
                 frg_pins = s.get_frg_pin_list(s.frg_count)
                 for i, pin in enumerate(frg_pins):
-                    items.append(f"FRG702_{i+1} Signal (Pin 2)  →  T8 {pin}  (Analog Input)")
-                    items.append(f"FRG702_{i+1} GND (Pin 3)     →  T8 GND")
+                    items.append(f"FRG702_{pin} Signal (Pin 2)  →  T8 {pin}  (Analog Input)")
+                    items.append(f"FRG702_{pin} GND (Pin 3)     →  T8 GND")
             else:
                 for i in range(s.frg_count):
-                    items.append(f"FRG702_{i+1}  →  XGS-600 Controller (Back Panel)")
+                    items.append(f"FRG702_T{2*i+1}  →  XGS-600 Controller (Back Panel)")
 
         return items
 

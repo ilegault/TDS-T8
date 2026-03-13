@@ -62,6 +62,9 @@ _DEFAULTS = {
     "pp_default_start_v":    ("float", 0.0),
     "pp_default_current_a":  ("float", 180.0),
     # ── Appearance / Plot Style defaults ─────────────────────────────────
+    # Custom sensor names (empty string = auto-generate from pin/type)
+    "tc_names":             ("str", ""),
+    "frg_names":            ("str", ""),
     # TC plot colors — one per channel, stored as comma-separated hex strings
     "tc_colors":            ("str", "#1f77b4,#ff7f0e,#2ca02c,#d62728,#9467bd,#8c564b,#e377c2,#7f7f7f"),
     "tc_line_style":        ("str", "solid,solid,solid,solid,solid,solid,solid,solid"),
@@ -143,6 +146,9 @@ class AppSettings:
         self.pp_default_ramp_duration: int = 60
         self.pp_default_start_v: float = 0.0
         self.pp_default_current_a: float = 180.0
+        # Custom sensor names
+        self.tc_names: str             = ""
+        self.frg_names: str            = ""
         # Appearance / Plot Style
         self.tc_colors: str            = "#1f77b4,#ff7f0e,#2ca02c,#d62728,#9467bd,#8c564b,#e377c2,#7f7f7f"
         self.tc_line_style: str        = "solid,solid,solid,solid,solid,solid,solid,solid"
@@ -268,6 +274,34 @@ class AppSettings:
         while len(parts) < count:
             parts.append(len(parts))
         return parts[:count]
+
+    def get_tc_name_list(self, count: int, pin_list: list, type_list: list) -> list:
+        """Return custom TC names, falling back to auto-generated names."""
+        saved = [n.strip() for n in self.tc_names.split(",") if n.strip()] if self.tc_names else []
+        result = []
+        for i in range(count):
+            if i < len(saved) and saved[i]:
+                result.append(saved[i])
+            else:
+                pin = pin_list[i] if i < len(pin_list) else i
+                typ = type_list[i] if i < len(type_list) else self.tc_type
+                result.append(f"TC_AIN{pin}_{typ}")
+        return result
+
+    def get_frg_name_list(self, count: int, interface: str, pin_list: list) -> list:
+        """Return custom FRG names, falling back to auto-generated names."""
+        saved = [n.strip() for n in self.frg_names.split(",") if n.strip()] if self.frg_names else []
+        result = []
+        for i in range(count):
+            if i < len(saved) and saved[i]:
+                result.append(saved[i])
+            else:
+                if interface == "XGS600":
+                    result.append(f"FRG702_T{2*i+1}")
+                else:
+                    pin = pin_list[i] if i < len(pin_list) else f"AIN{i}"
+                    result.append(f"FRG702_{pin}")
+        return result
 
     def get_frg_pin_list(self, count: int) -> list:
         """Return a list of AIN pins for FRG gauges.

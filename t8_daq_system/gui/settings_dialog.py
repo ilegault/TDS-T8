@@ -177,7 +177,7 @@ class SettingsDialog(tk.Toplevel):
 
             row_f = ttk.Frame(self._tc_types_frame)
             row_f.pack(fill=tk.X, pady=2)
-            ttk.Label(row_f, text=f"TC {i + 1}:", width=6).pack(side=tk.LEFT, padx=5)
+            ttk.Label(row_f, text=f"TC_AIN{default_pin}_{default_type}:", width=14).pack(side=tk.LEFT, padx=5)
             ttk.Combobox(row_f, textvariable=type_var, values=self._TC_TYPE_VALUES,
                          state='readonly', width=5).pack(side=tk.LEFT, padx=5)
             ttk.Combobox(row_f, textvariable=pin_var, values=self._AIN_PIN_VALUES,
@@ -327,15 +327,19 @@ class SettingsDialog(tk.Toplevel):
 
         hdr = ttk.Frame(frame)
         hdr.pack(fill=tk.X)
-        ttk.Label(hdr, text='Channel', width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Name', width=14, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
         ttk.Label(hdr, text='Color',   width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
         ttk.Label(hdr, text='Style',   width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
         ttk.Label(hdr, text='Width',   width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
 
         tc_count = self._settings.tc_count
+        tc_pin_list  = self._settings.get_tc_pin_list(tc_count)
+        tc_type_list = self._settings.get_tc_type_list(tc_count)
+        tc_name_list = self._settings.get_tc_name_list(tc_count, tc_pin_list, tc_type_list)
         default_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
                           '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
 
+        self._tc_name_vars  = []
         self._tc_color_vars = []
         self._tc_color_btns = []
         self._tc_style_vars = []
@@ -343,15 +347,17 @@ class SettingsDialog(tk.Toplevel):
 
         for i in range(tc_count):
             color = default_colors[i % len(default_colors)]
+            name_var  = tk.StringVar(value=tc_name_list[i])
             style_var = tk.StringVar(value='solid')
             width_var = tk.StringVar(value='2')
+            self._tc_name_vars.append(name_var)
             self._tc_color_vars.append(color)
             self._tc_style_vars.append(style_var)
             self._tc_width_vars.append(width_var)
 
             row = ttk.Frame(frame)
             row.pack(fill=tk.X, pady=1)
-            ttk.Label(row, text=f'TC_{i+1}', width=9).pack(side=tk.LEFT, padx=4)
+            ttk.Entry(row, textvariable=name_var, width=14).pack(side=tk.LEFT, padx=4)
 
             idx = i  # capture for closure
 
@@ -389,14 +395,17 @@ class SettingsDialog(tk.Toplevel):
 
         hdr = ttk.Frame(frame)
         hdr.pack(fill=tk.X)
-        ttk.Label(hdr, text='Gauge',  width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
+        ttk.Label(hdr, text='Name',  width=14, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
         ttk.Label(hdr, text='Color',  width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
         ttk.Label(hdr, text='Style',  width=9, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
         ttk.Label(hdr, text='Width',  width=6, font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=4)
 
         frg_count = self._settings.frg_count
+        frg_pin_list  = self._settings.get_frg_pin_list(frg_count)
+        frg_name_list = self._settings.get_frg_name_list(frg_count, self._settings.frg_interface, frg_pin_list)
         default_colors = ['#17becf', '#bcbd22', '#7f7f7f', '#e377c2']
 
+        self._press_name_vars  = []
         self._press_color_vars = []
         self._press_color_btns = []
         self._press_style_vars = []
@@ -404,15 +413,17 @@ class SettingsDialog(tk.Toplevel):
 
         for i in range(frg_count):
             color = default_colors[i % len(default_colors)]
+            name_var  = tk.StringVar(value=frg_name_list[i])
             style_var = tk.StringVar(value='solid')
             width_var = tk.StringVar(value='2')
+            self._press_name_vars.append(name_var)
             self._press_color_vars.append(color)
             self._press_style_vars.append(style_var)
             self._press_width_vars.append(width_var)
 
             row = ttk.Frame(frame)
             row.pack(fill=tk.X, pady=1)
-            ttk.Label(row, text=f'FRG_{i+1}', width=9).pack(side=tk.LEFT, padx=4)
+            ttk.Entry(row, textvariable=name_var, width=14).pack(side=tk.LEFT, padx=4)
 
             idx = i
 
@@ -777,6 +788,8 @@ class SettingsDialog(tk.Toplevel):
             s.ps_current_limit = float(self._ps_current_limit_var.get())
 
             # ── Appearance settings ───────────────────────────────────────
+            s.tc_names  = ','.join(v.get() for v in self._tc_name_vars)
+            s.frg_names = ','.join(v.get() for v in self._press_name_vars)
             s.tc_colors = ','.join(self._tc_color_vars)
             s.tc_line_style = ','.join(v.get() for v in self._tc_style_vars)
             s.tc_line_width = ','.join(v.get() for v in self._tc_width_vars)
