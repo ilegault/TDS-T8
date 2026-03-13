@@ -37,19 +37,36 @@ class DataBuffer:
         """
         Add a new set of readings to the buffer. Thread-safe.
 
+        Ensures all sensor deques stay perfectly synchronized with the
+        central timestamps deque by padding missing readings with None.
+
         Args:
             sensor_readings: dict like {'TC1': 25.3, 'P1': 45.2}
         """
         timestamp = datetime.now()
 
         with self._lock:
+            # 1. Update master timestamp list
             self.timestamps.append(timestamp)
+            current_count = len(self.timestamps)
 
+            # 2. Update existing sensors (append value if provided, else None)
+            for name, deque_obj in self.data.items():
+                val = sensor_readings.get(name) # returns None if missing
+                deque_obj.append(val)
+
+            # 3. Handle entirely new sensors
             for name, value in sensor_readings.items():
                 if name not in self.data:
-                    # Create new deque for this sensor
-                    self.data[name] = deque(maxlen=self.max_samples)
-                self.data[name].append(value)
+                    # Initialize new deque, padding with None for previous timestamps
+                    new_deque = deque(maxlen=self.max_samples)
+                    if current_count > 1:
+                        # Pad with Nones for all existing timestamps EXCEPT the one we just added
+                        for _ in range(current_count - 1):
+                            new_deque.append(None)
+                    
+                    new_deque.append(value)
+                    self.data[name] = new_deque
 
     def get_sensor_data(self, sensor_name):
         """

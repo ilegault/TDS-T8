@@ -47,5 +47,30 @@ class TestDataBuffer(unittest.TestCase):
         self.assertEqual(len(buffer.timestamps), 0)
         self.assertEqual(len(buffer.data), 0)
 
+    def test_synchronization_with_changing_sensors(self):
+        """Verify all sensor deques stay the same length as timestamps."""
+        buffer = DataBuffer(max_seconds=10, sample_rate_ms=1000)
+        
+        # 1. First reading: only TC1
+        buffer.add_reading({'TC1': 1.0})
+        self.assertEqual(len(buffer.timestamps), 1)
+        self.assertEqual(len(buffer.data['TC1']), 1)
+        
+        # 2. Second reading: TC1 and new sensor TC2
+        buffer.add_reading({'TC1': 2.0, 'TC2': 20.0})
+        self.assertEqual(len(buffer.timestamps), 2)
+        self.assertEqual(len(buffer.data['TC1']), 2)
+        self.assertEqual(len(buffer.data['TC2']), 2)
+        self.assertEqual(buffer.data['TC2'][0], None) # Should be padded
+        self.assertEqual(buffer.data['TC2'][1], 20.0)
+        
+        # 3. Third reading: only TC2 (TC1 missing)
+        buffer.add_reading({'TC2': 30.0})
+        self.assertEqual(len(buffer.timestamps), 3)
+        self.assertEqual(len(buffer.data['TC1']), 3)
+        self.assertEqual(len(buffer.data['TC2']), 3)
+        self.assertEqual(buffer.data['TC1'][2], None) # Should be padded
+        self.assertEqual(buffer.data['TC2'][2], 30.0)
+
 if __name__ == '__main__':
     unittest.main()

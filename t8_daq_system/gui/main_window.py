@@ -2656,17 +2656,41 @@ class MainWindow:
         self.root.destroy()
 
     def _on_refresh_gui(self):
-        """Force a GUI refresh and plot redraw."""
+        """
+        Perform a deep refresh of the GUI, hardware readers, and plots.
+        This acts as a 'soft restart' to ensure all settings are applied
+        and hardware communication is synchronized.
+        """
         try:
+            print("[GUI] Deep refresh triggered...")
+            
+            # 1. Re-apply settings and rebuild config
+            self._apply_settings_to_gui()
+            
+            # 2. Force hardware readers to re-sync if possible
+            if self.daq:
+                self.daq.update_readers(config=self.config)
+            
+            # 3. Reset plot skip counters to force immediate redraw
+            self._plot_skip_counter = 0
+            
+            # 4. Process all pending events
             self.root.update_idletasks()
-            self.root.update()
-            # Redraw plots if they exist
-            if hasattr(self, 'plot_tc'): self.plot_tc.canvas.draw_idle()
-            if hasattr(self, 'plot_pressure'): self.plot_pressure.canvas.draw_idle()
-            if hasattr(self, 'plot_ps'): self.plot_ps.canvas.draw_idle()
-            print("[GUI] Refresh triggered")
+            
+            # 5. Explicitly redraw the canvases
+            for plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
+                if hasattr(self, plot_attr):
+                    plot = getattr(self, plot_attr)
+                    plot.ax.relim()
+                    plot.ax.autoscale_view()
+                    plot.canvas.draw_idle()
+            
+            print("[GUI] Deep refresh completed successfully")
+            
         except Exception as e:
             print(f"[GUI] Refresh error: {e}")
+            import traceback
+            traceback.print_exc()
 
     def run(self):
         self.root.mainloop()

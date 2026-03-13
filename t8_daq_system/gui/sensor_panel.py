@@ -63,7 +63,7 @@ class SensorPanel:
 
             # Create frame for this sensor with fixed size
             frame = ttk.LabelFrame(parent_frame, text=name, width=206, height=90)
-            frame.grid(row=i//7, column=i%7, padx=6, pady=5)
+            frame.grid(row=i//10, column=i%10, padx=6, pady=5)
             frame.pack_propagate(False)
             self.frames[name] = frame
 
