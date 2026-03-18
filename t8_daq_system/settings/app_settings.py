@@ -84,6 +84,9 @@ _DEFAULTS = {
     "pp_voltage_color":      ("str", "#1f77b4"),   # blue default
     "pp_voltage_line_style": ("str", "solid"),
     "pp_voltage_line_width": ("str", "2"),
+    # ── Two-phase PID / Soft-Start settings ──────────────────────────────
+    "soft_start_threshold_c":    ("float", 200.0),   # °C — phase switch point
+    "soft_start_current_limit_a": ("float", 120.0),  # A — Phase 1 current ceiling
 }
 
 
@@ -165,6 +168,9 @@ class AppSettings:
         self.pp_voltage_color: str       = "#1f77b4"
         self.pp_voltage_line_style: str  = "solid"
         self.pp_voltage_line_width: str  = "2"
+        # Two-phase PID / Soft-Start
+        self.soft_start_threshold_c: float = 200.0   # °C — phase switch point
+        self.soft_start_current_limit_a: float = 120.0  # A — Phase 1 current ceiling
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API

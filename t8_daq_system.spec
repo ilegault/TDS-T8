@@ -6,6 +6,7 @@ Handles Anaconda DLL dependencies and hardware library bundling
 
 import os
 import sys
+import matplotlib
 from pathlib import Path
 
 # ============================================================================
@@ -159,7 +160,9 @@ print(f"\nTotal binaries to bundle: {len(binaries)}")
 # NOTE: The external sensor_config.json has been replaced by Windows Registry
 # persistence (AppSettings / winreg).  No config files need to be bundled.
 
-datas = []
+datas = [
+    (os.path.join(matplotlib.get_data_path(), 'fonts'), 'matplotlib/mpl-data/fonts'),
+]
 
 print(f"Data files to bundle: {len(datas)}")
 
@@ -191,6 +194,7 @@ hiddenimports = [
     # LabJack hardware library
     'labjack',
     'labjack.ljm',
+    'labjack.ljm.ljm',
 
     # PyVISA (instrument control)
     'pyvisa',

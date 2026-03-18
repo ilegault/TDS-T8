@@ -9,6 +9,20 @@ import json
 import os
 
 
+# ── Soft-Start / Phase 1 constants ────────────────────────────────────────────
+SOFT_START_THRESHOLD_C    = 200.0   # °C — switch from soft-start to PID above this
+SOFT_START_VOLTAGE_STEP   = 0.010   # V per tick — how fast voltage climbs in Phase 1
+SOFT_START_CURRENT_LIMIT  = 120.0   # A — pause voltage increase if current exceeds this
+SOFT_START_RATE_CEILING   = 3.0     # K/min — cut voltage if heating too fast in Phase 1
+
+# ── PID slew-rate limiter ─────────────────────────────────────────────────────
+PID_MAX_VOLTAGE_STEP_V    = 0.050   # V per tick — max DAC0 change per PID update
+
+# ── Feedforward learning ──────────────────────────────────────────────────────
+FF_HISTORY_FILE           = "pid_feedforward_table.json"
+FF_TEMP_BUCKET_C          = 10.0    # °C — resolution of feedforward table buckets
+
+
 # ── Temperature conversion utilities ──────────────────────────────────────────
 
 def celsius_to_kelvin(temp_c: float) -> float:
@@ -226,3 +240,90 @@ class TempRampHistory:
     def get_all_runs(self) -> list:
         """Return a copy of all stored run records."""
         return list(self._runs)
+
+
+# ── Feedforward voltage-vs-temperature table ───────────────────────────────────
+
+class FeedforwardTable:
+    """
+    Stores and retrieves voltage-vs-temperature mapping learned from real runs.
+    After each run, the executor calls update() with the observed T and V.
+    On subsequent runs, lookup() returns the expected voltage for a given temperature,
+    which is used as the PID baseline. The PID then only corrects the residual error.
+
+    Data is persisted to FF_HISTORY_FILE as a JSON dict of {temp_bucket: avg_voltage}.
+    """
+
+    def __init__(self, filepath=FF_HISTORY_FILE):
+        self.filepath = filepath
+        self._table = {}     # {temp_bucket_str: [list of observed voltages]}
+        self._averages = {}  # {temp_bucket_str: float avg voltage}
+        self._load()
+
+    def _bucket_key(self, temp_c):
+        bucket = round(temp_c / FF_TEMP_BUCKET_C) * FF_TEMP_BUCKET_C
+        return str(int(bucket))
+
+    def _load(self):
+        if os.path.exists(self.filepath):
+            try:
+                with open(self.filepath, 'r') as f:
+                    data = json.load(f)
+                self._averages = {k: float(v) for k, v in data.items()}
+                print(f"[FeedforwardTable] Loaded {len(self._averages)} entries from {self.filepath}")
+            except Exception as e:
+                print(f"[FeedforwardTable] Could not load {self.filepath}: {e}")
+
+    def save(self):
+        try:
+            with open(self.filepath, 'w') as f:
+                json.dump(self._averages, f, indent=2)
+            print(f"[FeedforwardTable] Saved {len(self._averages)} entries to {self.filepath}")
+        except Exception as e:
+            print(f"[FeedforwardTable] Could not save: {e}")
+
+    def update(self, temp_c, voltage_v):
+        """Call this every tick during a real run to record what voltage achieved what temperature."""
+        key = self._bucket_key(temp_c)
+        if key not in self._table:
+            self._table[key] = []
+        self._table[key].append(voltage_v)
+        # Update running average
+        vals = self._table[key]
+        self._averages[key] = sum(vals) / len(vals)
+
+    def lookup(self, temp_c):
+        """
+        Returns the expected feedforward voltage for a given temperature.
+        Returns 0.0 if no data exists yet (first run — PID works alone).
+        Interpolates linearly between the two nearest buckets if possible.
+        """
+        if not self._averages:
+            return 0.0
+        key = self._bucket_key(temp_c)
+        if key in self._averages:
+            return self._averages[key]
+        # Fallback: find nearest available bucket
+        try:
+            keys_numeric = sorted(int(k) for k in self._averages.keys())
+            target = round(temp_c / FF_TEMP_BUCKET_C) * FF_TEMP_BUCKET_C
+            lower = max((k for k in keys_numeric if k <= target), default=None)
+            upper = min((k for k in keys_numeric if k >= target), default=None)
+            if lower is None and upper is None:
+                return 0.0
+            if lower is None:
+                return self._averages[str(upper)]
+            if upper is None:
+                return self._averages[str(lower)]
+            if lower == upper:
+                return self._averages[str(lower)]
+            # Linear interpolation
+            v_low = self._averages[str(lower)]
+            v_high = self._averages[str(upper)]
+            frac = (target - lower) / (upper - lower)
+            return v_low + frac * (v_high - v_low)
+        except Exception:
+            return 0.0
+
+    def has_data(self):
+        return len(self._averages) > 0

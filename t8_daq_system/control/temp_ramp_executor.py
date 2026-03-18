@@ -13,11 +13,16 @@ import threading
 import time
 import random
 
-from .temp_ramp_pid import PIDController, TempRampHistory
+from .temp_ramp_pid import (PIDController, TempRampHistory, FeedforwardTable,
+                             SOFT_START_THRESHOLD_C, SOFT_START_VOLTAGE_STEP,
+                             SOFT_START_CURRENT_LIMIT, SOFT_START_RATE_CEILING,
+                             PID_MAX_VOLTAGE_STEP_V)
 
 # ── Module-level constants ─────────────────────────────────────────────────────
 
 TICK_INTERVAL_SEC    = 2.0      # PID update rate — slow for W->SiC->W thermal mass
+PHASE1_COMPLETE_TEMP_C    = SOFT_START_THRESHOLD_C  # alias for readability
+DTEMP_SMOOTHING_ALPHA     = 0.2   # low-pass filter for measured dT/dt (0=heavy smooth, 1=raw)
 MAX_VOLTAGE          = 6.0      # Keysight N5700 max output voltage
 MAX_CURRENT          = 180.0    # Keysight N5700 max output current
 DAC_MAX_VOLTS        = 5.0      # T8 DAC output ceiling (0–5 V)
@@ -118,6 +123,15 @@ class TempRampExecutor:
         self._last_voltage_setpoint_v = 0.0
         self._last_current_limit_a = 0.0
 
+        # Two-phase smart PID state
+        self._feedforward = FeedforwardTable()
+        self._phase = 1               # 1 = soft-start, 2 = PID
+        self._soft_start_voltage = 0.0  # current voltage during Phase 1
+        self._last_temp_for_rate = None
+        self._last_temp_time = None
+        self._smoothed_dT_dt = 0.0    # K/min, low-pass filtered
+        self._prev_voltage_output = 0.0  # for slew-rate limiting in Phase 2
+
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def load_blocks(self, blocks: list) -> bool:
@@ -169,6 +183,14 @@ class TempRampExecutor:
             self._pid.reset()
             self._run_log = []
 
+            # Reset two-phase state for fresh run
+            self._phase = 1
+            self._soft_start_voltage = 0.0
+            self._last_temp_for_rate = None
+            self._last_temp_time = None
+            self._smoothed_dT_dt = 0.0
+            self._prev_voltage_output = 0.0
+
             # Initialise practice temperature from live reading or default to 20°C
             if self.practice_mode and self._practice_temp_k is None:
                 tc_k = self._get_temp_fn()
@@ -208,6 +230,51 @@ class TempRampExecutor:
         """Return a copy of the per-tick run log."""
         return list(self._run_log)
 
+    # ── Private: two-phase voltage helpers ────────────────────────────────────
+
+    def _compute_phase1_voltage(self, current_temp_c, measured_current_a, measured_dT_dt_k_per_min):
+        """
+        Soft-start voltage logic for Phase 1 (room temp → SOFT_START_THRESHOLD_C).
+        Returns the new voltage setpoint (V) to command to DAC0.
+
+        Rules:
+        - If current > SOFT_START_CURRENT_LIMIT → hold voltage (don't increase)
+        - If measured dT/dt > SOFT_START_RATE_CEILING → decrease voltage one step
+        - Otherwise → increase voltage by SOFT_START_VOLTAGE_STEP
+        """
+        v = self._soft_start_voltage
+
+        if measured_current_a > SOFT_START_CURRENT_LIMIT:
+            # Current too high — hold
+            if DEBUG_TEMP_RAMP:
+                print(f"[Phase1] Current {measured_current_a:.1f}A > limit {SOFT_START_CURRENT_LIMIT}A — holding V={v:.3f}V")
+        elif measured_dT_dt_k_per_min > SOFT_START_RATE_CEILING:
+            # Heating too fast — back off one step
+            v = max(0.0, v - SOFT_START_VOLTAGE_STEP)
+            if DEBUG_TEMP_RAMP:
+                print(f"[Phase1] dT/dt {measured_dT_dt_k_per_min:.2f} K/min too fast — reduced V to {v:.3f}V")
+        else:
+            # Safe to increase
+            v = min(MAX_VOLTAGE, v + SOFT_START_VOLTAGE_STEP)
+            if DEBUG_TEMP_RAMP:
+                print(f"[Phase1] Increasing V to {v:.3f}V  (T={current_temp_c:.1f}°C, I={measured_current_a:.1f}A)")
+
+        self._soft_start_voltage = v
+        return v
+
+    def _apply_slew_limit(self, new_voltage, previous_voltage):
+        """
+        Prevents the PID from commanding a voltage jump larger than PID_MAX_VOLTAGE_STEP_V
+        per tick. This protects against integral windup causing a sudden surge.
+        """
+        delta = new_voltage - previous_voltage
+        if abs(delta) > PID_MAX_VOLTAGE_STEP_V:
+            clamped = previous_voltage + (PID_MAX_VOLTAGE_STEP_V * (1 if delta > 0 else -1))
+            if DEBUG_TEMP_RAMP:
+                print(f"[SlewLimit] Clamped ΔV from {delta:+.4f}V to {clamped - previous_voltage:+.4f}V")
+            return clamped
+        return new_voltage
+
     # ── Private: core loop ─────────────────────────────────────────────────────
 
     def _run_loop(self):
@@ -230,10 +297,6 @@ class TempRampExecutor:
         consecutive_none_tc   = 0
         consecutive_saturated = 0
 
-        # Startup ramp limiter: track ticks within first 10 of each Ramp block
-        ramp_block_tick_count = 0
-        in_startup_phase = True
-
         while self._running:
             loop_start   = time.time()
             elapsed_total = loop_start - run_start_time
@@ -251,8 +314,6 @@ class TempRampExecutor:
                 block_start_time  = loop_start
                 elapsed_in_block  = 0.0
                 block_start_temp_k = current_temp_k
-                ramp_block_tick_count = 0
-                in_startup_phase  = True
 
             # ── 2. Compute setpoint_k ──────────────────────────────────────────
             if block['type'] == "Hold":
@@ -293,22 +354,28 @@ class TempRampExecutor:
                     consecutive_none_tc = 0
                     current_temp_k = tc_k  # Already in Kelvin from get_tc_kelvin_by_name()
 
-            # ── 4. PID compute ─────────────────────────────────────────────────
-            pid_output = self._pid.compute(setpoint_k, current_temp_k, loop_start)
+            # ── 4. Compute smoothed dT/dt ──────────────────────────────────────
+            current_temp_c = current_temp_k - 273.15
+            now = loop_start
 
-            # ── 5. Startup ramp limiter (first 10 ticks of a Ramp block) ──────
-            if block['type'] == "Ramp":
-                ramp_block_tick_count += 1
-                if ramp_block_tick_count <= 10:
-                    pid_output = min(pid_output, 0.1)
-                else:
-                    in_startup_phase = False
-            else:
-                in_startup_phase = False
+            if self._last_temp_for_rate is not None and self._last_temp_time is not None:
+                dt_sec = now - self._last_temp_time
+                if dt_sec > 0.01:
+                    raw_dT_dt = ((current_temp_k - self._last_temp_for_rate) / dt_sec) * 60.0
+                    self._smoothed_dT_dt = (DTEMP_SMOOTHING_ALPHA * raw_dT_dt
+                                             + (1.0 - DTEMP_SMOOTHING_ALPHA) * self._smoothed_dT_dt)
+            self._last_temp_for_rate = current_temp_k
+            self._last_temp_time = now
 
-            # ── 6. Convert PID output to DAC voltages (0–5 V range) ───────────
-            #
-            # Select active limits based on safe_test_mode
+            # ── 5. Read current from power supply ──────────────────────────────
+            measured_current = 0.0
+            try:
+                if self._power_supply is not None:
+                    measured_current = self._power_supply.get_current()
+            except Exception:
+                pass
+
+            # ── 6. Select active limits based on safe_test_mode ───────────────
             if self.safe_test_mode:
                 _active_max_v  = SAFE_TEST_MAX_VOLTAGE
                 _active_i_frac = SAFE_TEST_CURRENT_LIMIT_FRACTION
@@ -316,11 +383,46 @@ class TempRampExecutor:
                 _active_max_v  = MAX_VOLTAGE
                 _active_i_frac = TEMP_RAMP_CURRENT_LIMIT_FRACTION
 
-            # DAC0 → Pin 9 (Voltage Program): PID output scaled to active voltage ceiling.
-            # In normal mode 1.0 → 5.0 V DAC → 6.0 V supply.
-            # In safe mode 1.0 → (1.0/6.0)×5.0 = 0.833 V DAC → 1.0 V supply.
-            voltage_dac = min(pid_output * (_active_max_v / MAX_VOLTAGE) * DAC_MAX_VOLTS,
-                              DAC_MAX_VOLTS)
+            # ── 7. Phase determination ─────────────────────────────────────────
+            if self._phase == 1 and current_temp_c >= PHASE1_COMPLETE_TEMP_C:
+                self._phase = 2
+                # Seed slew limiter with soft-start voltage to avoid a jump
+                self._prev_voltage_output = self._soft_start_voltage
+                print(f"[Phase] Switched to Phase 2 (PID) at T={current_temp_c:.1f}°C")
+
+            # ── 8. Phase 1: Soft-Start ─────────────────────────────────────────
+            pid_output = 0.0
+            if self._phase == 1:
+                voltage_cmd_v = self._compute_phase1_voltage(
+                    current_temp_c, measured_current, self._smoothed_dT_dt
+                )
+                # Clamp to active max (handles safe_test_mode)
+                voltage_cmd_v = min(voltage_cmd_v, _active_max_v)
+                if not self.practice_mode:
+                    self._feedforward.update(current_temp_c, voltage_cmd_v)
+
+            # ── 9. Phase 2: Feedforward + PID ─────────────────────────────────
+            else:
+                # Feedforward lookup (0.0 on first run — pure PID)
+                ff_voltage = self._feedforward.lookup(current_temp_c)
+
+                # PID update — output is 0-1 fraction, scaled to voltage
+                pid_output = self._pid.compute(setpoint_k, current_temp_k, loop_start)
+                pid_correction_v = pid_output * _active_max_v  # scale to supply volts
+
+                raw_voltage = max(0.0, min(_active_max_v, ff_voltage + pid_correction_v))
+
+                # Apply slew-rate limiter
+                voltage_cmd_v = self._apply_slew_limit(raw_voltage, self._prev_voltage_output)
+                self._prev_voltage_output = voltage_cmd_v
+
+                if not self.practice_mode:
+                    self._feedforward.update(current_temp_c, voltage_cmd_v)
+
+            # ── 10. Convert voltage_cmd_v to DAC voltages (0–5 V range) ───────
+            #
+            # DAC0 → Pin 9 (Voltage Program): supply_v → dac_v via linear scale.
+            voltage_dac = min((voltage_cmd_v / MAX_VOLTAGE) * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
 
             # DAC1 → Pin 10 (Current Program): FIXED ceiling, NOT tied to pid_output.
             current_dac = min(_active_i_frac * DAC_MAX_VOLTS, DAC_MAX_VOLTS)
@@ -330,20 +432,21 @@ class TempRampExecutor:
             current_limit_a    = (current_dac / DAC_MAX_VOLTS) * MAX_CURRENT
 
             # Cache on instance so DataAcquisition can read from outside this thread
-            self._last_voltage_dac      = voltage_dac
-            self._last_current_dac      = current_dac
+            self._last_voltage_dac        = voltage_dac
+            self._last_current_dac        = current_dac
             self._last_voltage_setpoint_v = voltage_setpoint_v
-            self._last_current_limit_a  = current_limit_a
+            self._last_current_limit_a    = current_limit_a
 
-            # ── 7. Safety: hard DAC ceiling ────────────────────────────────────
+            # ── 11. Safety: hard DAC ceiling ───────────────────────────────────
             if voltage_dac > DAC_MAX_VOLTS or current_dac > DAC_MAX_VOLTS:
                 print(f"[TempRampExecutor] CRITICAL: DAC ceiling exceeded "
                       f"(V={voltage_dac:.3f}, I={current_dac:.3f}). Stopping.")
                 self._running = False
                 break
 
-            # ── 8. Safety: PID saturation warning ─────────────────────────────
-            if pid_output > 0.95:
+            # ── 12. Safety: PID saturation warning ────────────────────────────
+            saturation_fraction = voltage_cmd_v / _active_max_v if _active_max_v > 0 else 0.0
+            if saturation_fraction > 0.95:
                 consecutive_saturated += 1
             else:
                 consecutive_saturated = 0
@@ -353,7 +456,7 @@ class TempRampExecutor:
                 print("[TempRampExecutor] WARNING: PID output saturated — "
                       "possible runaway. Check thermocouple.")
 
-            # ── 9. Send to power supply (live mode only) ───────────────────────
+            # ── 13. Send to power supply (live mode only) ──────────────────────
             if self._power_supply is not None and not self.practice_mode:
                 try:
                     self._power_supply.set_voltage(voltage_dac)
@@ -414,6 +517,11 @@ class TempRampExecutor:
         # ── Post-loop teardown ─────────────────────────────────────────────────
         self._running = False
         self._save_run_to_history()
+
+        # Save feedforward learning data for next run
+        if not self.practice_mode:
+            self._feedforward.save()
+            print("[FeedforwardTable] Run data saved for future feedforward use.")
 
         if self._power_supply is not None:
             try:
