@@ -227,9 +227,6 @@ hiddenimports = [
 
     # Missing dependencies for pyvisa and serial
     'pyvisa.resources.serial',
-    'pyvisa.resources.gpib',
-    'pyvisa.resources.usb',
-    'pyvisa.resources.tcpip',
     'serial.serialwin32',   # Windows serial backend
     'serial.serialutil',
     'encodings',
@@ -237,8 +234,6 @@ hiddenimports = [
     'encodings.ascii',
     'encodings.latin_1',
 
-    # PyVISA network optimization (reduce startup time)
-    'psutil',
     # zeroconf removed — network service discovery is disabled in frozen mode
     # to prevent background network scanning that degrades performance.
     # 'zeroconf',
@@ -310,7 +305,7 @@ exe = EXE(
     [],          # Binaries go to COLLECT, not here
     exclude_binaries=True,  # Enable folder mode for faster startup
     name='T8_DAQ_System',
-    debug=True,
+    debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,   # Disable UPX - compression causes DLL decompression overhead
