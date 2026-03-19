@@ -2605,7 +2605,7 @@ class MainWindow:
                 voltage_monitor_pin=ps_config.get('voltage_monitor_pin', "AIN4"),
                 current_monitor_pin=ps_config.get('current_monitor_pin', "AIN5"),
                 switch_4_position=switch_position,
-                debug=True # Enable verbose DAC/AIN calculation debug prints for diagnostics
+                debug=False
             )
 
             # Update live DAQ engine if running

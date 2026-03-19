@@ -189,7 +189,13 @@ class KeysightAnalogController:
             if readback == 0:
                 print(f'[Keysight] {self._DIO_ANALOG_EN} readback=LOW (0) ✓ — analog mode confirmed')
             else:
-                print(f'[Keysight] WARNING: {self._DIO_ANALOG_EN} readback={readback} (expected 0/LOW) — analog mode may NOT be active!')
+                print(
+                    f'[Keysight] WARNING: {self._DIO_ANALOG_EN} readback={readback} (expected 0/LOW) — '
+                    f'analog mode may NOT be active! '
+                    f'Check that the EIO0 pin is wired to the PSU Local/Analog select input and '
+                    f'that no external pull-up is holding the line HIGH. '
+                    f'Try power-cycling the LabJack T8 and relaunching the application.'
+                )
         except Exception as e:
             print(f'[Keysight] Warning: Could not enable analog mode on {self._DIO_ANALOG_EN}: {e}')
 
