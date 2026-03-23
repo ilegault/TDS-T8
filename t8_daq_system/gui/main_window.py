@@ -1076,8 +1076,8 @@ class MainWindow:
             on_panel_closed_callback=self._deactivate_power_programmer
         )
 
-        # Build manual nudge sub-panel below the programmer panel
-        self._build_manual_nudge_panel(self._programmer_panel_frame)
+        # Build manual nudge sub-panel
+        self._reposition_nudge_panel()
 
         # Wire up the TC name provider so the TempRamp dropdown populates
         if hasattr(self._programmer_panel, 'set_tc_names_callback'):
@@ -1144,7 +1144,7 @@ class MainWindow:
                 self._programmer_preview_plot.update_preview(times, voltages, currents)
                 self._programmer_preview_data = (times, voltages, currents)
 
-            # Show/hide the Run Ramp button
+            # Show/hide the Run Ramp button and nudge panel
             if (self._programmer_panel.get_profile_ready()
                     and not self._run_ramp_btn_visible):
                 self.run_ramp_btn.pack(side=tk.LEFT, padx=5)
@@ -1153,12 +1153,11 @@ class MainWindow:
                   and self._run_ramp_btn_visible):
                 self.run_ramp_btn.pack_forget()
                 self._run_ramp_btn_visible = False
+            
+            # Update nudge panel position/visibility
+            self._reposition_nudge_panel()
 
     def _deactivate_power_programmer(self):
-        if getattr(self, '_nudge_update_job', None):
-            self.root.after_cancel(self._nudge_update_job)
-            self._nudge_update_job = None
-
         # SAFETY: If a ramp is currently running, stop it safely first
         if self._programmer_ramp_running:
             self._stop_programmer_ramp_safe()
@@ -1199,6 +1198,9 @@ class MainWindow:
             if self._run_ramp_btn_visible:
                 self.run_ramp_btn.pack_forget()
                 self._run_ramp_btn_visible = False
+        
+        # Update nudge panel position/visibility
+        self._reposition_nudge_panel()
 
         # Apply dotted preview overlay to the ps LivePlot
         self._apply_programmer_overlay()
@@ -2648,39 +2650,94 @@ class MainWindow:
 
     # ── Feature 3: Manual Voltage Nudge ──────────────────────────────────────
 
-    def _build_manual_nudge_panel(self, parent_frame):
+    def _build_manual_nudge_panel(self, parent_frame, pack_side=tk.TOP):
         """
         Build a 'Manual Voltage Nudge' sub-panel inside parent_frame.
         Lets user bump voltage by a configurable step (default 0.001 V).
         Visible whenever Power Programmer is active; respects Safe Mode clamping.
         """
-        import tkinter as _tk
-        from tkinter import ttk as _ttk
+        # Cleanup old frame and job if it exists
+        if getattr(self, '_nudge_update_job', None):
+            self.root.after_cancel(self._nudge_update_job)
+            self._nudge_update_job = None
+            
+        if hasattr(self, '_nudge_frame') and self._nudge_frame:
+            try:
+                self._nudge_frame.destroy()
+            except:
+                pass
 
-        frame = _ttk.LabelFrame(parent_frame, text="Manual Voltage Nudge")
-        frame.pack(fill=_tk.X, padx=4, pady=2)
+        frame = ttk.LabelFrame(parent_frame, text="Manual Voltage Nudge")
+        frame.pack(side=pack_side, fill=tk.X, padx=4, pady=2)
 
-        row = _ttk.Frame(frame)
-        row.pack(fill=_tk.X, padx=4, pady=2)
+        row = ttk.Frame(frame)
+        row.pack(fill=tk.X, padx=4, pady=2)
 
-        _ttk.Label(row, text="Current V:").pack(side=_tk.LEFT)
-        self._nudge_v_var = _tk.StringVar(value="0.000 V")
-        _ttk.Label(row, textvariable=self._nudge_v_var, width=10,
-                   foreground='blue').pack(side=_tk.LEFT, padx=4)
+        ttk.Label(row, text="Current V:").pack(side=tk.LEFT)
+        self._nudge_v_var = tk.StringVar(value="0.000 V")
+        ttk.Label(row, textvariable=self._nudge_v_var, width=10,
+                   foreground='blue').pack(side=tk.LEFT, padx=4)
 
-        _ttk.Label(row, text="Step (V):").pack(side=_tk.LEFT, padx=(12, 0))
-        self._nudge_step_var = _tk.StringVar(value="0.001")
-        step_entry = _ttk.Entry(row, textvariable=self._nudge_step_var, width=7)
-        step_entry.pack(side=_tk.LEFT, padx=2)
+        ttk.Label(row, text="Step (V):").pack(side=tk.LEFT, padx=(12, 0))
+        self._nudge_step_var = tk.StringVar(value="0.001")
+        step_entry = ttk.Entry(row, textvariable=self._nudge_step_var, width=7)
+        step_entry.pack(side=tk.LEFT, padx=2)
 
-        _ttk.Button(row, text="\u2212", width=3,
-                    command=lambda: self._nudge_voltage(-1)).pack(side=_tk.LEFT, padx=2)
-        _ttk.Button(row, text="+", width=3,
-                    command=lambda: self._nudge_voltage(+1)).pack(side=_tk.LEFT, padx=2)
+        ttk.Button(row, text="\u2212", width=3,
+                    command=lambda: self._nudge_voltage(-1)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row, text="+", width=3,
+                    command=lambda: self._nudge_voltage(+1)).pack(side=tk.LEFT, padx=2)
 
         self._nudge_frame = frame
         self._nudge_update_job = None
         self._start_nudge_readback_loop()
+
+    def _reposition_nudge_panel(self):
+        """
+        Moves the Manual Nudge panel based on current state.
+        - If Ready: move to control_frame (beside Run Program)
+        - Otherwise: hide it (removed from programmer panel per user request)
+        """
+        # 1. Determine readiness
+        ready = False
+        if self._programmer_panel:
+            ready = self._programmer_panel.get_profile_ready()
+        elif self._programmer_blocks:
+            ready = True 
+        
+        # 2. Decide target parent and side
+        target_parent = None
+        pack_side = tk.LEFT
+        
+        if ready:
+            target_parent = self.control_frame
+            
+        # 3. Apply changes
+        if target_parent:
+            # Rebuild if parent changed or doesn't exist
+            current_parent = None
+            if hasattr(self, '_nudge_frame') and self._nudge_frame:
+                try:
+                    current_parent = self._nudge_frame.master
+                except:
+                    pass
+            
+            if not hasattr(self, '_nudge_frame') or not self._nudge_frame or not self._nudge_frame.winfo_exists() or current_parent != target_parent:
+                self._build_manual_nudge_panel(target_parent, pack_side=pack_side)
+            else:
+                # Already in correct parent, just ensure it's packed correctly
+                self._nudge_frame.pack(side=pack_side, padx=5, pady=2)
+        else:
+            # Hide if no target parent
+            if getattr(self, '_nudge_update_job', None):
+                self.root.after_cancel(self._nudge_update_job)
+                self._nudge_update_job = None
+            if hasattr(self, '_nudge_frame') and self._nudge_frame:
+                try:
+                    self._nudge_frame.destroy()
+                except:
+                    pass
+                self._nudge_frame = None
 
     def _nudge_voltage(self, direction):
         """Apply one nudge step in the given direction (+1 or -1)."""
@@ -2715,7 +2772,11 @@ class MainWindow:
                 v = ps.get_voltage_setpoint()
                 if v is not None:
                     self._nudge_v_var.set(f"{v:.3f} V")
-            if getattr(self, '_programmer_mode_active', False):
+            
+            # Continue polling if nudge frame exists and is visible, 
+            # or if the programmer is active.
+            nudge_exists = hasattr(self, '_nudge_frame') and self._nudge_frame and self._nudge_frame.winfo_exists()
+            if nudge_exists or getattr(self, '_programmer_mode_active', False):
                 self._nudge_update_job = self.root.after(500, _poll)
         _poll()
 
