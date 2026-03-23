@@ -74,7 +74,7 @@ def pp_dac_to_monitored_current(analog_input_current):
 class DataAcquisition:
     def __init__(self, config, tc_reader=None, frg702_reader=None,
                  ps_controller=None, safety_monitor=None, ramp_executor=None,
-                 practice_mode=False):
+                 program_executor=None, practice_mode=False):
         """
         Initialize the data acquisition engine.
 
@@ -85,6 +85,7 @@ class DataAcquisition:
             ps_controller: PowerSupplyController instance (or None)
             safety_monitor: SafetyMonitor instance (or None)
             ramp_executor: RampExecutor instance (or None)
+            program_executor: ProgramExecutor instance (or None) (Task 7d)
             practice_mode: If True, generate simulated data
         """
         self.config = config
@@ -93,6 +94,7 @@ class DataAcquisition:
         self.ps_controller = ps_controller
         self.safety_monitor = safety_monitor
         self.ramp_executor = ramp_executor
+        self.program_executor = program_executor
         self.practice_mode = practice_mode
 
         self._acquisition_running = False
@@ -394,6 +396,11 @@ class DataAcquisition:
         # Merge readings but exclude status flags (PS_Output_On is not a sensor value)
         ps_sensor_readings = {k: v for k, v in ps_readings.items() if k != 'PS_Output_On'}
         all_readings = {**tc_readings, **frg702_readings, **ps_sensor_readings}
+        
+        # Unified Program Mode: Block Index (Task 7d)
+        if self.program_executor and self.program_executor.is_running():
+            all_readings['Block_Index'] = self.program_executor.current_block_index + 1
+
         return timestamp, all_readings, tc_readings, frg702_detail_readings, raw_voltages
 
     def start_fast_acquisition(self, callback=None):
@@ -438,7 +445,7 @@ class DataAcquisition:
                         if pval is not None and isinstance(pval, float) and pval > PRESSURE_INTERLOCK_TORR:
                             if not self._pressure_interlock_fired:
                                 self._pressure_interlock_fired = True
-                                print(f"[INTERLOCK] Pressure {pval:.2e} Torr exceeds {PRESSURE_INTERLOCK_TORR:.0e} Torr limit!")
+                                print(f"[INTERLOCK] {k} pressure {pval:.2e} Torr exceeds {PRESSURE_INTERLOCK_TORR:.0e} Torr limit — output disabled")
                                 if self._interlock_callback:
                                     self._interlock_callback(pval)
                             break
@@ -471,6 +478,8 @@ class DataAcquisition:
 
                 except Exception as e:
                     print(f"Error in acquisition loop: {e}")
+                    if callback:
+                        callback(time.time(), {}, {}, {}, read_failed=True)
 
                 # Timing diagnostics
                 elapsed = time.time() - loop_start

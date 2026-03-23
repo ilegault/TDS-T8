@@ -73,6 +73,7 @@ class KeysightAnalogController:
             switch_4_position: 'down' for 0-5V monitor range (default), 'up' for 0-10V
             debug: Set to True to enable verbose calculation debug output (default False)
         """
+        self.interlock_active = False
         self.handle = handle
         self.rated_max_volts = rated_max_volts
         self.rated_max_amps = rated_max_amps
@@ -761,6 +762,8 @@ class KeysightAnalogController:
         if not self.output_off():
             success = False
 
+        self.interlock_active = True
+
         # 2. Zero the voltage program DAC
         try:
             self._safe_dac_write(self._DAC_VOLTAGE, 0.0)
@@ -779,6 +782,10 @@ class KeysightAnalogController:
             print("EMERGENCY SHUTDOWN: Partial failure - verify output manually!")
 
         return success
+
+    def clear_interlock(self):
+        self.interlock_active = False
+        print("[Keysight] Interlock cleared by operator")
 
     # ──────────────────────────────────────────────────────────────────────────
     # Limit management

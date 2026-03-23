@@ -143,6 +143,62 @@ class ProgrammerPreviewPlot:
 
         self.canvas.draw_idle()
 
+    def update_unified_preview(self, times, voltages, temps_k, blocks, boundaries):
+        """
+        Render unified preview showing both voltage and temperature.
+        """
+        import numpy as np
+        self._ax_v.cla()
+        if self._ax_a:
+            self._ax_a.cla()
+            self._ax_a.set_visible(True)
+
+        if not times:
+            self._placeholder.set_visible(True)
+            self.canvas.draw()
+            return
+
+        self._placeholder.set_visible(False)
+        t_min = np.array(times) / 60.0
+        v_arr = np.array(voltages)
+        c_arr = np.array(temps_k) - 273.15
+
+        # Plot Voltage on left axis
+        self._ax_v.plot(t_min, v_arr, color='blue', linewidth=2.0, label='Voltage (V)')
+        self._ax_v.set_ylabel('Voltage (V)', color='blue')
+        self._ax_v.tick_params(axis='y', labelcolor='blue')
+
+        # Plot Temperature on right axis
+        self._ax_a.plot(t_min, c_arr, color='red', linewidth=2.0, label='Temp (°C)')
+        self._ax_a.set_ylabel('Temperature (°C)', color='red', rotation=270, labelpad=15)
+        self._ax_a.tick_params(axis='y', labelcolor='red')
+
+        self._ax_v.set_xlabel('Time (min)')
+        self._ax_v.grid(True, alpha=0.3)
+
+        # Block annotations
+        BLOCK_COLORS = {
+            'voltage_ramp': '#d1ecf1', # blueish
+            'stable_hold': '#fff3cd',  # yellowish
+            'temp_ramp': '#d4edda'     # greenish
+        }
+        
+        for i, block in enumerate(blocks):
+            if i + 1 < len(boundaries):
+                t_start = boundaries[i] / 60.0
+                t_end = boundaries[i+1] / 60.0
+                color = BLOCK_COLORS.get(block.block_type, '#eeeeee')
+                self._ax_v.axvspan(t_start, t_end, color=color, alpha=0.3)
+                
+                # Label
+                mid = (t_start + t_end) / 2
+                self._ax_v.text(mid, self._ax_v.get_ylim()[1], f"B{i+1}", 
+                               ha='center', va='top', fontsize=8, color='gray')
+
+        self.fig.suptitle('Unified Program Preview', fontsize=10, fontweight='bold')
+        self.fig.subplots_adjust(left=0.1, right=0.88, top=0.90, bottom=0.15)
+        self.canvas.draw()
+
     def update_temp_preview(self, times, temps_k, blocks=None):
         """
         Render TempRamp preview with full phase annotations:

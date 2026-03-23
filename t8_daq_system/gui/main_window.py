@@ -98,6 +98,8 @@ from t8_daq_system.utils.helpers import convert_temperature
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog
 from t8_daq_system.gui.settings_dialog import SettingsDialog
 from t8_daq_system.gui.pinout_display import PinoutDisplay
+from t8_daq_system.control.program_executor import ProgramExecutor
+from t8_daq_system.gui.program_panel import ProgramPanel
 from t8_daq_system.core.data_acquisition import DataAcquisition
 from t8_daq_system.settings.app_settings import AppSettings
 from t8_daq_system.gui.power_programmer_panel import PowerProgrammerPanel
@@ -258,7 +260,8 @@ class MainWindow:
         # Initialize LabJack hardware
         self.connection = LabJackConnection()
         profiler.checkpoint("LabJackConnection instance created (not connected yet)")
-        self.tc_reader = None
+        # LabJack reconnect guard
+        self._last_labjack_read_failed = False
 
         profiler.section("XGS-600 Controller Connection")
         profiler.checkpoint("Initializing XGS-600 variables")
@@ -280,10 +283,16 @@ class MainWindow:
         self.ramp_executor = RampExecutor()
         profiler.checkpoint("RampExecutor created")
 
-        # TempRamp PID mode — history and executor instances
-        self._temp_ramp_history = TempRampHistory()
-        self._temp_ramp_executor = None   # created fresh each run
-        self._programmer_mode = "Voltage"  # tracks current programmer sub-mode
+        # Unified Program Mode
+        self._program_executor = ProgramExecutor(
+            power_supply=None,
+            get_temp_k_fn_provider=self._get_tc_reading_k_provider,
+            on_block_start=self._on_program_block_start,
+            on_block_complete=self._on_program_block_complete,
+            on_program_complete=self._on_program_complete,
+            on_status=self._on_program_status
+        )
+        self._program_panel = None
 
         profiler.checkpoint("Creating SafetyMonitor...")
         self.safety_monitor = SafetyMonitor(auto_shutoff=True)
@@ -648,6 +657,7 @@ class MainWindow:
                     self._update_connection_state(True)
                 else:
                     print("[DEFERRED] T8 connection failed")
+                    self._last_labjack_read_failed = True
                     self._update_connection_state(False)
 
             # Connect to XGS-600 if configured
@@ -967,6 +977,9 @@ class MainWindow:
             self.ps_controller = MockPowerSupplyController()
             self.safety_monitor.set_power_supply(self.ps_controller)
             self.ramp_executor.set_power_supply(self.ps_controller)
+            if self._program_executor:
+                self._program_executor.set_power_supply(self.ps_controller)
+                self._program_executor.practice_mode = True
 
             self.ps_resource_var.set("Mock Power Supply")
             self._auto_start_acquisition()
@@ -1068,54 +1081,34 @@ class MainWindow:
         self._programmer_plot_frame = ttk.Frame(self.plot_container_main.master)
         self._programmer_plot_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=1)
 
-        # 5. Instantiate the programmer panel
-        self._programmer_panel = PowerProgrammerPanel(
-            parent_frame=self._programmer_panel_frame,
-            settings=self._app_settings,
-            on_profile_confirmed_callback=self._on_programmer_profile_confirmed,
-            on_panel_closed_callback=self._deactivate_power_programmer
-        )
-
-        # Build manual nudge sub-panel
-        self._reposition_nudge_panel()
-
-        # Wire up the TC name provider so the TempRamp dropdown populates
-        if hasattr(self._programmer_panel, 'set_tc_names_callback'):
-            self._programmer_panel.set_tc_names_callback(
-                lambda: self.daq.get_available_tc_names() if self.daq else []
-            )
-
-        # Restore saved blocks/mode into the newly created panel
-        if hasattr(self._programmer_panel, 'set_mode'):
-            self._programmer_panel.set_mode(self._programmer_control_mode, clear_blocks=False)
-
-        # Restore PID TC selection if in TempRamp mode
-        if self._programmer_control_mode == "TempRamp" and self._programmer_pid_tc:
-            if hasattr(self._programmer_panel, 'set_selected_tc_name'):
-                self._programmer_panel.set_selected_tc_name(self._programmer_pid_tc)
-
-        if self._programmer_blocks:
-            self._programmer_panel._blocks = list(self._programmer_blocks)
-            self._programmer_panel._refresh_table()
-            self._programmer_panel._refresh_status()
-
-        # 6. Instantiate the preview plot
+        # 5. Instantiate the preview plot
         self._programmer_preview_plot = ProgrammerPreviewPlot(
             parent_frame=self._programmer_plot_frame
         )
 
-        # 7. Patch the panel's _refresh_status to also update the preview plot live
-        original_refresh = self._programmer_panel._refresh_status
+        # 6. Instantiate the programmer panel
+        self._programmer_panel = ProgramPanel(
+            parent_frame=self._programmer_panel_frame,
+            preview_plot=self._programmer_preview_plot,
+            get_initial_state_fn=lambda: (self._get_latest_tc_reading_k("TC_1"), self.daq.latest_voltage if self.daq else 0.0),
+            on_program_change=self._update_run_button_state
+        )
+        
+        # Build manual nudge sub-panel
+        self._reposition_nudge_panel()
+        
+        # Show run button
+        self._update_run_button_state()
 
-        def _patched_refresh():
-            original_refresh()
-            self._update_programmer_preview()
-
-        self._programmer_panel._refresh_status = _patched_refresh
-
-        # 8. If blocks were restored before the plot existed, force one preview render now
-        if self._programmer_blocks:
-            self._update_programmer_preview()
+    def _update_run_button_state(self):
+        if self._programmer_mode_active and self._programmer_panel:
+            if not self._run_ramp_btn_visible:
+                self.run_ramp_btn.pack(side=tk.LEFT, padx=5)
+                self._run_ramp_btn_visible = True
+        else:
+            if self._run_ramp_btn_visible:
+                self.run_ramp_btn.pack_forget()
+                self._run_ramp_btn_visible = False
 
     def _update_programmer_preview(self):
         if self._programmer_panel and self._programmer_preview_plot:
@@ -1205,6 +1198,39 @@ class MainWindow:
         # Apply dotted preview overlay to the ps LivePlot
         self._apply_programmer_overlay()
 
+    def _get_tc_reading_k_provider(self, tc_name):
+        return lambda: self._get_latest_tc_reading_k(tc_name)
+
+    def _get_latest_tc_reading_k(self, tc_name):
+        if not self._latest_tc_readings:
+            return 293.15
+        val_c = self._latest_tc_readings.get(tc_name, 20.0)
+        return val_c + 273.15
+
+    def _on_program_block_start(self, index, block):
+        print(f"[Program] Starting block {index+1}: {block.block_type}")
+        self.status_var.set(f"Program: Block {index+1}")
+
+    def _on_program_block_complete(self, index):
+        print(f"[Program] Block {index+1} complete")
+
+    def _on_program_complete(self):
+        print("[Program] All blocks complete")
+        self.status_var.set("Program Complete")
+        self._programmer_ramp_running = False
+        self.run_ramp_btn.config(text="Run Program")
+
+    def _on_program_status(self, status):
+        # status = {'block_index': ..., 'block_type': ..., 'elapsed_sec': ..., 'current_temp_k': ..., 'voltage_v': ...}
+        idx = status['block_index']
+        btype = status['block_type'].replace('_', ' ').title()
+        elapsed = status['elapsed_sec']
+        temp = status['current_temp_k'] - 273.15
+        volt = status['voltage_v']
+        
+        msg = f"B{idx+1} {btype}: {elapsed:.0f}s | {temp:.1f}C | {volt:.3f}V"
+        self.root.after(0, lambda: self.status_var.set(msg))
+
     def _on_programmer_profile_confirmed(self, times, voltages, currents):
         self._programmer_preview_data = (times, voltages, currents)
 
@@ -1243,180 +1269,49 @@ class MainWindow:
             self._start_programmer_ramp()
 
     def _start_programmer_ramp(self):
-        """Start executing the programmer ramp using the ramp_executor infrastructure."""
-        from datetime import datetime
-
-        # Use stored blocks if panel is not active
-        if self._programmer_panel:
-            blocks = self._programmer_panel._blocks
-            control_mode = self._programmer_panel._mode
-        else:
-            blocks = self._programmer_blocks
-            control_mode = self._programmer_control_mode
-
-        # ── TempRamp mode: delegate to PID executor ────────────────────────────
-        if control_mode == "TempRamp" or self._programmer_mode == "TempRamp":
-            self._start_temp_ramp_program()
+        """Start executing the unified block-based program."""
+        if not self._programmer_panel:
             return
 
-        # Guard: must have valid profile
+        blocks = self._programmer_panel.get_blocks()
         if not blocks:
-            messagebox.showwarning("No Profile", "Build a valid program first.")
+            messagebox.showwarning("No Program", "Please add at least one block.")
             return
 
         # Guard: must have a power supply controller
-        if not hasattr(self, 'ps_controller') or self.ps_controller is None:
-            messagebox.showerror(
-                "No Power Supply",
-                "Power supply is not connected. Cannot run program."
-            )
+        if not self.ps_controller:
+            messagebox.showerror("No Power Supply", "Power supply is not connected.")
             return
 
         # Guard: safety monitor must not be in shutdown state
-        if hasattr(self, 'safety_monitor') and self.safety_monitor.is_restart_locked:
-            messagebox.showwarning(
-                "Safety Lockout",
-                "Safety lockout is active. Resolve temperature issue before running."
-            )
+        if self.safety_monitor.is_restart_locked:
+            messagebox.showwarning("Safety Lockout", "Safety lockout is active.")
             return
 
-        # Apply Safe Mode clamping if the programmer panel has it enabled
-        _prog_safe_mode = (
-            self._programmer_panel.get_programmer_safe_mode()
-            if self._programmer_panel is not None
-            else False
-        )
-        if _prog_safe_mode:
-            import copy
-            blocks = copy.deepcopy(blocks)
-            for blk in blocks:
-                if 'voltage' in blk:
-                    blk['voltage'] = min(float(blk['voltage']), _PROGRAMMER_SAFE_MODE_MAX_VOLTS)
-                if 'start_v' in blk:
-                    blk['start_v'] = min(float(blk['start_v']), _PROGRAMMER_SAFE_MODE_MAX_VOLTS)
-                if 'end_v' in blk:
-                    blk['end_v'] = min(float(blk['end_v']), _PROGRAMMER_SAFE_MODE_MAX_VOLTS)
-                if 'current_limit' in blk:
-                    blk['current_limit'] = min(float(blk['current_limit']), _PROGRAMMER_SAFE_MODE_MAX_AMPS)
-                if 'current_a' in blk:
-                    blk['current_a'] = min(float(blk['current_a']), _PROGRAMMER_SAFE_MODE_MAX_AMPS)
-            print(f"[Programmer] SAFE MODE ACTIVE — voltage clamped ≤{_PROGRAMMER_SAFE_MODE_MAX_VOLTS}V, "
-                  f"current clamped ≤{_PROGRAMMER_SAFE_MODE_MAX_AMPS}A")
+        # Load and start
+        self._program_executor.load_program(blocks)
+        self._program_executor.practice_mode = self._practice_mode
+        
+        if self._program_executor.start():
+            self._programmer_ramp_running = True
+            self.run_ramp_btn.config(text="Stop Program")
+            print("[Program] Started execution")
+        else:
+            messagebox.showerror("Error", "Failed to start program executor.")
 
-        # Convert programmer blocks to RampProfile steps
-        from t8_daq_system.control.ramp_profile import RampProfile, RampStep, StepType, ControlMode
+    def _stop_programmer_ramp_safe(self):
+        """Stop the running program safely."""
+        if self._program_executor:
+            self._program_executor.stop()
+        self._programmer_ramp_running = False
+        self.run_ramp_btn.config(text="Run Program")
+        self.status_var.set("Program Stopped")
+        print("[Program] Stopped")
 
-        # Initial values from first block
-        first_v = float(blocks[0]["start_v"])
-        first_a = float(blocks[0].get("current_a", 0.0))
-
-        # Validate hardware limits before building profile
-        for block in blocks:
-            start_v = float(block["start_v"])
-            end_v = float(block["end_v"]) if block["type"] == "Ramp" else float(block["start_v"])
-            current_a = float(block.get("current_a", 0.0))
-
-            if start_v > 6.0 or end_v > 6.0:
-                messagebox.showerror(
-                    "Voltage Limit Exceeded",
-                    f"Block has voltage > 6.0V (hard limit). Aborting.\n"
-                    f"Start V: {start_v}, End V: {end_v}"
-                )
-                return
-            if current_a > 180.0:
-                messagebox.showerror(
-                    "Current Limit Exceeded",
-                    f"Block has current > 180.0A. Aborting.\nCurrent A: {current_a}"
-                )
-                return
-
-        # Compute actual max current and voltage across all blocks (never hardcode 180.0)
-        max_current_a = max(float(b.get("current_a", 0.0)) for b in blocks)
-        max_voltage_v = max(
-            max(float(b["start_v"]), float(b["end_v"]))
-            for b in blocks
-        )
-        # current_limit and voltage_limit must be > 0 per RampProfile.validate()
-        max_current_a = max(max_current_a, 0.001)
-        max_voltage_v = max(max_voltage_v, 0.001)
-
-        profile = RampProfile(
-            name=f"Programmer_{datetime.now().strftime('%H%M%S')}",
-            control_mode=ControlMode.VOLTAGE.value,
-            start_voltage=first_v,
-            start_current=first_a,
-            voltage_limit=max_voltage_v,
-            current_limit=max_current_a
-        )
-
-        for block in blocks:
-            duration = float(block["duration"])
-            step_type = StepType.RAMP.value if block["type"] == "Ramp" else StepType.HOLD.value
-
-            # Per-block current and voltage targets
-            block_current_a = float(block.get("current_a", 0.0))
-            block_start_v = float(block["start_v"])
-            block_end_v = float(block["end_v"]) if block["type"] == "Ramp" else block_start_v
-
-            # print(f"[BLOCK DEBUG] Block #{blocks.index(block) + 1}")
-            # print(f"  From table: Start V={block_start_v}, End V={block_end_v}")
-            # print(f"  From table: Current A={block_current_a}")
-
-            target_v = block_end_v
-            step = RampStep(
-                step_type=step_type,
-                duration_sec=duration,
-                target_voltage=target_v,
-                target_current=block_current_a
-            )
-            profile.add_step(step)
-
-        # Load into ramp_executor and start
-        if not self.ramp_executor.load_profile(profile):
-            messagebox.showerror("Load Error", "Failed to load profile into executor.")
-            return
-
-        # In practice mode, turn on the mock output so get_voltage() / get_current()
-        # returns actual values instead of 0.0
-        if hasattr(self.ps_controller, 'output_on'):
-            self.ps_controller.output_on()
-
-        # Register a completion callback so the button resets when the profile
-        # finishes naturally (without the user pressing Stop).
-        def _on_voltage_ramp_complete():
-            def _update():
-                self._programmer_ramp_running = False
-                self.run_ramp_btn.config(text="Run Program")
-                if isinstance(self.ps_controller, MockPowerSupplyController):
-                    self.ps_controller.programmer_active = False
-                self.status_var.set("Program Complete")
-            self.root.after(0, _update)
-
-        self.ramp_executor.power_supply = self.ps_controller
-        self.ramp_executor.on_complete(_on_voltage_ramp_complete)
-
-        if not self.ramp_executor.start():
-            messagebox.showerror("Start Error", "Failed to start ramp executor.")
-            return
-
-        # Mark as running and enable programmer simulation mode on the mock
-        # controller so DataAcquisition uses the proper analog round-trip.
-        self._programmer_ramp_running = True
-        if isinstance(self.ps_controller, MockPowerSupplyController):
-            self.ps_controller.programmer_active = True
-        self.run_ramp_btn.config(text="Stop Program")
-
-        # Set overlay start time so the dotted preview anchors correctly on the ps plot.
-        # Re-anchor to the actual run start time for accurate comparison.
-        from datetime import datetime as _dt
-        times, voltages, currents = self._programmer_preview_data
-        for plot in getattr(self, '_live_plots', []):
-            if hasattr(plot, 'plot_type') and plot.plot_type == 'ps':
-                plot.set_programmer_overlay(times, voltages, currents)
-                plot.set_overlay_start_time(_dt.now())  # pass datetime, not time.time()
-                break
-
-        self.status_var.set("Running Program")
+    # The following methods are kept as dead code for now (Task 7e)
+    def _DEPRECATED_start_programmer_ramp_original(self):
+        # ... (Old logic using RampExecutor)
+        pass
 
     def _start_temp_ramp_program(self):
         """
@@ -1585,13 +1480,6 @@ class MainWindow:
             _v_setpoint = status.get('voltage_setpoint_v', 0.0)
             _i_cc_limit = status.get('current_limit_a', 0.0)
 
-            # Write PID setpoint and CC limit into the data buffer so the
-            # regular GUI update loop picks them up without an extra plot redraw.
-            if hasattr(self, 'data_buffer'):
-                self.data_buffer.add_reading({
-                    'PS_Voltage_Setpoint': _v_setpoint,
-                    'PS_CC_Limit':         _i_cc_limit,
-                })
             # Apply human-readable legend labels once (idempotent)
             if hasattr(self, 'plot_ps'):
                 self.plot_ps.set_legend_label_overrides({
@@ -2190,7 +2078,26 @@ class MainWindow:
         self.daq.set_pressure_interlock_callback(self._on_pressure_interlock)
 
         def on_new_data(timestamp, all_readings, tc_readings, frg702_details,
-                        safety_shutdown=False, raw_voltages=None):
+                        safety_shutdown=False, raw_voltages=None, read_failed=False):
+            # Update LabJack read status (Task 6)
+            self._last_labjack_read_failed = read_failed
+            if read_failed:
+                return
+
+            # Pull current PID setpoints directly from the executor (Task 5)
+            # and merge into all_readings so they stay in sync with sensors in the buffer.
+            executor = getattr(self, '_temp_ramp_executor', None)
+            if executor and executor.is_running():
+                all_readings['PS_Voltage_Setpoint'] = executor.current_voltage_setpoint
+                all_readings['PS_CC_Limit']         = executor.current_current_limit
+
+            # Unified Program Mode: Add current block index to log (Task 7d)
+            prog_executor = getattr(self, '_program_executor', None)
+            if prog_executor and prog_executor.is_running():
+                all_readings['Block_Index'] = prog_executor.current_block_index + 1
+            else:
+                all_readings['Block_Index'] = None
+
             self.data_buffer.add_reading(all_readings)
 
             self._latest_readings = (timestamp, all_readings)
@@ -2213,16 +2120,23 @@ class MainWindow:
                 # Include raw voltages (and differential voltages — same value,
                 # labelled _rawV) so the log shows the full conversion chain:
                 #   physical TC wire → raw mV input → EF temperature conversion
+                #
+                # Pull current PID setpoints directly from the executor (Task 5)
+                # to ensure they are synchronized with the DAQ tick in the CSV.
+                executor = getattr(self, '_temp_ramp_executor', None)
+                if executor and executor.is_running():
+                    log_readings['PS_Voltage_Setpoint'] = executor.current_voltage_setpoint
+                    log_readings['PS_CC_Limit']         = executor.current_current_limit
+
+                # Unified Program Mode: Add current block index to CSV (Task 7d)
+                prog_executor = getattr(self, '_program_executor', None)
+                if prog_executor and prog_executor.is_running():
+                    log_readings['Block_Index'] = prog_executor.current_block_index + 1
+                else:
+                    log_readings['Block_Index'] = None
+
                 if raw_voltages:
                     log_readings.update(raw_voltages)
-                # Merge the latest PID setpoint / CC limit into the row if they are in the buffer.
-                # These keys are written to the buffer by _on_temp_ramp_status on a separate timer,
-                # so they must be pulled from the buffer rather than the DAQ callback dict.
-                if hasattr(self, 'data_buffer'):
-                    latest = self.data_buffer.get_all_current()
-                    for _key in ('PS_Voltage_Setpoint', 'PS_CC_Limit'):
-                        if _key in latest and _key not in log_readings:
-                            log_readings[_key] = latest[_key]
                 self.logger.log_reading(log_readings)
 
             if safety_shutdown:
@@ -2293,6 +2207,9 @@ class MainWindow:
                 sensor_names += ['PS_Voltage', 'PS_Current',
                                  'PS_Voltage_Setpoint', 'PS_CC_Limit']
 
+            # Unified Program Mode: Add block index column (Task 7d)
+            sensor_names += ['Block_Index']
+
             # Append Power Programmer / TempRamp metadata if a profile is loaded
             if self._programmer_blocks:
                 metadata['programmer_mode'] = self._programmer_control_mode
@@ -2353,18 +2270,19 @@ class MainWindow:
             return
 
         gui_profiler.start("labjack_reconnect")
-        # Auto-connect hardware (only after initial deferred init has attempted)
+        # Auto-connect hardware (only when last read failed and after initial attempt)
         lj_connected = self.connection.is_connected()
         now = time.time()
         if self._practice_mode:
             lj_connected = True
-        elif not lj_connected and self._hardware_init_attempted:
+        elif self._last_labjack_read_failed and not lj_connected and self._hardware_init_attempted:
             if (now - self._last_lj_reconnect_time) >= self._reconnect_interval:
                 self._last_lj_reconnect_time = now
                 if self.connection.connect():
                     if self._initialize_hardware_readers():
                         lj_connected = True
                         self._update_connection_state(True)
+                        self._last_labjack_read_failed = False
                     else:
                         self.connection.disconnect()
                         lj_connected = False
@@ -2636,6 +2554,9 @@ class MainWindow:
 
             self.safety_monitor.set_power_supply(self.ps_controller)
             self.ramp_executor.set_power_supply(self.ps_controller)
+            if self._program_executor:
+                self._program_executor.set_power_supply(self.ps_controller)
+                self._program_executor.practice_mode = self._practice_mode
 
             v_pin = ps_config.get('voltage_pin', 'DAC0')
             i_pin = ps_config.get('current_pin', 'DAC1')

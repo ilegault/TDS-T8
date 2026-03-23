@@ -33,8 +33,8 @@ class LivePlot:
     DEFAULT_PS_V_RANGE = (0, 6)         # V (Keysight N5700 max is 6V)
     DEFAULT_PS_I_RANGE = (0, 180)       # A (Keysight N5700 max is 180A)
 
-    # Fixed 2-minute rolling window for all plots
-    WINDOW_SECONDS = 120
+    # Rolling window for all plots (5 minutes = 300 seconds)
+    WINDOW_SECONDS = 300
 
     def __init__(self, parent_frame, data_buffer, plot_type='tc', show_scrollbar=True):
         """
@@ -668,6 +668,13 @@ class LivePlot:
                 continue
             valid_times.append(t)
             valid_vals.append(v)
+
+        # Plot decimation (Task 6b): keep only last 600 points
+        MAX_PLOT_POINTS = 600
+        if len(valid_times) > MAX_PLOT_POINTS:
+            valid_times = valid_times[-MAX_PLOT_POINTS:]
+            valid_vals = valid_vals[-MAX_PLOT_POINTS:]
+
         return valid_times, valid_vals
 
     def _render(self, timestamps, plot_data, window_seconds=None,

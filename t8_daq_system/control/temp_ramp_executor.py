@@ -126,6 +126,10 @@ class TempRampExecutor:
         self._last_voltage_setpoint_v = 0.0
         self._last_current_limit_a = 0.0
 
+        # Public attributes for logging/monitoring (Task 5)
+        self.current_voltage_setpoint = 0.0
+        self.current_current_limit = 0.0
+
         # Two-phase smart PID state
         self._feedforward = FeedforwardTable()
         self._phase = 1               # 1 = soft-start, 2 = PID
@@ -500,6 +504,8 @@ class TempRampExecutor:
             self._last_current_dac        = current_dac
             self._last_voltage_setpoint_v = voltage_setpoint_v
             self._last_current_limit_a    = current_limit_a
+            self.current_voltage_setpoint = voltage_dac
+            self.current_current_limit    = current_dac
 
             # ── 11. Safety: hard DAC ceiling ───────────────────────────────────
             if voltage_dac > DAC_MAX_VOLTS or current_dac > DAC_MAX_VOLTS:
@@ -522,6 +528,14 @@ class TempRampExecutor:
 
             # ── 13. Send to power supply (live mode only) ──────────────────────
             if self._power_supply is not None and not self.practice_mode:
+                if self._power_supply.interlock_active:
+                    print("[TempRamp] Interlock active — PID paused, skipping DAC write")
+                    # Sleep to prevent tight loop
+                    elapsed_tick = time.time() - loop_start
+                    sleep_time = max(0.0, TICK_INTERVAL_SEC - elapsed_tick)
+                    time.sleep(sleep_time)
+                    continue
+
                 try:
                     self._power_supply.set_voltage(voltage_dac)
                     self._power_supply.set_current(current_dac)

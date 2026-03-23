@@ -42,9 +42,9 @@ class PIDController:
     Output is a normalised 0–1 power fraction (not raw volts/amps).
     """
 
-    def __init__(self, kp=0.005, ki=0.0005, kd=0.001,
-                 output_min=0.0, output_max=1.0,
-                 integral_windup_limit=50.0):
+    def __init__(self, kp=0.05, ki=0.002, kd=0.005,
+                 output_min=0.0, output_max=5.0,
+                 integral_windup_limit=5.0):
         """
         Args:
             kp: Proportional gain (very small — power supply is high-current).
@@ -106,8 +106,7 @@ class PIDController:
 
         # Integral with anti-windup clamp
         self._integral += error * dt
-        self._integral = max(-self._windup_limit,
-                             min(self._windup_limit, self._integral))
+        self._integral = max(0.0, min(self._integral, 5.0))
 
         derivative = (error - self._prev_error) / dt
 
@@ -116,7 +115,8 @@ class PIDController:
         self._last_d_term = self._kd * derivative
         raw_output = self._last_p_term + self._last_i_term + self._last_d_term
 
-        clamped = max(self._output_min, min(self._output_max, raw_output))
+        # Clamp output to DAC range
+        clamped = max(0.0, min(raw_output, 5.0))
 
         self._prev_error = error
         self._prev_time = current_time
@@ -218,7 +218,7 @@ class TempRampHistory:
         Returns:
             dict with keys 'kp', 'ki', 'kd'.
         """
-        _defaults = {'kp': 0.005, 'ki': 0.0005, 'kd': 0.001}
+        _defaults = {'kp': 0.05, 'ki': 0.002, 'kd': 0.005}
 
         matching = [
             r for r in self._runs
@@ -265,14 +265,19 @@ class FeedforwardTable:
         return str(int(bucket))
 
     def _load(self):
-        if os.path.exists(self.filepath):
-            try:
-                with open(self.filepath, 'r') as f:
-                    data = json.load(f)
-                self._averages = {k: float(v) for k, v in data.items()}
-                print(f"[FeedforwardTable] Loaded {len(self._averages)} entries from {self.filepath}")
-            except Exception as e:
-                print(f"[FeedforwardTable] Could not load {self.filepath}: {e}")
+        try:
+            if not os.path.exists(self.filepath):
+                raise FileNotFoundError("File does not exist")
+            with open(self.filepath, 'r') as f:
+                content = f.read().strip()
+                if not content:
+                    raise ValueError("Empty file")
+                data = json.loads(content)
+            self._averages = {k: float(v) for k, v in data.items()}
+            print(f"[FeedforwardTable] Loaded {len(self._averages)} entries from {self.filepath}")
+        except Exception as e:
+            print(f"[FeedforwardTable] Could not load feedforward table ({e}), defaulting to 0.0V")
+            self._averages = {}
 
     def save(self):
         try:
