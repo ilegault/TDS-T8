@@ -126,6 +126,16 @@ class DataLogger:
         self.writer.writerow(row)
         self.file.flush()  # Ensure data is written immediately
 
+    def log_event(self, event_name, detail=""):
+        """Write a named event row (e.g. RAMP_START, EMERGENCY_SHUTDOWN) with timestamp."""
+        if self.writer is None:
+            return
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
+        # Write as a special row: timestamp, EVENT:name, detail
+        self.writer.writerow([timestamp, f"EVENT:{event_name}", detail])
+        self.file.flush()
+
     def stop_logging(self):
         """Close the log file and update end time metadata."""
         if self.file:

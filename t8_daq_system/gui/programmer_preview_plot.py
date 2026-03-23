@@ -143,48 +143,136 @@ class ProgrammerPreviewPlot:
 
         self.canvas.draw_idle()
 
-    def update_temp_preview(self, times, temps_k):
+    def update_temp_preview(self, times, temps_k, blocks=None):
         """
-        Display temperature (K) vs time for TempRamp mode.
+        Render TempRamp preview with full phase annotations:
+          - Phase 1 (Soft-Start preheat): grey shaded region, 0 → ~150°C
+          - Hold blocks: yellow shaded regions, labelled with setpoint
+          - Ramp blocks: green shaded regions, labelled with rate
+          - Block boundary vertical lines with block numbers
+          - Temperature axis in °C (left) and K (right)
+          - Estimated time labels on x-axis in minutes
 
-        Hides the current (right) axis and replaces the voltage axis label
-        with 'Temperature (K)'.
+        Args:
+            times:   list of floats (seconds)
+            temps_k: list of floats (Kelvin)
+            blocks:  list of block dicts from PowerProgrammerPanel (TempRamp format).
+                     If None, only the raw curve is drawn without annotations.
         """
+        import numpy as np
+
+        # Clear everything
+        self._ax_v.cla()
+        if self._ax_a:
+            self._ax_a.cla()
+            self._ax_a.set_visible(False)
+
         self._temp_mode = True
-        self._ax_a.set_visible(False)
-        self._ax_v.set_ylabel('Temperature (K)', color='#2ca02c')
-        self._ax_v.tick_params(axis='y', labelcolor='#2ca02c')
-        self._ax_v.set_xlabel('Time (s)')
-        self.fig.suptitle('Temp Ramp Preview', fontsize=11, fontweight='bold')
+        self._line_v = None
+        self._line_a = None
+        self._line_temp = None
 
-        # Remove existing V/I lines and block-boundary lines
-        if self._line_v is not None:
-            self._line_v.remove()
-            self._line_v = None
-        if self._line_a is not None:
-            self._line_a.remove()
-            self._line_a = None
-        if self._line_temp is not None:
-            self._line_temp.remove()
-            self._line_temp = None
-        for line in list(self._ax_v.lines):
-            line.remove()
-
-        if not times:
-            self._placeholder.set_visible(True)
-            self._ax_v.relim()
-            self._ax_v.autoscale_view()
-            self.canvas.draw_idle()
+        if not times or not temps_k:
+            self._placeholder = self._ax_v.text(
+                0.5, 0.5, "No program loaded — add blocks above",
+                transform=self._ax_v.transAxes,
+                ha='center', va='center', fontsize=10,
+                color='gray', style='italic'
+            )
+            self.canvas.draw()
             return
 
-        self._placeholder.set_visible(False)
-        self._line_temp, = self._ax_v.plot(
-            times, temps_k,
-            color='#2ca02c', linewidth=2, linestyle='solid', label='Temperature (K)'
-        )
-        self._ax_v.relim()
-        self._ax_v.autoscale_view()
-        self.canvas.draw_idle()
+        # Convert to numpy; temperature axis in °C
+        t_arr = np.array(times)
+        c_arr = np.array(temps_k) - 273.15
+        t_min = t_arr / 60.0   # x-axis in minutes
+
+        # ── Soft-start preheat region (always present: t=0 to first block boundary)
+        PREHEAT_TARGET_C = 150.0
+        # Find the time index where temp first crosses 150°C
+        preheat_end_idx = next((i for i, c in enumerate(c_arr) if c >= PREHEAT_TARGET_C), len(c_arr) - 1)
+        preheat_end_min = t_min[preheat_end_idx]
+
+        self._ax_v.axvspan(0, preheat_end_min, alpha=0.12, color='gray',
+                           label='Soft-start preheat')
+        self._ax_v.text(preheat_end_min / 2, max(c_arr) * 0.05,
+                        'Soft-start\n(auto)', ha='center', va='bottom',
+                        fontsize=7, color='gray', style='italic')
+
+        # ── Block regions (user-defined Hold and Ramp blocks)
+        BLOCK_COLORS = {'Hold': '#ffe066', 'Ramp': '#a8e6a3'}
+        BLOCK_ALPHA   = 0.25
+
+        if blocks:
+            block_start_time_s = times[preheat_end_idx] if preheat_end_idx < len(times) else 0
+
+            for i, block in enumerate(blocks):
+                dur_s = float(block.get('duration_sec', 0))
+                btype = block.get('type', 'Hold')
+                rate  = block.get('rate_k_per_min', 0.0)
+
+                block_end_time_s = block_start_time_s + dur_s
+                bs_min = block_start_time_s / 60.0
+                be_min = block_end_time_s   / 60.0
+
+                color = BLOCK_COLORS.get(btype, '#cccccc')
+                self._ax_v.axvspan(bs_min, be_min, alpha=BLOCK_ALPHA, color=color)
+
+                # Block label
+                mid_min = (bs_min + be_min) / 2.0
+                if btype == 'Hold':
+                    label_text = f"Block {i+1}\nHold\n~150°C"
+                else:
+                    label_text = f"Block {i+1}\nRamp\n{rate:.1f} K/min"
+
+                self._ax_v.text(mid_min, max(c_arr) * 0.85,
+                                label_text, ha='center', va='top',
+                                fontsize=7, color='#333333',
+                                bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.6))
+
+                # Block boundary line
+                self._ax_v.axvline(x=bs_min, color='#888888', linewidth=0.8,
+                                   linestyle='--', alpha=0.6)
+
+                block_start_time_s = block_end_time_s
+
+            # Final boundary
+            self._ax_v.axvline(x=block_start_time_s / 60.0, color='#888888',
+                               linewidth=0.8, linestyle='--', alpha=0.6)
+
+        # ── Main temperature curve
+        self._ax_v.plot(t_min, c_arr, color='#e84118', linewidth=2.0,
+                        label='Filament temp (°C)')
+
+        # ── 150°C preheat target line
+        self._ax_v.axhline(y=PREHEAT_TARGET_C, color='gray', linewidth=1.0,
+                           linestyle=':', alpha=0.8, label='150°C preheat target')
+
+        # ── Right y-axis: Kelvin scale
+        ax2 = self._ax_v.twinx()
+        c_min_plot, c_max_plot = self._ax_v.get_ylim()
+        ax2.set_ylim(c_min_plot + 273.15, c_max_plot + 273.15)
+        ax2.set_ylabel('Temperature (K)', color='#888888', rotation=270, labelpad=15)
+        ax2.tick_params(axis='y', labelcolor='#888888')
+
+        # ── Axis labels and formatting
+        self._ax_v.set_xlabel('Time (min)')
+        self._ax_v.set_ylabel('Temperature (°C)', color='#e84118')
+        self._ax_v.tick_params(axis='y', labelcolor='#e84118')
+        self._ax_v.grid(True, alpha=0.25)
+
+        # ── Legend
+        handles, labels = self._ax_v.get_legend_handles_labels()
+        if handles:
+            self._ax_v.legend(handles, labels, loc='upper left', fontsize=7)
+
+        # ── Title
+        total_min = t_min[-1] if len(t_min) > 0 else 0
+        self.fig.suptitle(f'TDS Temperature Preview  —  {total_min:.0f} min total',
+                          fontsize=10, fontweight='bold')
+
+        self.fig.subplots_adjust(left=0.1, right=0.88, top=0.90, bottom=0.15)
+        self.canvas.draw()
 
     def reset_to_vi_mode(self):
         """

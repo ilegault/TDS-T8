@@ -1023,6 +1023,11 @@ class PowerProgrammerPanel:
 
         return times, temps
 
+    def get_temp_preview_with_blocks(self):
+        """Return (times, temps_k, blocks) for the enhanced preview graph."""
+        times, temps_k = self._compute_temp_preview()
+        return times, temps_k, list(self._blocks)
+
     def get_profile_ready(self):
         """
         Return True if the profile has at least one block AND

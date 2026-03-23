@@ -99,6 +99,13 @@ class DataAcquisition:
         self._acquisition_thread = None
         self._acquisition_callback = None
 
+        # Pressure interlock
+        self._interlock_callback = None
+        self._pressure_interlock_fired = False
+
+        # Latest all_readings cache (for get_last_readings())
+        self._last_all_readings = {}
+
         # Latest TC readings cache (thread-safe, for TempRampExecutor access)
         self._latest_tc_readings = {}
         self._tc_readings_lock = threading.Lock()
@@ -416,6 +423,26 @@ class DataAcquisition:
                     with self._tc_readings_lock:
                         self._latest_tc_readings = dict(tc_readings)
 
+                    # Cache all_readings for get_last_readings()
+                    self._last_all_readings = dict(all_readings)
+
+                    # ── Pressure interlock: >1e-4 Torr → emergency shutdown ──────
+                    PRESSURE_INTERLOCK_TORR = 1e-4
+                    for k, info in frg702_details.items():
+                        if isinstance(info, dict):
+                            pval = info.get('pressure')
+                        elif isinstance(info, float):
+                            pval = info
+                        else:
+                            pval = None
+                        if pval is not None and isinstance(pval, float) and pval > PRESSURE_INTERLOCK_TORR:
+                            if not self._pressure_interlock_fired:
+                                self._pressure_interlock_fired = True
+                                print(f"[INTERLOCK] Pressure {pval:.2e} Torr exceeds {PRESSURE_INTERLOCK_TORR:.0e} Torr limit!")
+                                if self._interlock_callback:
+                                    self._interlock_callback(pval)
+                            break
+
                     # Safety check
                     if self.safety_monitor and tc_readings:
                         safe = self.safety_monitor.check_limits(tc_readings)
@@ -478,6 +505,17 @@ class DataAcquisition:
     def is_running(self):
         """Check if acquisition is currently running."""
         return self._acquisition_running
+
+    def set_pressure_interlock_callback(self, fn):
+        """Register fn(pressure_torr) called when pressure exceeds 1e-4 Torr."""
+        self._interlock_callback = fn
+
+    def reset_pressure_interlock(self):
+        self._pressure_interlock_fired = False
+
+    def get_last_readings(self):
+        """Return the most recent all_readings dict (thread-safe copy)."""
+        return dict(self._last_all_readings)
 
     def update_readers(self, tc_reader=None, frg702_reader=None,
                        ps_controller=None, config=None):

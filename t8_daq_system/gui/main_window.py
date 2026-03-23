@@ -1076,6 +1076,9 @@ class MainWindow:
             on_panel_closed_callback=self._deactivate_power_programmer
         )
 
+        # Build manual nudge sub-panel below the programmer panel
+        self._build_manual_nudge_panel(self._programmer_panel_frame)
+
         # Wire up the TC name provider so the TempRamp dropdown populates
         if hasattr(self._programmer_panel, 'set_tc_names_callback'):
             self._programmer_panel.set_tc_names_callback(
@@ -1129,8 +1132,12 @@ class MainWindow:
                 self._programmer_pid_tc = self._programmer_panel.get_selected_tc_name()
 
             if panel_mode == "TempRamp":
-                times, temps_k = self._programmer_panel._compute_temp_preview()
-                self._programmer_preview_plot.update_temp_preview(times, temps_k)
+                if hasattr(self._programmer_panel, 'get_temp_preview_with_blocks'):
+                    times, temps_k, blocks = self._programmer_panel.get_temp_preview_with_blocks()
+                else:
+                    times, temps_k = self._programmer_panel._compute_temp_preview()
+                    blocks = None
+                self._programmer_preview_plot.update_temp_preview(times, temps_k, blocks)
                 self._programmer_preview_data = (times, temps_k, None)
             else:
                 times, voltages, currents = self._programmer_panel.get_preview_data()
@@ -1148,6 +1155,10 @@ class MainWindow:
                 self._run_ramp_btn_visible = False
 
     def _deactivate_power_programmer(self):
+        if getattr(self, '_nudge_update_job', None):
+            self.root.after_cancel(self._nudge_update_job)
+            self._nudge_update_job = None
+
         # SAFETY: If a ramp is currently running, stop it safely first
         if self._programmer_ramp_running:
             self._stop_programmer_ramp_safe()
@@ -1478,6 +1489,11 @@ class MainWindow:
         if self.daq is not None:
             self.daq.temp_ramp_executor = self._temp_ramp_executor
 
+        # Register Hold stability callback — enables the QMS/Ramp button when ready
+        def _on_hold_stable():
+            self.root.after(0, self._start_qms_gate_poll)
+        self._temp_ramp_executor.set_hold_stable_callback(_on_hold_stable)
+
         if not self._temp_ramp_executor.start():
             messagebox.showerror("Start Error", "Failed to start Temp Ramp executor.")
             self._temp_ramp_executor = None
@@ -1488,6 +1504,10 @@ class MainWindow:
         self._programmer_ramp_running = True
         self.run_ramp_btn.config(text="Stop Program")
         self.status_var.set("Temp Ramp Running")
+
+        # Show QMS launch button panel (below the programmer panel area)
+        if hasattr(self, '_programmer_panel_frame'):
+            self._build_qms_ramp_button(self._programmer_panel_frame)
 
         # Clear any programmer overlay from ps plot — TempRamp is PID-driven
         # and has no predetermined voltage profile to preview
@@ -2164,6 +2184,9 @@ class MainWindow:
         # Ensure temp_ramp_executor slot is present (set by _start_temp_ramp_program when active)
         self.daq.temp_ramp_executor = None
 
+        # Wire pressure interlock callback
+        self.daq.set_pressure_interlock_callback(self._on_pressure_interlock)
+
         def on_new_data(timestamp, all_readings, tc_readings, frg702_details,
                         safety_shutdown=False, raw_voltages=None):
             self.data_buffer.add_reading(all_readings)
@@ -2622,6 +2645,266 @@ class MainWindow:
         except Exception as e:
             print(f"Failed to initialize analog PS controller: {e}")
             return False
+
+    # ── Feature 3: Manual Voltage Nudge ──────────────────────────────────────
+
+    def _build_manual_nudge_panel(self, parent_frame):
+        """
+        Build a 'Manual Voltage Nudge' sub-panel inside parent_frame.
+        Lets user bump voltage by a configurable step (default 0.001 V).
+        Visible whenever Power Programmer is active; respects Safe Mode clamping.
+        """
+        import tkinter as _tk
+        from tkinter import ttk as _ttk
+
+        frame = _ttk.LabelFrame(parent_frame, text="Manual Voltage Nudge")
+        frame.pack(fill=_tk.X, padx=4, pady=2)
+
+        row = _ttk.Frame(frame)
+        row.pack(fill=_tk.X, padx=4, pady=2)
+
+        _ttk.Label(row, text="Current V:").pack(side=_tk.LEFT)
+        self._nudge_v_var = _tk.StringVar(value="0.000 V")
+        _ttk.Label(row, textvariable=self._nudge_v_var, width=10,
+                   foreground='blue').pack(side=_tk.LEFT, padx=4)
+
+        _ttk.Label(row, text="Step (V):").pack(side=_tk.LEFT, padx=(12, 0))
+        self._nudge_step_var = _tk.StringVar(value="0.001")
+        step_entry = _ttk.Entry(row, textvariable=self._nudge_step_var, width=7)
+        step_entry.pack(side=_tk.LEFT, padx=2)
+
+        _ttk.Button(row, text="\u2212", width=3,
+                    command=lambda: self._nudge_voltage(-1)).pack(side=_tk.LEFT, padx=2)
+        _ttk.Button(row, text="+", width=3,
+                    command=lambda: self._nudge_voltage(+1)).pack(side=_tk.LEFT, padx=2)
+
+        self._nudge_frame = frame
+        self._nudge_update_job = None
+        self._start_nudge_readback_loop()
+
+    def _nudge_voltage(self, direction):
+        """Apply one nudge step in the given direction (+1 or -1)."""
+        try:
+            step = float(self._nudge_step_var.get())
+        except ValueError:
+            return
+        if step <= 0:
+            return
+
+        ps = getattr(self, 'ps_controller', None)
+        if ps is None:
+            return
+
+        current_v = ps.get_voltage_setpoint() or 0.0
+        target_v  = current_v + direction * step
+
+        # Safe mode clamp: 1 V ceiling
+        safe_mode = getattr(self, '_programmer_safe_mode', False)
+        if safe_mode:
+            target_v = min(target_v, 1.0)
+
+        target_v = max(0.0, min(target_v, 6.0))
+        ps.set_voltage(target_v)
+        self._nudge_v_var.set(f"{target_v:.3f} V")
+
+    def _start_nudge_readback_loop(self):
+        """Poll the power supply setpoint every 500ms and update the nudge display."""
+        def _poll():
+            ps = getattr(self, 'ps_controller', None)
+            if ps is not None:
+                v = ps.get_voltage_setpoint()
+                if v is not None:
+                    self._nudge_v_var.set(f"{v:.3f} V")
+            if getattr(self, '_programmer_mode_active', False):
+                self._nudge_update_job = self.root.after(500, _poll)
+        _poll()
+
+    # ── Feature 4: Start QMS + Begin Ramp button ─────────────────────────────
+
+    def _build_qms_ramp_button(self, parent_frame):
+        """
+        Build the gated 'Start QMS + Begin Ramp' button.
+        Stays disabled until: (1) Hold is stable AND (2) pressure < 1e-4 Torr.
+        """
+        self._qms_btn_frame = ttk.Frame(parent_frame)
+        self._qms_btn_frame.pack(fill=tk.X, padx=4, pady=4)
+
+        self._qms_status_var = tk.StringVar(value="Waiting: temperature not yet stable")
+        ttk.Label(self._qms_btn_frame, textvariable=self._qms_status_var,
+                  foreground='gray').pack(side=tk.LEFT, padx=4)
+
+        self._qms_ramp_btn = ttk.Button(
+            self._qms_btn_frame,
+            text="\U0001f680  Start QMS + Begin Ramp",
+            state='disabled',
+            command=self._on_qms_ramp_start
+        )
+        self._qms_ramp_btn.pack(side=tk.RIGHT, padx=4)
+        self._qms_btn_gate_job = None
+        self._qms_gate_active = False
+
+    def _start_qms_gate_poll(self):
+        """Begin polling every 2s to check if the QMS/Ramp button should be enabled."""
+        self._qms_gate_active = True
+        self._poll_qms_gate()
+
+    def _poll_qms_gate(self):
+        if not self._qms_gate_active:
+            return
+
+        hold_stable = False
+        if getattr(self, '_temp_ramp_executor', None) is not None:
+            hold_stable = getattr(self._temp_ramp_executor, '_hold_stable', False)
+
+        pressure_ok = False
+        pressure_val = None
+        if hasattr(self, 'daq') and self.daq is not None:
+            try:
+                readings = self.daq.get_last_readings() if hasattr(self.daq, 'get_last_readings') else {}
+                for k, v in readings.items():
+                    if ('FRG' in k or 'pressure' in k.lower()) and v is not None and isinstance(v, float):
+                        pressure_val = v
+                        break
+            except Exception:
+                pass
+
+        if pressure_val is not None:
+            pressure_ok = pressure_val < 1e-4
+        else:
+            pressure_ok = False
+
+        ready = hold_stable and pressure_ok
+
+        btn = getattr(self, '_qms_ramp_btn', None)
+        status_var = getattr(self, '_qms_status_var', None)
+
+        if btn and status_var:
+            if ready:
+                btn.config(state='normal')
+                status_var.set("\u2705 Ready \u2014 temperature stable, pressure OK")
+                for widget in self._qms_btn_frame.winfo_children():
+                    if isinstance(widget, ttk.Label):
+                        widget.config(foreground='green')
+            else:
+                btn.config(state='disabled')
+                reasons = []
+                if not hold_stable:
+                    reasons.append("temperature not stable")
+                if not pressure_ok:
+                    if pressure_val is None:
+                        reasons.append("no pressure reading")
+                    else:
+                        reasons.append(f"pressure too high ({pressure_val:.1e} Torr)")
+                status_var.set("Waiting: " + ", ".join(reasons))
+                for widget in self._qms_btn_frame.winfo_children():
+                    if isinstance(widget, ttk.Label):
+                        widget.config(foreground='gray')
+
+        self._qms_btn_gate_job = self.root.after(2000, self._poll_qms_gate)
+
+    def _on_qms_ramp_start(self):
+        """
+        Simultaneous QMS + Ramp launch.
+        1. Trigger MASsoft Start via pyautogui keyboard shortcut.
+        2. Write RAMP_START event to DataLogger CSV.
+        3. Advance TempRampExecutor to the next block (the Ramp block).
+        """
+        import datetime
+        try:
+            import pyautogui
+            import time as _time
+
+            windows = pyautogui.getWindowsWithTitle("MASsoft")
+            if not windows:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "MASsoft Not Found",
+                    "Could not find a window titled 'MASsoft'. "
+                    "Make sure MASsoft is open with your scan tree loaded, then try again."
+                )
+                return
+            win = windows[0]
+            win.activate()
+            _time.sleep(0.15)
+            pyautogui.press('f5')
+
+        except ImportError:
+            from tkinter import messagebox
+            messagebox.showerror("Missing Library",
+                                 "pyautogui is not installed. Run: pip install pyautogui")
+            return
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("QMS Start Error", f"Could not start MASsoft:\n{e}")
+            return
+
+        # Log RAMP_START event with ISO timestamp
+        ts = datetime.datetime.now().isoformat()
+        if hasattr(self, 'logger') and self.logger is not None:
+            if self.logger.is_logging():
+                self.logger.log_event("RAMP_START", ts)
+
+        # Disable the button immediately — one-shot launch
+        if hasattr(self, '_qms_ramp_btn'):
+            self._qms_ramp_btn.config(state='disabled', text="QMS + Ramp Running")
+        self._qms_gate_active = False
+
+        # Signal executor to advance past current Hold block to next Ramp block
+        if getattr(self, '_temp_ramp_executor', None) is not None:
+            if hasattr(self._temp_ramp_executor, 'advance_to_next_block'):
+                self._temp_ramp_executor.advance_to_next_block()
+
+        self.status_var.set("TDS Ramp Running \u2014 QMS active")
+
+    # ── Feature 5: Emergency pressure interlock ───────────────────────────────
+
+    def _on_pressure_interlock(self, pressure_torr):
+        """Emergency: pressure exceeded 1e-4 Torr. Stop QMS and power supply."""
+        def _shutdown():
+            # 1. Stop power supply immediately
+            ps = getattr(self, 'ps_controller', None)
+            if ps is not None:
+                try:
+                    ps.set_voltage(0.0)
+                    ps.output_off()
+                except Exception:
+                    pass
+
+            # 2. Stop ramp executor
+            if getattr(self, '_temp_ramp_executor', None) is not None:
+                self._temp_ramp_executor.stop()
+
+            # 3. Abort MASsoft scan via pyautogui (Escape key = Abort in MASsoft toolbar)
+            try:
+                import pyautogui, time as _t
+                windows = pyautogui.getWindowsWithTitle("MASsoft")
+                if windows:
+                    windows[0].activate()
+                    _t.sleep(0.1)
+                    pyautogui.press('escape')
+            except Exception:
+                pass
+
+            # 4. Log the event
+            if hasattr(self, 'logger') and self.logger and self.logger.is_logging():
+                self.logger.log_event("EMERGENCY_PRESSURE_SHUTDOWN",
+                                      f"{pressure_torr:.2e} Torr")
+
+            # 5. Disable QMS gate button
+            self._qms_gate_active = False
+            if hasattr(self, '_qms_ramp_btn'):
+                self._qms_ramp_btn.config(state='disabled', text="SHUTDOWN \u2014 Pressure")
+
+            # 6. Alert the user
+            from tkinter import messagebox
+            messagebox.showerror(
+                "\u26a0\ufe0f PRESSURE INTERLOCK",
+                f"Pressure reached {pressure_torr:.2e} Torr \u2014 exceeds 1\u00d710\u207b\u2074 Torr limit.\n\n"
+                "Power supply OFF.\nMASsoft scan aborted.\nCheck vacuum system before restarting."
+            )
+            self.status_var.set(f"INTERLOCK: Pressure {pressure_torr:.2e} Torr \u2014 ALL STOPPED")
+
+        self.root.after(0, _shutdown)
 
     def _on_close(self):
         self.is_running = False

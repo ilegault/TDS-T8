@@ -10,7 +10,7 @@ import os
 
 
 # ── Soft-Start / Phase 1 constants ────────────────────────────────────────────
-SOFT_START_THRESHOLD_C    = 200.0   # °C — switch from soft-start to PID above this
+SOFT_START_THRESHOLD_C    = 150.0   # °C — TDS preheat target; soft-start hands off to PID Hold here
 SOFT_START_VOLTAGE_STEP   = 0.010   # V per tick — how fast voltage climbs in Phase 1
 SOFT_START_CURRENT_LIMIT  = 120.0   # A — pause voltage increase if current exceeds this
 SOFT_START_RATE_CEILING   = 3.0     # K/min — cut voltage if heating too fast in Phase 1

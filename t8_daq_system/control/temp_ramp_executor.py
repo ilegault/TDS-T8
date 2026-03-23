@@ -29,6 +29,9 @@ DAC_MAX_VOLTS        = 5.0      # T8 DAC output ceiling (0–5 V)
 MIN_RAMP_RATE_K_PER_MIN = 0.05  # Safety floor — ignore noise below this
 PRACTICE_THERMAL_MASS   = 120.0  # Seconds for simulated temperature to respond
 
+HOLD_STABILITY_WINDOW_C   = 5.0    # ±°C band for "stable" detection
+HOLD_STABILITY_DURATION_S = 60.0   # seconds inside band to declare stable
+
 # ── Debug / Safety Configuration ─────────────────────────────────────────────
 # Set DEBUG_TEMP_RAMP = True to print PID internals every tick to the terminal.
 # Set to False before real hardware runs if terminal output becomes too verbose.
@@ -132,6 +135,14 @@ class TempRampExecutor:
         self._smoothed_dT_dt = 0.0    # K/min, low-pass filtered
         self._prev_voltage_output = 0.0  # for slew-rate limiting in Phase 2
 
+        # ── Hold stability tracking (for TDS "ready to ramp" gate) ────────────
+        self._hold_stable = False          # True once temp held ±5°C for 60s
+        self._hold_stable_start = None     # time.time() when window first entered
+        self._hold_stable_callback = None  # callable() → fired once on first stable
+
+        # ── Manual block force-advance (QMS launch button) ────────────────────
+        self._force_advance_block = False
+
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def load_blocks(self, blocks: list) -> bool:
@@ -191,6 +202,13 @@ class TempRampExecutor:
             self._smoothed_dT_dt = 0.0
             self._prev_voltage_output = 0.0
 
+            # Reset Hold stability state
+            self._hold_stable = False
+            self._hold_stable_start = None
+
+            # Reset force-advance flag
+            self._force_advance_block = False
+
             # Initialise practice temperature from live reading or default to 20°C
             if self.practice_mode and self._practice_temp_k is None:
                 tc_k = self._get_temp_fn()
@@ -229,6 +247,24 @@ class TempRampExecutor:
     def get_run_log(self) -> list:
         """Return a copy of the per-tick run log."""
         return list(self._run_log)
+
+    def set_hold_stable_callback(self, fn):
+        """
+        Register a zero-argument callable that fires once when a Hold block
+        achieves ±5 °C stability for 60 consecutive seconds.
+        fn is called from the PID thread; caller must route to main thread via root.after().
+        """
+        self._hold_stable_callback = fn
+
+    def advance_to_next_block(self):
+        """
+        Force-advance to the next block immediately.
+        Used by the QMS/Ramp button to skip the remainder of a Hold block
+        and begin the Ramp block the moment the user clicks the launch button.
+        Thread-safe: sets a flag read by _run_loop.
+        """
+        with self._lock:
+            self._force_advance_block = True
 
     # ── Private: two-phase voltage helpers ────────────────────────────────────
 
@@ -418,6 +454,34 @@ class TempRampExecutor:
 
                 if not self.practice_mode:
                     self._feedforward.update(current_temp_c, voltage_cmd_v)
+
+            # ── 9b. Hold stability check (TDS preheat gate) ───────────────────
+            if self._blocks[current_block_idx].get('type') == 'Hold':
+                in_band = abs(current_temp_c - (setpoint_k - 273.15)) <= HOLD_STABILITY_WINDOW_C
+                if in_band:
+                    if self._hold_stable_start is None:
+                        self._hold_stable_start = loop_start
+                    elif (not self._hold_stable
+                          and (loop_start - self._hold_stable_start) >= HOLD_STABILITY_DURATION_S):
+                        self._hold_stable = True
+                        print(f"[TempRamp] Hold STABLE at {current_temp_c:.1f}°C for {HOLD_STABILITY_DURATION_S}s")
+                        if self._hold_stable_callback:
+                            self._hold_stable_callback()
+                else:
+                    # Left the band — reset timer
+                    self._hold_stable_start = None
+            else:
+                # Not a Hold block — reset stability state for next Hold
+                self._hold_stable = False
+                self._hold_stable_start = None
+
+            # ── 9c. Force-advance check (QMS launch button) ───────────────────
+            with self._lock:
+                if self._force_advance_block:
+                    self._force_advance_block = False
+                    print("[TempRamp] Force-advancing to next block (QMS launch)")
+                    # Trigger normal block-advancement on this tick
+                    block_start_time = loop_start - block['duration_sec']
 
             # ── 10. Convert voltage_cmd_v to DAC voltages (0–5 V range) ───────
             #
