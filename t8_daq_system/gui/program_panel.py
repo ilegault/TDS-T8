@@ -5,7 +5,7 @@ PURPOSE: Unified Program Mode UI for the block-based editor.
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from ..control.program_block import StableHoldBlock, TempRampBlock
+from ..control.program_block import VoltageRampBlock, StableHoldBlock, TempRampBlock
 from ..control.program_executor import ProgramExecutor
 
 
@@ -167,10 +167,6 @@ class ProgramPanel:
         self._blocks = []
         self._entry_mode = 'Rate'  # 'Rate' or 'TimeTarget'
 
-        # Block 1 is always a temperature ramp (PID drives voltage to hit the target)
-        default_tc = self._tc_names[0] if self._tc_names else "TC_1"
-        self._blocks.append(TempRampBlock(rate_k_per_min=1.0, end_temp_k=500.0, tc_name=default_tc))
-
         self._build_gui()
 
     def _build_gui(self):
@@ -185,7 +181,7 @@ class ProgramPanel:
 
         self._add_type_var = tk.StringVar(value="Stable Hold")
         add_cb = ttk.Combobox(toolbar, textvariable=self._add_type_var,
-                              values=["Stable Hold", "Temp Ramp"], state="readonly", width=12)
+                              values=["Linear Voltage Ramp", "Stable Hold", "Temp Ramp"], state="readonly", width=12)
         add_cb.pack(side=tk.LEFT, padx=2)
 
         ttk.Button(toolbar, text="Add Block", command=self._add_block).pack(side=tk.LEFT, padx=2)
@@ -259,7 +255,9 @@ class ProgramPanel:
 
     def _add_block(self):
         btype = self._add_type_var.get()
-        if btype == "Stable Hold":
+        if btype == "Linear Voltage Ramp":
+            self._blocks.append(VoltageRampBlock(0.0, 1.0, 60.0))
+        elif btype == "Stable Hold":
             self._blocks.append(StableHoldBlock(293.15, 2.0, 60.0))
         else:
             default_tc = self._tc_names[0] if self._tc_names else "TC_1"
@@ -270,9 +268,6 @@ class ProgramPanel:
             self._on_change()
 
     def _delete_block(self, idx):
-        if idx == 0:
-            messagebox.showwarning("Warning", "Block 1 cannot be deleted")
-            return
         del self._blocks[idx]
         self._refresh_list()
         self._update_pid_status()
@@ -326,8 +321,7 @@ class ProgramPanel:
         ttk.Label(row, text=summary).pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
 
         ttk.Button(row, text="Edit", width=6, command=lambda idx=i: self._edit_block(idx)).pack(side=tk.RIGHT, padx=2)
-        if i > 0:
-            ttk.Button(row, text="Del", width=6, command=lambda idx=i: self._delete_block(idx)).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(row, text="Del", width=6, command=lambda idx=i: self._delete_block(idx)).pack(side=tk.RIGHT, padx=2)
 
     def _on_preview(self):
         if not self.preview_plot:
@@ -364,21 +358,15 @@ class ProgramPanel:
     def _update_pid_status(self):
         """Refresh the PID-ready indicator and live TC reading."""
         if not self._blocks:
-            self._pid_status_label.config(text="PID: Not Ready — no blocks", foreground='red')
+            self._pid_status_label.config(text="Program: Not Ready — no blocks", foreground='red')
             self._tc_live_label.config(text="")
             return
 
-        # Collect TC names used by temp_ramp blocks
+        # Show live readings for any TC used by temp_ramp blocks (optional)
         tc_names_used = [b.tc_name for b in self._blocks if hasattr(b, 'tc_name')]
-        if not tc_names_used:
-            self._pid_status_label.config(text="PID: Not Ready — no Temp Ramp block", foreground='orange')
-            self._tc_live_label.config(text="")
-            return
-
-        # Show live readings for each TC in use
         live_parts = []
-        if self._get_tc_temp_k is not None:
-            for tc in dict.fromkeys(tc_names_used):  # unique, ordered
+        if tc_names_used and self._get_tc_temp_k is not None:
+            for tc in dict.fromkeys(tc_names_used):
                 try:
                     temp_k = self._get_tc_temp_k(tc)
                     unit = self._get_unit()
@@ -390,10 +378,8 @@ class ProgramPanel:
                 except Exception:
                     live_parts.append(f"{tc}: ---")
 
-        tc_str = "  |  ".join(f"TC: {tc}" for tc in dict.fromkeys(tc_names_used))
-        self._pid_status_label.config(
-            text=f"PID Ready — {tc_str}", foreground='green'
-        )
+        block_summary = f"{len(self._blocks)} block{'s' if len(self._blocks) != 1 else ''}"
+        self._pid_status_label.config(text=f"Program Ready — {block_summary}", foreground='green')
         self._tc_live_label.config(
             text=("  " + "  |  ".join(live_parts)) if live_parts else ""
         )

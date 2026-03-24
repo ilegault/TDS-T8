@@ -88,7 +88,6 @@ from t8_daq_system.hardware.thermocouple_reader import ThermocoupleReader
 from t8_daq_system.hardware.xgs600_controller import XGS600Controller
 from t8_daq_system.hardware.frg702_reader import FRG702Reader, FRG702AnalogReader
 from t8_daq_system.hardware.keysight_analog_controller import KeysightAnalogController
-from t8_daq_system.control.ramp_executor import RampExecutor
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
 from t8_daq_system.data.data_buffer import DataBuffer
 from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
@@ -104,8 +103,6 @@ from t8_daq_system.core.data_acquisition import DataAcquisition
 from t8_daq_system.settings.app_settings import AppSettings
 from t8_daq_system.gui.power_programmer_panel import PowerProgrammerPanel
 from t8_daq_system.gui.programmer_preview_plot import ProgrammerPreviewPlot
-from t8_daq_system.control.temp_ramp_pid import TempRampHistory
-from t8_daq_system.control.temp_ramp_executor import TempRampExecutor
 
 # Safe Mode limits for the Voltage/Current Power Programmer (not TempRamp)
 _PROGRAMMER_SAFE_MODE_MAX_VOLTS = 1.0   # V
@@ -279,11 +276,6 @@ class MainWindow:
         profiler.checkpoint("Analog PS controller placeholder set")
 
         profiler.section("Control Systems Initialization")
-        profiler.checkpoint("Creating RampExecutor...")
-        # Initialize ramp executor and safety monitor
-        self.ramp_executor = RampExecutor()
-        profiler.checkpoint("RampExecutor created")
-
         # Unified Program Mode
         self._program_executor = ProgramExecutor(
             power_supply=None,
@@ -765,6 +757,11 @@ class MainWindow:
         )
         self.refresh_gui_btn.pack(side=tk.LEFT, padx=5)
 
+        self.pid_log_btn = ttk.Button(
+            control_frame, text="PID Log", command=self._open_pid_log_viewer
+        )
+        self.pid_log_btn.pack(side=tk.LEFT, padx=5)
+
         self.run_ramp_btn = ttk.Button(
             control_frame, text="Run Program", command=self._on_run_program
         )
@@ -977,7 +974,6 @@ class MainWindow:
             # Set up Mock Power Supply
             self.ps_controller = MockPowerSupplyController()
             self.safety_monitor.set_power_supply(self.ps_controller)
-            self.ramp_executor.set_power_supply(self.ps_controller)
             if self._program_executor:
                 self._program_executor.set_power_supply(self.ps_controller)
                 self._program_executor.practice_mode = True
@@ -1187,7 +1183,58 @@ class MainWindow:
             self.status_var.set("Program Complete")
             self._programmer_ramp_running = False
             self.run_ramp_btn.config(text="Run Program")
+            self._show_pid_run_summary()
         self.root.after(0, _gui_update)
+
+    def _show_pid_run_summary(self):
+        """Show a post-run PID performance summary and offer to update settings gains."""
+        executor = getattr(self, '_program_executor', None)
+        if executor is None:
+            return
+        record = getattr(executor, '_last_run_record', None)
+        if record is None:
+            return
+
+        overshoot = record.get('overshoot_k', 0.0)
+        oscillations = record.get('oscillation_count', 0)
+        settling = record.get('settling_time_sec')
+        kp_used = record.get('kp_used', self._app_settings.pid_kp)
+        ki_used = record.get('ki_used', self._app_settings.pid_ki)
+        kd_used = record.get('kd_used', self._app_settings.pid_kd)
+
+        # Build suggestion: if overshoot > 5K or oscillations > 4, recommend reducing gains
+        suggest_kp, suggest_ki, suggest_kd = kp_used, ki_used, kd_used
+        notes = []
+        if overshoot > 5.0:
+            suggest_kp = round(kp_used * 0.7, 5)
+            suggest_ki = round(ki_used * 0.6, 5)
+            notes.append(f"Overshoot was {overshoot:.1f} K — reducing Kp and Ki")
+        if oscillations > 4:
+            suggest_kd = round(kd_used * 1.3, 5)
+            notes.append(f"{oscillations} oscillations detected — increasing Kd")
+        if not notes:
+            notes.append("Run looked stable — gains unchanged")
+
+        settling_str = f"{settling:.0f} s" if settling is not None else "did not settle"
+        note_str = "\n".join(notes)
+
+        msg = (
+            f"Run Complete — PID Performance Summary\n\n"
+            f"  Overshoot:      {overshoot:.2f} K\n"
+            f"  Oscillations:   {oscillations}\n"
+            f"  Settling time:  {settling_str}\n\n"
+            f"Gains used:  Kp={kp_used}  Ki={ki_used}  Kd={kd_used}\n\n"
+            f"Analysis:\n{note_str}\n\n"
+            f"Suggested for next run:\n"
+            f"  Kp={suggest_kp}  Ki={suggest_ki}  Kd={suggest_kd}\n\n"
+            f"Apply suggested gains to Settings?"
+        )
+
+        if messagebox.askyesno("PID Run Summary", msg):
+            self._app_settings.pid_kp = suggest_kp
+            self._app_settings.pid_ki = suggest_ki
+            self._app_settings.pid_kd = suggest_kd
+            self._app_settings.save()
 
     def _on_program_status(self, status):
         idx = status['block_index']
@@ -1243,10 +1290,11 @@ class MainWindow:
 
     def _start_programmer_ramp(self):
         """Start executing the unified block-based program."""
-        if not self._programmer_panel:
-            return
+        if self._programmer_panel:
+            blocks = self._programmer_panel.get_blocks()
+        else:
+            blocks = list(self._programmer_blocks) if self._programmer_blocks else []
 
-        blocks = self._programmer_panel.get_blocks()
         if not blocks:
             messagebox.showwarning("No Program", "Please add at least one block.")
             return
@@ -1264,7 +1312,17 @@ class MainWindow:
         # Load and start
         self._program_executor.load_program(blocks)
         self._program_executor.practice_mode = self._practice_mode
-        
+
+        # Apply PID gains from AppSettings
+        for block in blocks:
+            if block.block_type == "temp_ramp":
+                self._program_executor._pid.update_gains(
+                    self._app_settings.pid_kp,
+                    self._app_settings.pid_ki,
+                    self._app_settings.pid_kd,
+                )
+                break
+
         if self._program_executor.start():
             self._programmer_ramp_running = True
             self.run_ramp_btn.config(text="Stop Program")
@@ -1274,268 +1332,15 @@ class MainWindow:
 
     def _stop_programmer_ramp_safe(self):
         """Stop the running program safely."""
-        if self._program_executor:
+        if self._program_executor and self._program_executor.is_running():
             self._program_executor.stop()
         self._programmer_ramp_running = False
         self.run_ramp_btn.config(text="Run Program")
         self.status_var.set("Program Stopped")
-        print("[Program] Stopped")
-
-    # The following methods are kept as dead code for now (Task 7e)
-    def _DEPRECATED_start_programmer_ramp_original(self):
-        # ... (Old logic using RampExecutor)
-        pass
-
-    def _start_temp_ramp_program(self):
-        """
-        Start a TempRamp PID run using TempRampExecutor.
-
-        Gets blocks from panel (or stored), queries history for PID gains,
-        creates a fresh executor, wires practice-mode TC simulation, and starts.
-        """
-        # Resolve blocks from panel or stored state
-        if self._programmer_panel:
-            blocks = list(self._programmer_panel._blocks)
-        else:
-            blocks = list(self._programmer_blocks)
-
-        if not blocks:
-            messagebox.showwarning("No Profile", "Build a valid Temp Ramp program first.")
-            return
-
-        if not hasattr(self, 'ps_controller') or self.ps_controller is None:
-            messagebox.showerror("No Power Supply",
-                                 "Power supply is not connected. Cannot run program.")
-            return
-
-        # Get suggested PID gains based on the first Ramp block's target rate
-        first_ramp = next((b for b in blocks if b['type'] == "Ramp"), None)
-        target_rate = float(first_ramp['rate_k_per_min']) if first_ramp else 1.0
-        gains = self._temp_ramp_history.suggest_gains(target_rate)
-        print(f"[TempRamp] Using gains: kp={gains['kp']}, ki={gains['ki']}, kd={gains['kd']}")
-
-        # Read safe test mode from programmer panel if available (legacy API guard)
-        _safe_test = (
-            self._programmer_panel.get_safe_test_mode()
-            if self._programmer_panel is not None and hasattr(self._programmer_panel, 'get_safe_test_mode')
-            else False
-        )
-
-        # Resolve which TC the PID should read (legacy API guard)
-        if self._programmer_panel is not None and hasattr(self._programmer_panel, 'get_selected_tc_name'):
-            _selected_tc = self._programmer_panel.get_selected_tc_name()
-        else:
-            _selected_tc = self._programmer_pid_tc if self._programmer_pid_tc else ""
-        if not _selected_tc or _selected_tc in ["(no TCs found)", "(select TC...)"]:
-            messagebox.showerror(
-                "No TC Selected",
-                "Please select a thermocouple for the PID loop before running."
-            )
-            return
-
-        print(f"[TempRamp] PID will read TC: '{_selected_tc}'")
-
-        # Create a fresh executor for this run
-        self._temp_ramp_executor = TempRampExecutor(
-            power_supply=self.ps_controller,
-            get_temperature_celsius_fn=(
-                lambda: self.daq.get_tc_kelvin_by_name(_selected_tc) if self.daq else None
-            ),
-            history=self._temp_ramp_history,
-            on_status_callback=self._on_temp_ramp_status,
-            practice_mode=self._practice_mode,
-            safe_test_mode=_safe_test
-        )
-        self._temp_ramp_executor._pid.update_gains(
-            gains['kp'], gains['ki'], gains['kd']
-        )
-
-        if not self._temp_ramp_executor.load_blocks(blocks):
-            messagebox.showerror("Load Error", "Failed to validate Temp Ramp blocks.")
-            self._temp_ramp_executor = None
-            return
-
-        # Wire practice-mode TC simulation through DataAcquisition
-        if self.daq is not None:
-            self.daq.temp_ramp_executor = self._temp_ramp_executor
-
-        # Register Hold stability callback — enables the QMS/Ramp button when ready
-        def _on_hold_stable():
-            self.root.after(0, self._start_qms_gate_poll)
-        self._temp_ramp_executor.set_hold_stable_callback(_on_hold_stable)
-
-        if not self._temp_ramp_executor.start():
-            messagebox.showerror("Start Error", "Failed to start Temp Ramp executor.")
-            self._temp_ramp_executor = None
-            if self.daq is not None:
-                self.daq.temp_ramp_executor = None
-            return
-
-        self._programmer_ramp_running = True
-        self.run_ramp_btn.config(text="Stop Program")
-        self.status_var.set("Temp Ramp Running")
-
-        # Show QMS launch button panel (below the programmer panel area)
-        if hasattr(self, '_programmer_panel_frame'):
-            self._build_qms_ramp_button(self._programmer_panel_frame)
-
-        # Clear any programmer overlay from ps plot — TempRamp is PID-driven
-        # and has no predetermined voltage profile to preview
-        for _plot in getattr(self, "_live_plots", []):
-            if hasattr(_plot, "plot_type") and _plot.plot_type == "ps":
-                _plot.set_programmer_overlay([], [], [])
-                break
-
-    def _on_temp_ramp_status(self, status: dict):
-        """
-        Receive per-tick status from TempRampExecutor (called from background thread).
-
-        Routes all GUI updates to the main thread via root.after().
-        """
-        # Handle TC missing error
-        if status.get('tc_missing_error'):
-            def _show_error():
-                messagebox.showerror(
-                    "Thermocouple Error",
-                    "No thermocouple reading for 5 consecutive ticks.\n"
-                    "Temp Ramp stopped for safety."
-                )
-                self._programmer_ramp_running = False
-                self.run_ramp_btn.config(text="Run Program")
-                self.status_var.set("Temp Ramp — TC Error")
-            self.root.after(0, _show_error)
-            return
-
-        # Build status string
-        warning_suffix = " [SAT WARN]" if status.get('saturated_warning') else ""
-
-        # Determine display unit from the global TC unit setting
-        _use_celsius = getattr(self, 't_unit_var', None) and self.t_unit_var.get() == 'C'
-
-        if _use_celsius:
-            _t_disp   = status['current_temp_k'] - 273.15
-            _sp_disp  = status['setpoint_k'] - 273.15
-            _unit_str = "\u00b0C"
-        else:
-            _t_disp   = status['current_temp_k']
-            _sp_disp  = status['setpoint_k']
-            _unit_str = "K"
-
-        status_text = (
-            f"TempRamp | Block {status['block_index']+1}/{status['total_blocks']} | "
-            f"T={_t_disp:.1f} {_unit_str} | "
-            f"SP={_sp_disp:.1f} {_unit_str} | "
-            f"PID={status['pid_output']:.3f}{warning_suffix}"
-        )
-
-        def _update():
-            _display_text = status_text
-            if status.get('safe_test_mode'):
-                _display_text += "  [SAFE TEST MODE — 1V/9A]"
-            self.status_var.set(_display_text)
-
-            # Detect executor finishing naturally (no longer running)
-            if (self._temp_ramp_executor is not None
-                    and not self._temp_ramp_executor.is_running()
-                    and self._programmer_ramp_running):
-                self._programmer_ramp_running = False
-                self.run_ramp_btn.config(text="Run Program")
-                self.status_var.set("Temp Ramp Complete")
-                # Restore default plot state after TempRamp completes naturally
-                if hasattr(self, 'plot_ps'):
-                    self.plot_ps.set_legend_label_overrides({})
-                    self.plot_ps.update(['PS_Voltage', 'PS_Current'])
-                # Log achieved rate and overshoot to the CSV as a metadata comment line
-                if self.is_logging and hasattr(self, '_temp_ramp_executor') and self._temp_ramp_executor is not None:
-                    history = getattr(self._temp_ramp_executor, 'history', [])
-                    if history:
-                        last = history[-1]
-                        achieved_rate = last.get('rate_k_per_min', last.get('rate', None))
-                        overshoot = last.get('overshoot_k', last.get('overshoot', None))
-                        if self.logger and self.logger.is_logging():
-                            self.logger.file.write(
-                                f"#TEMPRAMP_RESULT: achieved_rate={achieved_rate:.3f} K/min, "
-                                f"overshoot={overshoot:.3f} K\n"
-                            )
-                            self.logger.file.flush()
-
-            # ── Feed V/I to power supply display ──────────────────────────────
-            # The status dict carries the PID's computed voltage setpoint and
-            # fixed current ceiling.  Push these under SEPARATE keys so they
-            # appear as distinct lines from the DAQ-monitored PS_Voltage / PS_Current.
-            _v_setpoint = status.get('voltage_setpoint_v', 0.0)
-            _i_cc_limit = status.get('current_limit_a', 0.0)
-
-            # Apply human-readable legend labels once (idempotent)
-            if hasattr(self, 'plot_ps'):
-                self.plot_ps.set_legend_label_overrides({
-                    'PS_Voltage':          'Voltage (V)',
-                    'PS_Current':          'Current (A)',
-                    'PS_Voltage_Setpoint': 'PID V Setpoint',
-                    'PS_CC_Limit':         'CC Limit (A)',
-                })
-
-            # Feed the embedded V/I plot inside the ramp panel if it exists
-            if (self._programmer_panel is not None
-                    and hasattr(self._programmer_panel, '_temp_ramp_panel')):
-                _rp = self._programmer_panel._temp_ramp_panel
-                if _rp is not None and hasattr(_rp, 'update_plot_data'):
-                    _rp.update_plot_data(_v_setpoint, _i_cc_limit)
-
-        self.root.after(0, _update)
-
-    def _stop_programmer_ramp_safe(self):
-        """
-        Safely stop the programmer ramp, following Keysight N5700 manual guidance.
-
-        Safe shutdown procedure:
-        1. Stop the ramp_executor thread (sets setpoint toward 0V).
-        2. Command 0V via DAC0, wait 500ms for supply to settle.
-        3. Command 0A via DAC1.
-        Do NOT abruptly de-assert the Enable/Analog pin while voltage is non-zero.
-        """
-        import time as _time
-
-        # ── TempRamp executor stop path ────────────────────────────────────────
-        if self._temp_ramp_executor is not None and self._temp_ramp_executor.is_running():
-            self._temp_ramp_executor.stop()
-            self._temp_ramp_executor = None
-            if hasattr(self, 'daq') and self.daq is not None:
-                self.daq.temp_ramp_executor = None
-            self._programmer_ramp_running = False
-            self.run_ramp_btn.config(text="Run Program")
-            self.status_var.set("Temp Ramp Stopped")
-            # Restore default legend and revert to standard 2-line plot
-            if hasattr(self, 'plot_ps'):
-                self.plot_ps.set_legend_label_overrides({})
-                self.plot_ps.update(['PS_Voltage', 'PS_Current'])
-            return
-
-        # ── Existing V/I ramp executor stop path ──────────────────────────────
-
-        # 1. Stop the executor thread
-        if self.ramp_executor.is_active():
-            self.ramp_executor.stop()
-
-        # 2. Command 0V and 0A explicitly as belt-and-suspenders
-        if hasattr(self, 'ps_controller') and self.ps_controller:
-            try:
-                self.ps_controller.set_voltage(0.0)
-                _time.sleep(0.5)  # Allow supply to ramp down
-                self.ps_controller.set_current(0.0)
-                _time.sleep(0.1)
-                if hasattr(self.ps_controller, 'output_off'):
-                    self.ps_controller.output_off()
-            except Exception as e:
-                messagebox.showwarning("Stop Warning", f"Error during safe stop: {e}")
-
-        # 3. Update UI and disable programmer simulation mode
-        self._programmer_ramp_running = False
-        if isinstance(self.ps_controller, MockPowerSupplyController):
-            self.ps_controller.programmer_active = False
-        self.run_ramp_btn.config(text="Run Program")
-
-        # Keep overlay visible but don't update start time (dotted lines stay)
+        # Restore default legend if it was modified during a run
+        if hasattr(self, 'plot_ps'):
+            self.plot_ps.set_legend_label_overrides({})
+            self.plot_ps.update(['PS_Voltage', 'PS_Current'])
 
     def _on_pressure_unit_change(self):
         """Handle pressure unit selection change."""
@@ -1885,9 +1690,9 @@ class MainWindow:
 
     def _handle_rampdown_start(self, message: str):
         """Handle ramp-down start on main thread."""
-        # Stop the user's ramp executor if running
-        if self.ramp_executor.is_active():
-            self.ramp_executor.stop()
+        # Stop program executor if running
+        if self._program_executor and self._program_executor.is_running():
+            self._program_executor.stop()
 
         # Update safety display
         self._update_safety_display(SafetyStatus.RAMPDOWN_ACTIVE)
@@ -1906,9 +1711,9 @@ class MainWindow:
         )
 
     def _handle_safety_shutdown(self):
-        # Stop ramp executor if active
-        if self.ramp_executor.is_active():
-            self.ramp_executor.stop()
+        # Stop program executor if running
+        if self._program_executor and self._program_executor.is_running():
+            self._program_executor.stop()
 
         # Directly shut down the power supply controller
         if self.ps_controller:
@@ -2054,11 +1859,9 @@ class MainWindow:
             frg702_reader=self.frg702_reader,
             ps_controller=self.ps_controller,
             safety_monitor=self.safety_monitor if not self._safety_triggered else None,
-            ramp_executor=self.ramp_executor,
+            program_executor=self._program_executor,
             practice_mode=self._practice_mode
         )
-        # Ensure temp_ramp_executor slot is present (set by _start_temp_ramp_program when active)
-        self.daq.temp_ramp_executor = None
 
         # Wire pressure interlock callback
         self.daq.set_pressure_interlock_callback(self._on_pressure_interlock)
@@ -2069,13 +1872,6 @@ class MainWindow:
             self._last_labjack_read_failed = read_failed
             if read_failed:
                 return
-
-            # Pull current PID setpoints directly from the executor (Task 5)
-            # and merge into all_readings so they stay in sync with sensors in the buffer.
-            executor = getattr(self, '_temp_ramp_executor', None)
-            if executor and executor.is_running():
-                all_readings['PS_Voltage_Setpoint'] = executor.current_voltage_setpoint
-                all_readings['PS_CC_Limit']         = executor.current_current_limit
 
             # Unified Program Mode: Add current block index to log (Task 7d)
             prog_executor = getattr(self, '_program_executor', None)
@@ -2107,13 +1903,6 @@ class MainWindow:
                 # labelled _rawV) so the log shows the full conversion chain:
                 #   physical TC wire → raw mV input → EF temperature conversion
                 #
-                # Pull current PID setpoints directly from the executor (Task 5)
-                # to ensure they are synchronized with the DAQ tick in the CSV.
-                executor = getattr(self, '_temp_ramp_executor', None)
-                if executor and executor.is_running():
-                    log_readings['PS_Voltage_Setpoint'] = executor.current_voltage_setpoint
-                    log_readings['PS_CC_Limit']         = executor.current_current_limit
-
                 # Unified Program Mode: Add current block index to CSV (Task 7d)
                 prog_executor = getattr(self, '_program_executor', None)
                 if prog_executor and prog_executor.is_running():
@@ -2139,9 +1928,6 @@ class MainWindow:
 
         self.log_btn.config(state='disabled')
         self.status_var.set("Stopped")
-
-        if self.ramp_executor.is_active():
-            self.ramp_executor.stop()
 
         if self.is_logging:
             self._on_toggle_logging()
@@ -2196,24 +1982,9 @@ class MainWindow:
             # Unified Program Mode: Add block index column (Task 7d)
             sensor_names += ['Block_Index']
 
-            # Append Power Programmer / TempRamp metadata if a profile is loaded
+            # Append Power Programmer metadata if a profile is loaded
             if self._programmer_blocks:
                 metadata['programmer_mode'] = self._programmer_control_mode
-                if self._programmer_control_mode == 'TempRamp':
-                    # Log PID gains from ramp history if available
-                    if hasattr(self, '_temp_ramp_executor') and self._temp_ramp_executor is not None:
-                        metadata['pid_kp'] = getattr(self._temp_ramp_executor, 'kp', None)
-                        metadata['pid_ki'] = getattr(self._temp_ramp_executor, 'ki', None)
-                        metadata['pid_kd'] = getattr(self._temp_ramp_executor, 'kd', None)
-                    # Log each block's target rate and duration
-                    metadata['tempramp_blocks'] = [
-                        {
-                            'type': b.get('type'),
-                            'duration_sec': b.get('duration_sec'),
-                            'rate_k_per_min': b.get('rate_k_per_min'),
-                        }
-                        for b in self._programmer_blocks
-                    ]
 
             # Append raw-voltage columns right after the temperature columns so the
             # log shows the full conversion chain for each thermocouple:
@@ -2506,7 +2277,6 @@ class MainWindow:
                 print("[DEBUG] Power supply is disabled in config. Setting ps_controller to None.")
                 self.ps_controller = None
                 self.safety_monitor.set_power_supply(None)
-                self.ramp_executor.set_power_supply(None)
                 self.ps_resource_var.set("None")
                 return True
 
@@ -2539,7 +2309,6 @@ class MainWindow:
                 self.daq.update_readers(ps_controller=self.ps_controller)
 
             self.safety_monitor.set_power_supply(self.ps_controller)
-            self.ramp_executor.set_power_supply(self.ps_controller)
             if self._program_executor:
                 self._program_executor.set_power_supply(self.ps_controller)
                 self._program_executor.practice_mode = self._practice_mode
@@ -2582,10 +2351,10 @@ class MainWindow:
 
         ttk.Label(row, text="Current V:").pack(side=tk.LEFT)
         self._nudge_v_var = tk.StringVar(value="0.000 V")
-        ttk.Label(row, textvariable=self._nudge_v_var, width=10,
-                   foreground='blue').pack(side=tk.LEFT, padx=4)
+        ttk.Label(row, textvariable=self._nudge_v_var, width=7,
+                   foreground='blue').pack(side=tk.LEFT, padx=2)
 
-        ttk.Label(row, text="Step (V):").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Label(row, text="Step (V):").pack(side=tk.LEFT, padx=(6, 0))
         self._nudge_step_var = tk.StringVar(value="0.001")
         step_entry = ttk.Entry(row, textvariable=self._nudge_step_var, width=7)
         step_entry.pack(side=tk.LEFT, padx=2)
@@ -2663,6 +2432,7 @@ class MainWindow:
 
         current_v = ps.get_voltage_setpoint() or 0.0
         target_v  = current_v + direction * step
+        target_v  = round(target_v, 4)  # Prevent float drift (DAC resolution is ~0.001V)
 
         # Safe mode clamp: 1 V ceiling
         safe_mode = getattr(self, '_programmer_safe_mode', False)
@@ -2738,9 +2508,6 @@ class MainWindow:
             return
 
         hold_stable = False
-        if getattr(self, '_temp_ramp_executor', None) is not None:
-            hold_stable = getattr(self._temp_ramp_executor, '_hold_stable', False)
-
         pressure_ok = False
         pressure_val = None
         if hasattr(self, 'daq') and self.daq is not None:
@@ -2792,7 +2559,7 @@ class MainWindow:
         Simultaneous QMS + Ramp launch.
         1. Trigger MASsoft Start via pyautogui keyboard shortcut.
         2. Write RAMP_START event to DataLogger CSV.
-        3. Advance TempRampExecutor to the next block (the Ramp block).
+        3. Signal the program executor to continue (if pausing between blocks).
         """
         import datetime
         try:
@@ -2834,11 +2601,6 @@ class MainWindow:
             self._qms_ramp_btn.config(state='disabled', text="QMS + Ramp Running")
         self._qms_gate_active = False
 
-        # Signal executor to advance past current Hold block to next Ramp block
-        if getattr(self, '_temp_ramp_executor', None) is not None:
-            if hasattr(self._temp_ramp_executor, 'advance_to_next_block'):
-                self._temp_ramp_executor.advance_to_next_block()
-
         self.status_var.set("TDS Ramp Running \u2014 QMS active")
 
     # ── Feature 5: Emergency pressure interlock ───────────────────────────────
@@ -2855,9 +2617,9 @@ class MainWindow:
                 except Exception:
                     pass
 
-            # 2. Stop ramp executor
-            if getattr(self, '_temp_ramp_executor', None) is not None:
-                self._temp_ramp_executor.stop()
+            # 2. Stop program executor if running
+            if self._program_executor and self._program_executor.is_running():
+                self._program_executor.stop()
 
             # 3. Abort MASsoft scan via pyautogui (Escape key = Abort in MASsoft toolbar)
             try:
@@ -2897,8 +2659,8 @@ class MainWindow:
         if self.daq:
             self.daq.stop_fast_acquisition()
 
-        if self.ramp_executor.is_active():
-            self.ramp_executor.stop()
+        if self._program_executor and self._program_executor.is_running():
+            self._program_executor.stop()
 
         if self.is_logging:
             self.logger.stop_logging()
@@ -2955,6 +2717,72 @@ class MainWindow:
             print(f"[GUI] Refresh error: {e}")
             import traceback
             traceback.print_exc()
+
+    def _open_pid_log_viewer(self):
+        """Open a scrollable dialog showing all logged PID ramp runs with suggestions."""
+        pid_logger = self._program_executor.get_pid_logger()
+        runs = pid_logger.get_all_runs()
+
+        win = tk.Toplevel(self.root)
+        win.title("PID Run History")
+        win.geometry("760x540")
+        win.transient(self.root)
+
+        # Header
+        header = ttk.Frame(win, padding=(10, 8, 10, 4))
+        header.pack(fill=tk.X)
+        ttk.Label(
+            header,
+            text=f"PID Run Log  —  {len(runs)} run(s)  —  {pid_logger.get_log_path()}",
+            font=('Arial', 9), foreground='#555'
+        ).pack(side=tk.LEFT)
+        ttk.Button(header, text="Refresh", command=lambda: _refresh()).pack(side=tk.RIGHT)
+
+        # Scrollable text
+        frame = ttk.Frame(win, padding=(10, 0, 10, 10))
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        text = tk.Text(frame, wrap=tk.WORD, font=('Courier', 9), state='disabled',
+                       relief='flat', bg='#fafafa')
+        sb = ttk.Scrollbar(frame, command=text.yview)
+        text.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        def _render(runs):
+            text.configure(state='normal')
+            text.delete('1.0', tk.END)
+            if not runs:
+                text.insert(tk.END, "No PID runs recorded yet.\n\nRun a Temperature Ramp block to generate a log entry.")
+            else:
+                for i, run in enumerate(reversed(runs), 1):
+                    text.insert(tk.END, f"{'─'*70}\n")
+                    text.insert(tk.END,
+                        f"Run #{len(runs) - i + 1}  |  {run.get('timestamp', 'unknown')}\n"
+                    )
+                    text.insert(tk.END,
+                        f"  Target rate : {run.get('target_rate_k_per_min', 0):.2f} K/min\n"
+                        f"  Achieved    : {run.get('achieved_mean_rate_k_per_min', 0):.2f} K/min\n"
+                        f"  Overshoot   : {run.get('overshoot_k', 0):.2f} K\n"
+                        f"  Settling    : {run.get('settling_time_sec') or 'N/A'}"
+                        + (f" s\n" if run.get('settling_time_sec') else "\n") +
+                        f"  Oscillations: {run.get('oscillation_count', 0)}\n"
+                        f"  Duration    : {run.get('duration_sec', 0):.1f} s\n"
+                        f"  Gains (Kp/Ki/Kd): {run.get('kp_used', 0):.4f} / "
+                        f"{run.get('ki_used', 0):.4f} / {run.get('kd_used', 0):.4f}\n"
+                    )
+                    text.insert(tk.END, "  Suggestions:\n")
+                    for s in run.get('suggestions', []):
+                        text.insert(tk.END, f"    • {s}\n")
+                    text.insert(tk.END, "\n")
+            text.configure(state='disabled')
+
+        def _refresh():
+            pid_logger._load()
+            fresh_runs = pid_logger.get_all_runs()
+            _render(fresh_runs)
+
+        _render(runs)
 
     def run(self):
         self.root.mainloop()

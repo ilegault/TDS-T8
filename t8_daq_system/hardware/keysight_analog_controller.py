@@ -404,6 +404,10 @@ class KeysightAnalogController:
             if raw_v < -0.05 or actual_voltage > self.rated_max_volts * 1.083:
                 print(f"WARNING: Voltage reading {actual_voltage:.3f}V is out of expected range (0-{self.rated_max_volts}V)")
                 print(f"         Raw AIN reading was: {raw_v:.4f}V on {self._AIN_VOLTAGE}")
+                if raw_v < -0.3:
+                    print(f"         HINT: A large negative raw reading typically means the Keysight")
+                    print(f"         output is OFF or not enabled. Check: (1) front panel output button,")
+                    print(f"         (2) FIO1 shutoff pin state, (3) SW1 switches 1 & 2 are UP.")
 
             return actual_voltage
         except Exception as e:
@@ -442,6 +446,10 @@ class KeysightAnalogController:
             if raw_v < -0.05 or actual_current > self.rated_max_amps * 1.028:
                 print(f"WARNING: Current reading {actual_current:.2f}A is out of expected range (0-{self.rated_max_amps}A)")
                 print(f"         Raw AIN reading was: {raw_v:.4f}V on {self._AIN_CURRENT}")
+                if raw_v < -0.3:
+                    print(f"         HINT: A large negative raw reading typically means the Keysight")
+                    print(f"         output is OFF or not enabled. Check: (1) front panel output button,")
+                    print(f"         (2) FIO1 shutoff pin state, (3) SW1 switches 1 & 2 are UP.")
 
             return actual_current
         except Exception as e:

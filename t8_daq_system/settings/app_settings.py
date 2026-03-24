@@ -87,6 +87,11 @@ _DEFAULTS = {
     # ── Two-phase PID / Soft-Start settings ──────────────────────────────
     "soft_start_threshold_c":    ("float", 200.0),   # °C — phase switch point
     "soft_start_current_limit_a": ("float", 120.0),  # A — Phase 1 current ceiling
+    "pid_kp":               ("float", 0.02),
+    "pid_ki":               ("float", 0.001),
+    "pid_kd":               ("float", 0.010),
+    "pid_windup_limit":     ("float", 30.0),
+    "pid_output_max":       ("float", 1.5),
 }
 
 
@@ -171,6 +176,11 @@ class AppSettings:
         # Two-phase PID / Soft-Start
         self.soft_start_threshold_c: float = 200.0   # °C — phase switch point
         self.soft_start_current_limit_a: float = 120.0  # A — Phase 1 current ceiling
+        self.pid_kp: float = 0.02
+        self.pid_ki: float = 0.001
+        self.pid_kd: float = 0.010
+        self.pid_windup_limit: float = 30.0
+        self.pid_output_max: float = 1.5
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API

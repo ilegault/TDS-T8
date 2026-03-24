@@ -7,16 +7,19 @@ Supports Voltage Ramp, Stable Hold, and Temperature Ramp blocks.
 import threading
 import time
 import datetime
-from .temp_ramp_pid import PIDController, TempRampHistory, FeedforwardTable
+from .temp_ramp_pid import PIDController, PIDRunLogger
 
 class ProgramExecutor:
-    def __init__(self, power_supply, get_temp_k_fn_provider, history=None,
+    def __init__(self, power_supply, get_temp_k_fn_provider,
                  on_block_start=None, on_block_complete=None,
                  on_program_complete=None, on_status=None,
                  practice_mode=False):
+        # get_temp_k_fn_provider: callable that accepts a TC name string and returns
+        # a zero-argument callable returning temperature in KELVIN.
+        # The T8 thermocouple EF outputs Celsius; DataAcquisition.get_tc_kelvin_by_name()
+        # converts C→K before returning. Do NOT add another +273.15 conversion.
         self._ps = power_supply
         self._get_temp_k_provider = get_temp_k_fn_provider # Returns a function for a given TC name
-        self._history = history or TempRampHistory()
         self._on_block_start = on_block_start
         self._on_block_complete = on_block_complete
         self._on_program_complete = on_program_complete
@@ -31,7 +34,7 @@ class ProgramExecutor:
         self._lock = threading.Lock()
 
         self._pid = PIDController()
-        self._feedforward = FeedforwardTable()
+        self._pid_logger = PIDRunLogger()
 
         # Shared state between blocks
         self.current_voltage_setpoint = 0.0
@@ -41,6 +44,10 @@ class ProgramExecutor:
         # Diagnostics
         self._practice_temp_k = 293.15
         self._last_tick_time = None
+
+        # Run history for post-run analysis
+        self._run_log = []   # [(elapsed, setpoint_k, actual_k, voltage_v), ...]
+        self._last_run_record = None
 
     def set_power_supply(self, ps):
         with self._lock:
@@ -79,6 +86,8 @@ class ProgramExecutor:
                                            getattr(self._ps, 'rated_max_amps', 180.0))
                         self._ps.set_current(max_amps)
                         print(f"[ProgramExecutor] output_on + set_current({max_amps}A)")
+                        print(f"[ProgramExecutor] practice_mode={self.practice_mode}")
+                        print(f"[ProgramExecutor] ps is None: {self._ps is None}")
                     except Exception as e:
                         print(f"[ProgramExecutor] Warning: output_on/set_current failed: {e}")
 
@@ -229,17 +238,23 @@ class ProgramExecutor:
     def _execute_block(self, block):
         start_time = time.time()
         start_temp_k = self._current_get_temp_k() if self._current_get_temp_k else 293.15
-        
+
         # For StableHold stability tracking
         stability_start = None
+
+        # For TempRamp run history
+        if block.block_type == "temp_ramp":
+            self._run_log = []
+            _overshoot_k = 0.0
 
         while self._running:
             now = time.time()
             dt = now - self._last_tick_time if self._last_tick_time else 0.1
             self._last_tick_time = now
-            
+
             elapsed = now - start_time
             current_temp_k = self._current_get_temp_k() if self._current_get_temp_k else 293.15
+            print(f"[PE-TICK] block={self.current_block_index}, type={block.block_type}, elapsed={elapsed:.1f}s, temp={current_temp_k:.1f}K, practice={self.practice_mode}, ps={self._ps is not None}")
 
             if block.block_type == "voltage_ramp":
                 # Linear voltage interpolation
@@ -263,8 +278,7 @@ class ProgramExecutor:
             elif block.block_type == "stable_hold":
                 # PID control to target_temp_k
                 setpoint_k = block.target_temp_k
-                # FF from target temp: gives steady-state voltage for the hold point
-                ff_v = self._feedforward.lookup(setpoint_k - 273.15)
+                ff_v = 0.0
                 pid_correction = self._pid.compute(setpoint_k, current_temp_k, now)
                 v_out = max(0.0, min(ff_v + pid_correction, 6.0))
                 self.current_voltage_setpoint = v_out
@@ -282,7 +296,7 @@ class ProgramExecutor:
                 # PID control with ramping setpoint
                 rate_k_per_sec = block.rate_k_per_min / 60.0
                 setpoint_k = start_temp_k + rate_k_per_sec * elapsed
-                
+
                 # Cap setpoint at end_temp_k
                 is_finished = False
                 if rate_k_per_sec > 0:
@@ -293,24 +307,50 @@ class ProgramExecutor:
                     if setpoint_k <= block.end_temp_k:
                         setpoint_k = block.end_temp_k
                         is_finished = True
-                
-                # FF from the ramping setpoint temp: grows as setpoint advances
-                ff_v = self._feedforward.lookup(setpoint_k - 273.15)
+
+                ff_v = 0.0
                 pid_correction = self._pid.compute(setpoint_k, current_temp_k, now)
                 v_out = max(0.0, min(ff_v + pid_correction, 6.0))
+
+                # Cold-tungsten current protection: if current exceeds 120A,
+                # hold voltage steady (don't increase) until current drops.
+                # Tungsten resistance is ~17x lower cold than at operating temp;
+                # without this guard the PID could command voltage that draws
+                # >180A before the Keysight's CC mode kicks in.
+                # Compare v_out to the PREVIOUS tick's setpoint (before reassignment).
+                cold_start_limit = 120.0  # amps
+                if not self.practice_mode and self._ps is not None:
+                    try:
+                        measured_current = self._ps.get_current() or 0.0
+                        if measured_current > cold_start_limit and v_out > self.current_voltage_setpoint:
+                            v_out = self.current_voltage_setpoint  # hold, don't increase
+                    except Exception:
+                        pass
+
                 self.current_voltage_setpoint = v_out
 
+                # Track run log and overshoot for history
+                self._run_log.append((elapsed, setpoint_k, current_temp_k, self.current_voltage_setpoint))
+                _overshoot_k = max(_overshoot_k, current_temp_k - setpoint_k)
+
                 if is_finished:
+                    achieved_rate = ((current_temp_k - start_temp_k) / (elapsed / 60.0)
+                                     if elapsed > 0 else 0.0)
+                    self._save_run_to_history(block.rate_k_per_min, achieved_rate,
+                                              _overshoot_k, elapsed)
                     return True
 
             # Apply to hardware
+            print(f"[PE-APP] v_setpoint={self.current_voltage_setpoint:.4f}V, practice={self.practice_mode}, ps_present={self._ps is not None}")
             if not self.practice_mode and self._ps:
                 try:
                     # Guard against interlock (Task 3c)
                     if hasattr(self._ps, 'interlock_active') and self._ps.interlock_active:
                         print("[ProgramExecutor] Interlock active - skipping DAC write")
                     else:
-                        self._ps.set_voltage(self.current_voltage_setpoint)
+                        print(f"[PE-WRITE] set_voltage({self.current_voltage_setpoint:.4f}V) on ps={self._ps}")
+                        result = self._ps.set_voltage(self.current_voltage_setpoint)
+                        print(f"[PE-WRITE] set_voltage result={result}")
                         # Maintain the software current limit (don't re-set every tick
                         # to avoid hammering the DAC; only set if it changed)
                 except Exception as e:
@@ -332,5 +372,47 @@ class ProgramExecutor:
 
             # Sleep to match TICK_INTERVAL (approx 0.5s or 1.0s)
             time.sleep(0.5)
-        
+
         return False
+
+    def _save_run_to_history(self, target_rate, achieved_rate, overshoot_k, elapsed_span):
+        """Compute settling/oscillation metrics, save the run record, and store it."""
+        # Compute settling time: first time error stays within ±2K continuously for 10+ ticks
+        SETTLE_BAND_K = 2.0
+        SETTLE_MIN_TICKS = 10
+        settling_time_sec = None
+        consecutive = 0
+        for entry in self._run_log:
+            t, sp, actual, _ = entry
+            if abs(actual - sp) <= SETTLE_BAND_K:
+                consecutive += 1
+                if consecutive >= SETTLE_MIN_TICKS and settling_time_sec is None:
+                    settling_time_sec = t
+            else:
+                consecutive = 0
+
+        # Compute oscillation count: zero crossings of (actual - setpoint)
+        errors = [e[2] - e[1] for e in self._run_log]
+        oscillation_count = sum(
+            1 for i in range(1, len(errors))
+            if errors[i - 1] * errors[i] < 0
+        )
+
+        record = {
+            'timestamp':                    datetime.datetime.now().isoformat(),
+            'target_rate_k_per_min':        target_rate,
+            'achieved_mean_rate_k_per_min': achieved_rate,
+            'overshoot_k':                  overshoot_k,
+            'settling_time_sec':            settling_time_sec,
+            'oscillation_count':            oscillation_count,
+            'duration_sec':                 elapsed_span,
+            'kp_used':                      self._pid._kp,
+            'ki_used':                      self._pid._ki,
+            'kd_used':                      self._pid._kd,
+        }
+        self._last_run_record = record
+        self._pid_logger.save_run(record)
+
+    def get_pid_logger(self) -> 'PIDRunLogger':
+        """Return the PIDRunLogger so the GUI can display the run history."""
+        return self._pid_logger

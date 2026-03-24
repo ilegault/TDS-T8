@@ -1,6 +1,6 @@
 """
 temp_ramp_pid.py
-PURPOSE: PID controller and run-history for Temperature Ramp mode.
+PURPOSE: PID controller and run-logging for Temperature Ramp mode.
 
 No GUI / tkinter imports — pure control/logic module.
 """
@@ -17,10 +17,6 @@ SOFT_START_RATE_CEILING   = 3.0     # K/min — cut voltage if heating too fast 
 
 # ── PID slew-rate limiter ─────────────────────────────────────────────────────
 PID_MAX_VOLTAGE_STEP_V    = 0.050   # V per tick — max DAC0 change per PID update
-
-# ── Feedforward learning ──────────────────────────────────────────────────────
-FF_HISTORY_FILE           = "pid_feedforward_table.json"
-FF_TEMP_BUCKET_C          = 10.0    # °C — resolution of feedforward table buckets
 
 
 # ── Temperature conversion utilities ──────────────────────────────────────────
@@ -43,8 +39,8 @@ class PIDController:
     """
 
     def __init__(self, kp=1.0, ki=0.05, kd=0.05,
-                 output_min=-4.0, output_max=4.0,
-                 integral_windup_limit=100.0):
+                 output_min=0.0, output_max=1.5,
+                 integral_windup_limit=30.0):
         """
         Args:
             kp: Proportional gain (very small — power supply is high-current).
@@ -63,6 +59,7 @@ class PIDController:
 
         self._integral = 0.0
         self._prev_error = 0.0
+        self._prev_measurement = None
         self._prev_time = None
         self._prev_output = 0.0
 
@@ -75,6 +72,7 @@ class PIDController:
         """Reset integrator and history — call before starting a new run."""
         self._integral = 0.0
         self._prev_error = 0.0
+        self._prev_measurement = None
         self._prev_time = None
         self._prev_output = 0.0
         self._last_p_term = 0.0
@@ -104,21 +102,27 @@ class PIDController:
 
         error = setpoint_k - measured_k
 
-        # Integral with anti-windup clamp
+        # Integral with anti-windup clamp (only accumulate when output is not saturated)
         self._integral += error * dt
         self._integral = max(-self._windup_limit, min(self._integral, self._windup_limit))
 
-        derivative = (error - self._prev_error) / dt
+        # Derivative-on-measurement: avoids derivative kick when setpoint steps.
+        # d(error)/dt = -d(measurement)/dt when setpoint is constant.
+        if self._prev_measurement is None:
+            derivative = 0.0
+        else:
+            derivative = -(measured_k - self._prev_measurement) / dt
 
         self._last_p_term = self._kp * error
         self._last_i_term = self._ki * self._integral
         self._last_d_term = self._kd * derivative
         raw_output = self._last_p_term + self._last_i_term + self._last_d_term
 
-        # Clamp output
+        # Clamp output (0 to output_max — voltage must never go negative)
         clamped = max(self._output_min, min(raw_output, self._output_max))
 
         self._prev_error = error
+        self._prev_measurement = measured_k
         self._prev_time = current_time
         self._prev_output = clamped
 
@@ -144,221 +148,146 @@ class PIDController:
         self._kd = kd
 
 
-# ── Run history / gain learning ────────────────────────────────────────────────
+# ── PID Run Logger ─────────────────────────────────────────────────────────────
 
-class TempRampHistory:
+class PIDRunLogger:
     """
-    Persists past TempRamp run records to JSON so PID gains can improve over
-    time.  Each record captures performance metrics and the gains that were
-    used, enabling data-driven gain suggestion for future runs.
+    Persists completed TempRamp run records to logs/pid_runs.json.
+
+    Each record captures performance metrics, the gains used, and auto-generated
+    tuning suggestions — giving a clean review of every ramp after the fact.
+    The log is kept at a fixed path inside the logs/ folder so the GUI can
+    display it without any extra configuration.
     """
 
-    HISTORY_FILE = "t8_daq_system/data/temp_ramp_history.json"
-    MAX_RUNS = 50  # keep the last N runs
+    LOG_FILE = "logs/pid_runs.json"
+    MAX_RUNS = 100  # keep the last N runs
 
-    def __init__(self):
+    def __init__(self, log_file: str = None):
+        self.log_file = log_file or self.LOG_FILE
         self._runs = []
         self._load()
 
     # ── Private ────────────────────────────────────────────────────────────────
 
     def _load(self):
-        """Load history from disk; silently fall back to empty list on error."""
+        """Load existing run log from disk; silently fall back to empty list."""
         try:
-            if os.path.exists(self.HISTORY_FILE):
-                with open(self.HISTORY_FILE, 'r') as f:
+            if os.path.exists(self.log_file):
+                with open(self.log_file, 'r') as f:
                     data = json.load(f)
                 if isinstance(data, list):
                     self._runs = data
-                else:
-                    self._runs = []
         except Exception:
             self._runs = []
+
+    def _generate_suggestions(self, record: dict) -> list:
+        """Auto-generate tuning suggestions based on this run's metrics."""
+        suggestions = []
+        overshoot = record.get('overshoot_k', 0.0)
+        oscillations = record.get('oscillation_count', 0)
+        settling = record.get('settling_time_sec')
+        target_rate = record.get('target_rate_k_per_min', 0.0)
+        achieved_rate = record.get('achieved_mean_rate_k_per_min', 0.0)
+
+        # Rate tracking accuracy
+        if target_rate and target_rate > 0:
+            rate_error_pct = abs(achieved_rate - target_rate) / target_rate * 100
+            if rate_error_pct > 25:
+                suggestions.append(
+                    f"Rate tracking error {rate_error_pct:.0f}% — increase Ki to improve "
+                    "steady-state following of the ramp setpoint."
+                )
+            elif rate_error_pct > 10:
+                suggestions.append(
+                    f"Minor rate tracking error ({rate_error_pct:.0f}%) — a small Ki increase "
+                    "may tighten this up."
+                )
+
+        # Overshoot
+        if overshoot > 10:
+            suggestions.append(
+                f"Large overshoot ({overshoot:.1f} K) — reduce Kp or increase Kd to damp "
+                "the response."
+            )
+        elif overshoot > 5:
+            suggestions.append(
+                f"Moderate overshoot ({overshoot:.1f} K) — slight Kp reduction or small Kd "
+                "increase should help."
+            )
+
+        # Oscillations
+        if oscillations > 8:
+            suggestions.append(
+                f"High oscillation count ({oscillations}) — reduce Ki or increase Kd to "
+                "damp ringing."
+            )
+        elif oscillations > 4:
+            suggestions.append(
+                f"Some oscillations ({oscillations}) — a small Kd increase may smooth the "
+                "response without sacrificing speed."
+            )
+
+        # Settling
+        if settling is None:
+            suggestions.append(
+                "Temperature never settled within ±2 K — gains may need significant "
+                "re-tuning or the ramp rate exceeds what the heater can follow."
+            )
+        elif settling > 120:
+            suggestions.append(
+                f"Slow settling ({settling:.0f} s) — increase Ki to reduce steady-state error "
+                "and speed up convergence."
+            )
+
+        if not suggestions:
+            suggestions.append(
+                "Performance looks good — rate tracking, overshoot, and settling all within "
+                "acceptable bounds. Current gains appear well-tuned for this ramp rate."
+            )
+
+        return suggestions
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def save_run(self, run_record: dict):
         """
-        Append a completed run record and write to disk.
+        Append a completed run record (with auto-suggestions) and write to disk.
 
-        Required keys in run_record:
+        Expected keys in run_record:
             timestamp (str, ISO)
             target_rate_k_per_min (float)
             achieved_mean_rate_k_per_min (float)
             overshoot_k (float)
+            settling_time_sec (float | None)
+            oscillation_count (int)
             duration_sec (float)
             kp_used (float)
             ki_used (float)
             kd_used (float)
         """
-        self._runs.append(run_record)
-        # Trim to the most recent MAX_RUNS entries
+        record = dict(run_record)
+        record['suggestions'] = self._generate_suggestions(record)
+
+        self._runs.append(record)
         if len(self._runs) > self.MAX_RUNS:
             self._runs = self._runs[-self.MAX_RUNS:]
 
-        # Create parent directory if needed
-        parent = os.path.dirname(self.HISTORY_FILE)
-        if parent and not os.path.exists(parent):
-            os.makedirs(parent, exist_ok=True)
+        # Ensure the logs/ directory exists
+        log_dir = os.path.dirname(self.log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
 
         try:
-            with open(self.HISTORY_FILE, 'w') as f:
+            with open(self.log_file, 'w') as f:
                 json.dump(self._runs, f, indent=2)
         except Exception as exc:
-            print(f"[TempRampHistory] Could not write history file: {exc}")
-
-    def suggest_gains(self, target_rate_k_per_min: float) -> dict:
-        """
-        Return PID gains appropriate for the requested ramp rate.
-
-        Searches stored runs within ±1 K/min of the target.  If fewer than 3
-        matching runs exist, returns conservative defaults.  Otherwise picks
-        the run with the smallest overshoot.
-
-        Returns:
-            dict with keys 'kp', 'ki', 'kd'.
-        """
-        _defaults = {'kp': 0.05, 'ki': 0.002, 'kd': 0.005}
-
-        matching = [
-            r for r in self._runs
-            if abs(r.get('target_rate_k_per_min', 0.0) - target_rate_k_per_min) < 1.0
-        ]
-
-        if len(matching) < 3:
-            return _defaults
-
-        # Sort ascending by absolute overshoot (least overshoot = best)
-        matching.sort(key=lambda r: abs(r.get('overshoot_k', 0.0)))
-        best = matching[0]
-        return {
-            'kp': best['kp_used'],
-            'ki': best['ki_used'],
-            'kd': best['kd_used'],
-        }
+            print(f"[PIDRunLogger] Could not write log: {exc}")
 
     def get_all_runs(self) -> list:
-        """Return a copy of all stored run records."""
+        """Return a copy of all stored run records, newest last."""
         return list(self._runs)
 
-
-# ── Feedforward voltage-vs-temperature table ───────────────────────────────────
-
-class FeedforwardTable:
-    """
-    Stores and retrieves voltage-vs-temperature mapping learned from real runs.
-    After each run, the executor calls update() with the observed T and V.
-    On subsequent runs, lookup() returns the expected voltage for a given temperature,
-    which is used as the PID baseline. The PID then only corrects the residual error.
-
-    Data is persisted to FF_HISTORY_FILE as a JSON dict of {temp_bucket: avg_voltage}.
-    """
-
-    def __init__(self, filepath=FF_HISTORY_FILE):
-        self.filepath = filepath
-        self._table = {}     # {temp_bucket_str: [list of observed voltages]}
-        self._averages = {}  # {temp_bucket_str: float avg voltage}
-        self._load()
-
-    def _bucket_key(self, temp_c):
-        bucket = round(temp_c / FF_TEMP_BUCKET_C) * FF_TEMP_BUCKET_C
-        return str(int(bucket))
-
-    def _load(self):
-        try:
-            if not os.path.exists(self.filepath):
-                raise FileNotFoundError("File does not exist")
-            with open(self.filepath, 'r') as f:
-                content = f.read().strip()
-                if not content:
-                    raise ValueError("Empty file")
-                data = json.loads(content)
-            self._averages = {k: float(v) for k, v in data.items()}
-            print(f"[FeedforwardTable] Loaded {len(self._averages)} entries from {self.filepath}")
-        except Exception as e:
-            print(f"[FeedforwardTable] Could not load feedforward table ({e}), seeding from empirical data.")
-            self._averages = {}
-            self._seed_empirical_data()
-
-    def _seed_empirical_data(self):
-        """
-        Pre-seed the feedforward table from the 'Filament, New LJ Port'
-        manual heat ramp test data. These are measured (temp_C, voltage_V)
-        pairs at the Filament V2 geometry. The table will be refined by real
-        runs, but this gives the PID a head start on the first run.
-        Saves to disk immediately so subsequent startups load from file.
-        """
-        empirical = {
-            "30": 0.022, "40": 0.094, "60": 0.167, "90": 0.211,
-            "180": 0.336, "310": 0.502, "450": 0.835, "510": 0.960,
-            "520": 1.001, "550": 1.085, "570": 1.168, "610": 1.270,
-            "630": 1.334, "650": 1.414, "670": 1.501, "700": 1.625,
-            "720": 1.709, "740": 1.833, "760": 1.917, "770": 2.000,
-            "800": 2.125, "810": 2.208, "830": 2.333, "850": 2.416,
-            "870": 2.499, "900": 2.624, "920": 2.707, "930": 2.790,
-            "960": 2.915, "970": 2.998, "990": 3.123, "1000": 3.206,
-            "1020": 3.289, "1040": 3.414, "1050": 3.497, "1070": 3.622,
-            "1090": 3.746, "1100": 3.830, "1120": 3.996, "1150": 4.121,
-            "1160": 4.204, "1170": 4.328, "1180": 4.412, "1200": 4.495,
-            "1240": 4.619, "1260": 4.699, "1280": 4.816, "1320": 4.910,
-            "1350": 5.035, "1370": 5.118, "1390": 5.243, "1410": 5.326,
-            "1420": 5.420, "1450": 5.534, "1460": 5.617, "1470": 5.701,
-            "1490": 5.795, "1500": 5.909, "1510": 5.992
-        }
-        self._averages = empirical
-        self.save()
-        print(f"[FeedforwardTable] Seeded {len(empirical)} empirical entries and saved.")
-
-    def save(self):
-        try:
-            with open(self.filepath, 'w') as f:
-                json.dump(self._averages, f, indent=2)
-            print(f"[FeedforwardTable] Saved {len(self._averages)} entries to {self.filepath}")
-        except Exception as e:
-            print(f"[FeedforwardTable] Could not save: {e}")
-
-    def update(self, temp_c, voltage_v):
-        """Call this every tick during a real run to record what voltage achieved what temperature."""
-        key = self._bucket_key(temp_c)
-        if key not in self._table:
-            self._table[key] = []
-        self._table[key].append(voltage_v)
-        # Update running average
-        vals = self._table[key]
-        self._averages[key] = sum(vals) / len(vals)
-
-    def lookup(self, temp_c):
-        """
-        Returns the expected feedforward voltage for a given temperature.
-        Returns 0.0 if no data exists yet (first run — PID works alone).
-        Interpolates linearly between the two nearest buckets if possible.
-        """
-        if not self._averages:
-            return 0.0
-        key = self._bucket_key(temp_c)
-        if key in self._averages:
-            return self._averages[key]
-        # Fallback: find nearest available bucket
-        try:
-            keys_numeric = sorted(int(k) for k in self._averages.keys())
-            target = round(temp_c / FF_TEMP_BUCKET_C) * FF_TEMP_BUCKET_C
-            lower = max((k for k in keys_numeric if k <= target), default=None)
-            upper = min((k for k in keys_numeric if k >= target), default=None)
-            if lower is None and upper is None:
-                return 0.0
-            if lower is None:
-                return self._averages[str(upper)]
-            if upper is None:
-                return self._averages[str(lower)]
-            if lower == upper:
-                return self._averages[str(lower)]
-            # Linear interpolation
-            v_low = self._averages[str(lower)]
-            v_high = self._averages[str(upper)]
-            frac = (target - lower) / (upper - lower)
-            return v_low + frac * (v_high - v_low)
-        except Exception:
-            return 0.0
-
-    def has_data(self):
-        return len(self._averages) > 0
+    def get_log_path(self) -> str:
+        """Return the absolute path to the log file."""
+        return os.path.abspath(self.log_file)

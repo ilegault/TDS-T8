@@ -99,6 +99,26 @@ class SettingsDialog(tk.Toplevel):
         self._create_entry_row(defaults_frame, "Default Current Limit (A):", "pp_default_current_a",
                               width=15, row=2)
 
+        # PID Gains
+        pid_frame = ttk.LabelFrame(tab, text="PID Gains (Temperature Ramp)", padding=10)
+        pid_frame.pack(fill=tk.X, pady=5)
+
+        self._pid_kp_var = tk.StringVar()
+        self._pid_ki_var = tk.StringVar()
+        self._pid_kd_var = tk.StringVar()
+        self._pid_windup_var = tk.StringVar()
+        self._pid_output_max_var = tk.StringVar()
+
+        self._create_entry_row(pid_frame, "Proportional Gain (Kp):", None, width=12, row=0, var=self._pid_kp_var)
+        self._create_entry_row(pid_frame, "Integral Gain (Ki):", None, width=12, row=1, var=self._pid_ki_var)
+        self._create_entry_row(pid_frame, "Derivative Gain (Kd):", None, width=12, row=2, var=self._pid_kd_var)
+        self._create_entry_row(pid_frame, "Windup Limit (K·s):", None, width=12, row=3, var=self._pid_windup_var)
+        self._create_entry_row(pid_frame, "Max Output (V frac):", None, width=12, row=4, var=self._pid_output_max_var)
+
+        ttk.Label(pid_frame, text="Note: History may override these if 3+ matching runs exist.",
+                  font=('Arial', 8), foreground='gray').grid(
+            row=5, column=0, columnspan=2, sticky='w', padx=5, pady=(2, 0))
+
     def _build_sensor_tab(self, notebook):
         """Tab for sensor configuration."""
         tab = ttk.Frame(notebook, padding=15)
@@ -789,6 +809,11 @@ class SettingsDialog(tk.Toplevel):
         self._pp_default_ramp_duration_var.set(str(s.pp_default_ramp_duration))
         self._pp_default_start_v_var.set(str(s.pp_default_start_v))
         self._pp_default_current_a_var.set(str(s.pp_default_current_a))
+        self._pid_kp_var.set(str(s.pid_kp))
+        self._pid_ki_var.set(str(s.pid_ki))
+        self._pid_kd_var.set(str(s.pid_kd))
+        self._pid_windup_var.set(str(s.pid_windup_limit))
+        self._pid_output_max_var.set(str(s.pid_output_max))
 
     def _save_settings_from_gui(self):
         """Internal helper to read all GUI vars and write to AppSettings."""
@@ -857,6 +882,11 @@ class SettingsDialog(tk.Toplevel):
             s.pp_default_ramp_duration = int(self._pp_default_ramp_duration_var.get())
             s.pp_default_start_v = float(self._pp_default_start_v_var.get())
             s.pp_default_current_a = float(self._pp_default_current_a_var.get())
+            s.pid_kp = float(self._pid_kp_var.get())
+            s.pid_ki = float(self._pid_ki_var.get())
+            s.pid_kd = float(self._pid_kd_var.get())
+            s.pid_windup_limit = float(self._pid_windup_var.get())
+            s.pid_output_max = float(self._pid_output_max_var.get())
         except ValueError as exc:
             messagebox.showerror("Invalid Value",
                                 f"Please check your entries:\n{exc}", parent=self)

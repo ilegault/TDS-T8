@@ -73,7 +73,7 @@ def pp_dac_to_monitored_current(analog_input_current):
 
 class DataAcquisition:
     def __init__(self, config, tc_reader=None, frg702_reader=None,
-                 ps_controller=None, safety_monitor=None, ramp_executor=None,
+                 ps_controller=None, safety_monitor=None,
                  program_executor=None, practice_mode=False):
         """
         Initialize the data acquisition engine.
@@ -84,8 +84,7 @@ class DataAcquisition:
             frg702_reader: FRG702Reader instance (or None)
             ps_controller: PowerSupplyController instance (or None)
             safety_monitor: SafetyMonitor instance (or None)
-            ramp_executor: RampExecutor instance (or None)
-            program_executor: ProgramExecutor instance (or None) (Task 7d)
+            program_executor: ProgramExecutor instance (or None)
             practice_mode: If True, generate simulated data
         """
         self.config = config
@@ -93,7 +92,6 @@ class DataAcquisition:
         self.frg702_reader = frg702_reader
         self.ps_controller = ps_controller
         self.safety_monitor = safety_monitor
-        self.ramp_executor = ramp_executor
         self.program_executor = program_executor
         self.practice_mode = practice_mode
 
@@ -108,14 +106,9 @@ class DataAcquisition:
         # Latest all_readings cache (for get_last_readings())
         self._last_all_readings = {}
 
-        # Latest TC readings cache (thread-safe, for TempRampExecutor access)
+        # Latest TC readings cache (thread-safe, for ProgramExecutor access)
         self._latest_tc_readings = {}
         self._tc_readings_lock = threading.Lock()
-
-        # TempRampExecutor reference — set by main_window when a TempRamp run
-        # is active so practice-mode TC simulation uses the executor's simulated
-        # temperature instead of the generic sine-wave formula.
-        self.temp_ramp_executor = None
 
         # Timing diagnostics
         self._timing_samples = []
@@ -151,10 +144,11 @@ class DataAcquisition:
                     continue
                 _name = tc['name']
                 if (_enabled_idx == 0
-                        and self.temp_ramp_executor is not None
-                        and self.temp_ramp_executor.is_running()):
-                    # Primary TC follows the PID-simulated temperature
-                    sim_temp_k = self.temp_ramp_executor._practice_temp_k or 293.15
+                        and self.program_executor is not None
+                        and hasattr(self.program_executor, '_practice_temp_k')
+                        and self.program_executor.is_running()):
+                    # Primary TC follows the PID-simulated temperature from ProgramExecutor
+                    sim_temp_k = self.program_executor._practice_temp_k or 293.15
                     val = sim_temp_k - 273.15  # convert K → °C for display
                 else:
                     # Secondary TCs (or when no TempRamp is active): independent
@@ -185,171 +179,10 @@ class DataAcquisition:
                         'voltage': 5.0,
                     }
 
-            # Power supply readings
+            # Power supply readings — ProgramExecutor calls set_voltage() directly
+            # on the mock PS, so get_readings() returns what the executor commanded.
             if self.ps_controller:
-                # ── TempRamp PID practice-mode simulation ─────────────────────
-                # When a TempRamp PID run is active, derive simulated PS readings
-                # from the executor's last computed V/I values so the power
-                # supply monitor shows exactly what the real hardware will output.
-                # Uses the same pp_dac_to_monitored_* scaling functions as live
-                # mode to guarantee practice output matches real output precisely.
-                if (self.temp_ramp_executor is not None
-                        and self.temp_ramp_executor.is_running()):
-                    _v_dac = getattr(self.temp_ramp_executor, '_last_voltage_dac', 0.0)
-                    _i_dac = getattr(self.temp_ramp_executor, '_last_current_dac', 0.0)
-                    monitored_voltage = pp_dac_to_monitored_voltage(_v_dac)
-                    monitored_current = pp_dac_to_monitored_current(_i_dac)
-                    ps_readings = {
-                        'PS_Voltage':   monitored_voltage,
-                        'PS_Current':   monitored_current,
-                        'PS_Output_On': True,
-                    }
-                # ── Power Programmer practice-mode simulation ─────────────────
-                # When the ramp executor is actively running, simulate the full
-                # T8 analog signal chain instead of returning the raw setpoints.
-                # This ensures that what Isaac sees on the monitor plots is
-                # EXACTLY what the live hardware will deliver — any formula
-                # error in the scaling will cause a visible mismatch here.
-                elif (self.ramp_executor is not None
-                        and self.ramp_executor.is_running()):
-                    # STEP 1: Read setpoints stored by the ramp executor's
-                    #         set_voltage() / set_current() calls.
-                    voltage_setpoint = self.ps_controller.get_voltage_setpoint() or 0.0
-                    current_setpoint = self.ps_controller.get_current_setpoint() or 0.0
-
-                    # STEP 2: Convert setpoints → DAC output voltages
-                    #         (what the T8 DAC0/DAC1 would output in live mode)
-                    dac_v = pp_setpoint_to_dac_voltage(voltage_setpoint)
-                    dac_i = pp_setpoint_to_dac_current(current_setpoint)
-
-                    # STEP 3: Simulate those DAC voltages passing through the
-                    #         cable and arriving at the AIN4/AIN5 monitor inputs.
-
-                    # STEP 4: Convert monitor inputs → engineering units
-                    #         (what the software reads from AIN4/AIN5 in live mode)
-                    monitored_voltage = pp_dac_to_monitored_voltage(dac_v)
-                    # In practice mode there is no physical load. Simulate near-zero current
-                    # with a tiny noise term so the plot isn't a flat zero line.
-                    monitored_current = 0.0
-
-                    # STEP 5: Validation — the round-trip must be exact within
-                    #         floating-point tolerance.  Any failure here means
-                    #         the scaling formulas are inconsistent.
-                    voltage_error = abs(voltage_setpoint - monitored_voltage)
-                    current_error = abs(current_setpoint - monitored_current)
-
-                    if voltage_error > _PP_VOLTAGE_TOLERANCE:
-                        print(f"WARNING: Voltage mismatch detected! "
-                              f"Error: {voltage_error:.6f} V  "
-                              f"(setpoint={voltage_setpoint:.4f} V, "
-                              f"monitored={monitored_voltage:.4f} V)")
-
-                    if current_error > _PP_CURRENT_TOLERANCE:
-                        print(f"WARNING: Current mismatch detected! "
-                              f"Error: {current_error:.6f} A  "
-                              f"(setpoint={current_setpoint:.4f} A, "
-                              f"monitored={monitored_current:.4f} A)")
-
-                    if DEBUG_POWER_PROGRAMMER:
-                        print(
-                            f"[PP PRACTICE] "
-                            f"Setpoint -> V={voltage_setpoint:.4f}V  A={current_setpoint:.4f}A  |  "
-                            f"DAC_V={dac_v:.4f}V  DAC_A={dac_i:.4f}V  |  "
-                            f"Monitor -> V={monitored_voltage:.4f}V  A={monitored_current:.4f}A"
-                        )
-
-                    # ── Debug terminal output ─────────────────────────────────
-                    if DEBUG_POWER_PROGRAMMER:
-                        # Gather block / timing info from the ramp executor
-                        step_start_v = step_end_v = step_start_a = step_end_a = None
-                        progress = 0.0
-                        try:
-                            elapsed   = self.ramp_executor.get_elapsed_time()
-                            profile   = self.ramp_executor._profile
-                            total_dur = profile.get_total_duration() if profile else 0.0
-                            step_idx  = self.ramp_executor._current_step_index
-                            if profile and 0 <= step_idx < len(profile.steps):
-                                step      = profile.steps[step_idx]
-                                block_num = step_idx + 1
-                                block_type = step.step_type.upper()  # "RAMP" or "HOLD"
-
-                                # Compute start values for this block by evaluating setpoint
-                                # at the exact moment the block began
-                                cumulative_time = sum(
-                                    s.duration_sec for s in profile.steps[:step_idx]
-                                )
-                                time_into_step = elapsed - cumulative_time
-                                progress = (
-                                    time_into_step / step.duration_sec
-                                    if step.duration_sec > 0 else 1.0
-                                )
-
-                                # Start values are the profile setpoints at block start time
-                                step_start_v = profile.get_setpoint_at_time(cumulative_time)
-                                step_end_v   = step.target_voltage
-                                step_start_a = profile.get_current_setpoint_at_time(cumulative_time)
-                                step_end_a   = step.target_current
-                            else:
-                                block_num  = "?"
-                                block_type = "UNKNOWN"
-                        except Exception:
-                            elapsed    = 0.0
-                            total_dur  = 0.0
-                            block_num  = "?"
-                            block_type = "UNKNOWN"
-
-                        v_pass = "PASS" if voltage_error <= _PP_VOLTAGE_TOLERANCE else "FAIL"
-                        i_pass = "PASS" if current_error <= _PP_CURRENT_TOLERANCE else "FAIL"
-
-                        # Build block table debug lines
-                        if step_start_v is not None:
-                            block_debug = (
-                                f"\n  BLOCK TABLE VALUES:\n"
-                                f"    From table: Start V={step_start_v:.4f}, End V={step_end_v}\n"
-                                f"    From table: Start A={step_start_a:.4f}, End A={step_end_a}\n"
-                                f"    Progress in block: {progress:.4f}\n"
-                            )
-                        else:
-                            block_debug = ""
-
-                        print(
-                            f"\n=== POWER PROGRAMMER DEBUG [Practice Mode] ===\n"
-                            f"  Time : {elapsed:.2f} s / {total_dur:.2f} s\n"
-                            f"  Block: {block_num} — {block_type}\n"
-                            f"{block_debug}"
-                            f"\n  TARGET VALUES:\n"
-                            f"    Voltage Setpoint : {voltage_setpoint:8.3f} V\n"
-                            f"    Current Setpoint : {current_setpoint:8.2f} A\n"
-                            f"\n  ANALOG OUTPUT CALCULATIONS:\n"
-                            f"    Voltage -> Analog : {voltage_setpoint:.3f} V setpoint "
-                            f"-> {dac_v:.4f} V analog output  "
-                            f"(0-5 V scale: 0 V=0 V, 5 V=6 V)\n"
-                            f"    Current -> Analog : {current_setpoint:.2f} A setpoint "
-                            f"-> {dac_i:.4f} V analog output  "
-                            f"(0-5 V scale: 0 V=0 A, 5 V=180 A)\n"
-                            f"\n  EXPECTED MONITOR RESPONSE (simulating T8 analog inputs):\n"
-                            f"    Voltage Monitor Reading : {monitored_voltage:.3f} V  "
-                            f"(from {dac_v:.4f} V analog input)\n"
-                            f"    Current Monitor Reading : {monitored_current:.2f} A  "
-                            f"(from {dac_i:.4f} V analog input)\n"
-                            f"\n  VERIFICATION:\n"
-                            f"    Setpoint matches Monitor : {v_pass} / {i_pass}\n"
-                            f"    Voltage error : ±{voltage_error:.4f} V\n"
-                            f"    Current error : ±{current_error:.3f} A\n"
-                            f"{'=' * 50}"
-                        )
-
-                    # Use the analog-derived monitor values for the plots,
-                    # NOT the raw setpoints (avoids 'direct setpoint' mistake).
-                    ps_readings = {
-                        'PS_Voltage':   monitored_voltage,
-                        'PS_Current':   monitored_current,
-                        'PS_Output_On': self.ps_controller.is_output_on(),
-                    }
-                else:
-                    # Programmer not running — use normal mock readings
-                    # (may include simulated noise for general practice mode)
-                    ps_readings = self.ps_controller.get_readings()
+                ps_readings = self.ps_controller.get_readings()
             elif self.config.get('power_supply', {}).get('enabled', True):
                 t = time.time()
                 ps_readings = {
@@ -426,7 +259,7 @@ class DataAcquisition:
                     timestamp, all_readings, tc_readings, frg702_details, raw_voltages = \
                         self.read_all_sensors()
 
-                    # Cache latest TC readings for thread-safe access by TempRampExecutor
+                    # Cache latest TC readings for thread-safe access by background threads
                     with self._tc_readings_lock:
                         self._latest_tc_readings = dict(tc_readings)
 
@@ -460,15 +293,6 @@ class DataAcquisition:
                                          frg702_details, safety_shutdown=True,
                                          raw_voltages=raw_voltages)
                             break
-
-                    # Ramp executor voltage update
-                    if self.ps_controller and self.ramp_executor:
-                        if self.ramp_executor.is_running():
-                            new_setpoint = self.ramp_executor.get_current_setpoint()
-                            try:
-                                self.ps_controller.set_voltage(new_setpoint)
-                            except Exception as e:
-                                print(f"Error setting voltage: {e}")
 
                     # Deliver data via callback
                     if callback and all_readings:
@@ -542,7 +366,7 @@ class DataAcquisition:
         """
         Return the most recent thermocouple reading in °C.
 
-        Thread-safe — can be called from background threads (e.g. TempRampExecutor).
+        Thread-safe — can be called from background threads.
 
         Args:
             name: Optional TC name (e.g. 'TC_1').  If None, returns the first
@@ -569,12 +393,11 @@ class DataAcquisition:
 
     def get_tc_kelvin_by_name(self, tc_name: str):
         """
-        Read a thermocouple by name and return the value in Kelvin,
-        regardless of the display unit setting.
+        Read a thermocouple by name and return the value in Kelvin.
 
-        The ThermocoupleReader always configures AIN_EF_CONFIG_A = 1 (Celsius).
-        This method explicitly converts Celsius → Kelvin so the PID loop
-        always receives Kelvin without double-converting.
+        WARNING: This method already converts C→K. Do NOT add another
+        +273.15 anywhere in the call chain. The ThermocoupleReader always
+        outputs Celsius (EF_CONFIG_A=1). This is the ONLY conversion point.
 
         Returns:
             float: Temperature in Kelvin, or None if reading failed.
