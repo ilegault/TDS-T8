@@ -65,7 +65,7 @@ Tungsten has a **~17× cold-to-hot resistance ratio** (strong positive Temperatu
   LabJack T8      ProgramExecutor  DataAcquisition
   Keysight N5700  PIDController    DataBuffer
   XGS-600         SafetyMonitor    DataLogger
-  FRG-702 gauges  RampExecutor
+  FRG-702 gauges
   Thermocouples
 ```
 
@@ -177,28 +177,42 @@ Custom names for TCs and FRG gauges can be set in **Settings → Sensors**; they
 
 ## Control Modes
 
-### 1. Voltage / Current Programmer
-The **Power Programmer Panel** lets you build a list of blocks:
+### Block-Based Power Programmer
+
+The **Power Programmer Panel** lets you build a sequence of blocks that `ProgramExecutor` runs in order. There are three block types:
 
 | Block type | What happens |
 |-----------|-------------|
-| `Ramp` | Linearly interpolates voltage from `Start V` to `End V` over `Duration` seconds. Current ceiling (`current_a`) stays fixed. |
-| `Hold` | Stays at `Start V` for `Duration` seconds. |
+| `Voltage Ramp` | Linearly interpolates `DAC0` voltage from `Start V` to `End V` over `Duration` seconds. Current ceiling stays fixed. Use for controlled resistive heating of cold tungsten. |
+| `Stable Hold` | Drives to a `Target Temp` and holds it using closed-loop PID control. Optional **QMS Trigger** flag: when enabled, execution pauses at the end of this block and shows a confirmation banner so you can start the QMS before the next block runs. |
+| `Temp Ramp` | Ramps from current temperature to `End Temp` at a specified `Rate (K/min)` using PID control. |
 
-Blocks are validated against the 6 V / 180 A hardware limits before execution. In **Safe Mode** (checkbox in the panel) all voltages are clamped to ≤ 1 V and currents to ≤ 10 A — use this when testing wiring on the bench.
+Blocks are validated against the 6 V / 180 A hardware limits before execution. Profile JSON files (`.json`) can be saved and loaded from the programmer panel.
 
-### 2. Temperature Ramp (PID)
-Each block specifies a `rate_k_per_min`. `ProgramExecutor` runs a soft-start phase first (ramps voltage slowly until the specimen reaches ~150 °C), then hands control to `PIDController` which drives voltage to track the requested ramp rate.
+**Safe Test Mode** (checkbox in the panel): clamps all voltages to ≤ 1 V and currents to ≤ 10 A — use when bench-testing wiring without a specimen.
 
-**Phase 1 — Soft-Start constants** (in `temp_ramp_pid.py`):
-- Threshold: 150 °C
-- Voltage step per tick: 0.010 V
-- Current pause limit: 120 A
-- Rate ceiling: 3 K/min
+#### Soft-Start Phase
 
-**PID — slew-rate limiter:** max 0.050 V change per tick to prevent voltage spikes.
+Before any PID-controlled block runs, `ProgramExecutor` executes a **soft-start phase** to protect cold tungsten from overcurrent:
 
-Profile JSON files (`.json`) can be saved and loaded from the programmer panel.
+- Ramps `DAC0` at 0.010 V/tick until the specimen reaches ~150 °C
+- Pauses voltage increases if current exceeds 120 A
+- Aborts soft-start if heating rate exceeds 3 K/min
+- Then hands control to `PIDController` (max 0.050 V slew per tick)
+
+#### QMS Autoclicker
+
+When a `Stable Hold` block has the **QMS Trigger** flag enabled, the system pauses at block completion and shows a **"Start QMS + Continue Ramp"** banner in the GUI.
+
+Clicking the banner button:
+1. Optionally auto-clicks a preconfigured screen coordinate (to start the QMS acquisition software)
+2. Logs a `QMS_TRIGGER` event to the CSV
+3. Resumes execution of the next block
+
+Configure the auto-click in **Settings → QMS Trigger**:
+- Enable the auto-click checkbox
+- Use **"Capture Location (3s)"** to record the mouse position over the QMS software's start button (3-second countdown, then captures cursor position)
+- Use **"Test Click"** to verify the coordinate before a real run
 
 ---
 
