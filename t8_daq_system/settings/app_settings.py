@@ -91,7 +91,7 @@ _DEFAULTS = {
     "pid_ki":               ("float", 0.001),
     "pid_kd":               ("float", 0.010),
     "pid_windup_limit":     ("float", 30.0),
-    "pid_output_max":       ("float", 1.5),
+    "pid_output_max":       ("float", 6.0),
     # ── QMS Auto-Click settings ───────────────────────────────────────────
     "qms_auto_click_enabled": ("bool", False),
     "qms_auto_click_x":       ("int",  0),
@@ -184,7 +184,7 @@ class AppSettings:
         self.pid_ki: float = 0.001
         self.pid_kd: float = 0.010
         self.pid_windup_limit: float = 30.0
-        self.pid_output_max: float = 1.5
+        self.pid_output_max: float = 6.0
         # QMS Auto-Click
         self.qms_auto_click_enabled: bool = False
         self.qms_auto_click_x: int = 0
@@ -217,8 +217,7 @@ class AppSettings:
                     raw_value, _ = winreg.QueryValueEx(key, field)
                     val = _coerce(raw_value, kind, default)
                     setattr(self, field, val)
-                    if "ps_" in field or "tc_pins" in field:
-                        print(f"[DEBUG] AppSettings.load: {field} = {val}")
+                    pass  # field loaded successfully
                 except (FileNotFoundError, OSError):
                     # Individual value missing — keep default
                     pass

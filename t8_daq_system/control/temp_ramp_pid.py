@@ -39,7 +39,7 @@ class PIDController:
     """
 
     def __init__(self, kp=1.0, ki=0.05, kd=0.05,
-                 output_min=0.0, output_max=1.5,
+                 output_min=0.0, output_max=6.0,
                  integral_windup_limit=30.0):
         """
         Args:
@@ -141,11 +141,16 @@ class PIDController:
             'integral_accumulator': self._integral,
         }
 
-    def update_gains(self, kp: float, ki: float, kd: float):
-        """Update PID gains (can be called between runs)."""
+    def update_gains(self, kp: float, ki: float, kd: float,
+                     output_max: float = None, windup_limit: float = None):
+        """Update PID gains and optional limits (can be called between runs)."""
         self._kp = kp
         self._ki = ki
         self._kd = kd
+        if output_max is not None:
+            self._output_max = output_max
+        if windup_limit is not None:
+            self._windup_limit = windup_limit
 
 
 # ── PID Run Logger ─────────────────────────────────────────────────────────────

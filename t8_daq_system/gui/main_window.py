@@ -1397,15 +1397,14 @@ class MainWindow:
         self._program_executor.load_program(blocks)
         self._program_executor.practice_mode = self._practice_mode
 
-        # Apply PID gains from AppSettings
-        for block in blocks:
-            if block.block_type == "temp_ramp":
-                self._program_executor._pid.update_gains(
-                    self._app_settings.pid_kp,
-                    self._app_settings.pid_ki,
-                    self._app_settings.pid_kd,
-                )
-                break
+        # Apply all PID settings from AppSettings before every run
+        self._program_executor._pid.update_gains(
+            self._app_settings.pid_kp,
+            self._app_settings.pid_ki,
+            self._app_settings.pid_kd,
+            output_max=self._app_settings.pid_output_max,
+            windup_limit=self._app_settings.pid_windup_limit,
+        )
 
         if self._program_executor.start():
             self._programmer_ramp_running = True

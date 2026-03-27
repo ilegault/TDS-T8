@@ -175,6 +175,8 @@ hiddenimports = [
     '_ctypes',
     'ctypes',
     'ctypes.util',
+    'multiprocessing',
+    'multiprocessing.freeze_support',
 
     # Tkinter and GUI
     'tkinter',
@@ -318,7 +320,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,   # Disable UPX - compression causes DLL decompression overhead
-    console=True,  # Set to True temporarily to see errors
+    console=False,  # No console window for end-users; set True only to debug crashes
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

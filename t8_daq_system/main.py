@@ -5,6 +5,13 @@ PURPOSE: Application entry point for the T8 DAQ System
 
 import sys
 import os
+import multiprocessing
+
+# PyInstaller Windows fix: must be called before any other code when frozen
+# Prevents recursive subprocess spawning (numpy/matplotlib internals) that
+# causes the instant-close flicker on first launch.
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
 
 # ============================================================================
 # ENVIRONMENT VARIABLES — MUST BE FIRST, BEFORE ANY OTHER IMPORTS
@@ -61,12 +68,14 @@ class Logger:
         self.log = open(filename, "w", encoding="utf-8")
 
     def write(self, message):
-        self.terminal.write(message)
+        if self.terminal is not None:
+            self.terminal.write(message)
         self.log.write(message)
         self.log.flush()
 
     def flush(self):
-        self.terminal.flush()
+        if self.terminal is not None:
+            self.terminal.flush()
         self.log.flush()
 
 profiler.log("About to import MainWindow...")
@@ -85,11 +94,14 @@ def main():
     base_dir = get_base_dir()
     profiler.log(f"Base directory resolved: {base_dir}")
 
-    # Ensure logs folder exists in the base directory
+    # Ensure logs folder exists — use APPDATA so it works without admin rights
     profiler.log("Creating logs directory")
-    logs_dir = os.path.join(base_dir, "logs")
-    if not os.path.exists(logs_dir):
-        os.makedirs(logs_dir, exist_ok=True)
+    if getattr(sys, 'frozen', False):
+        appdata = os.environ.get('APPDATA', base_dir)
+        logs_dir = os.path.join(appdata, 'T8_DAQ_System', 'logs')
+    else:
+        logs_dir = os.path.join(base_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
     profiler.log("Logs directory ready")
 
     # Initialize terminal logging to log.txt
