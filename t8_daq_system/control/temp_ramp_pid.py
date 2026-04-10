@@ -63,6 +63,14 @@ class PIDController:
         self._prev_time = None
         self._prev_output = 0.0
 
+        # Fix 1: rolling buffer for derivative smoothing
+        self._temp_filter_size = 12   # ~6 seconds at 500 ms sample rate
+        self._temp_buffer = []
+        self._last_smoothed_temp = None
+
+        # Fix 4: feedforward table for gain scheduling
+        self._ff_table = self._load_ff_table()
+
         # Debug: last computed P, I, D contributions
         self._last_p_term = 0.0
         self._last_i_term = 0.0
@@ -75,6 +83,8 @@ class PIDController:
         self._prev_measurement = None
         self._prev_time = None
         self._prev_output = 0.0
+        self._temp_buffer = []
+        self._last_smoothed_temp = None
         self._last_p_term = 0.0
         self._last_i_term = 0.0
         self._last_d_term = 0.0
@@ -102,21 +112,37 @@ class PIDController:
 
         error = setpoint_k - measured_k
 
-        # Integral with anti-windup clamp (only accumulate when output is not saturated)
+        # Fix 2b: integral windup clamp expressed in voltage units.
+        # Cap is on (ki * integral); clamp the raw integral accordingly.
         self._integral += error * dt
-        self._integral = max(-self._windup_limit, min(self._integral, self._windup_limit))
+        if self._ki > 1e-12:
+            integral_limit = self._windup_limit / self._ki
+        else:
+            integral_limit = float('inf')
+        self._integral = max(-integral_limit, min(self._integral, integral_limit))
 
-        # Derivative-on-measurement: avoids derivative kick when setpoint steps.
-        # d(error)/dt = -d(measurement)/dt when setpoint is constant.
-        if self._prev_measurement is None:
+        # Fix 1: smooth temperature for derivative only (rolling mean).
+        self._temp_buffer.append(measured_k)
+        if len(self._temp_buffer) > self._temp_filter_size:
+            self._temp_buffer.pop(0)
+        smoothed_temp = sum(self._temp_buffer) / len(self._temp_buffer)
+
+        # Derivative-on-measurement using smoothed temperature.
+        if self._last_smoothed_temp is None:
             derivative = 0.0
         else:
-            derivative = -(measured_k - self._prev_measurement) / dt
+            derivative = -(smoothed_temp - self._last_smoothed_temp) / dt
+        self._last_smoothed_temp = smoothed_temp
 
         self._last_p_term = self._kp * error
         self._last_i_term = self._ki * self._integral
         self._last_d_term = self._kd * derivative
         raw_output = self._last_p_term + self._last_i_term + self._last_d_term
+
+        # Fix 4: gain scheduling — scale PID output by local process-gain ratio.
+        gain_scale = self._get_dvdt_scale(measured_k, self._ff_table)
+        gain_scale = max(0.5, min(2.5, gain_scale))
+        raw_output *= gain_scale
 
         # Clamp output (0 to output_max — voltage must never go negative)
         clamped = max(self._output_min, min(raw_output, self._output_max))
@@ -127,6 +153,49 @@ class PIDController:
         self._prev_output = clamped
 
         return clamped
+
+    def _load_ff_table(self) -> list:
+        """Load the feedforward (voltage, temp_K) table from config JSON."""
+        try:
+            table_path = os.path.join(
+                os.path.dirname(__file__), '..', 'config', 'pid_feedforward_table.json'
+            )
+            with open(table_path, 'r') as f:
+                data = json.load(f)
+            return [(entry[0], entry[1]) for entry in data]
+        except Exception:
+            return []
+
+    def _get_dvdt_scale(self, temp_k: float, ff_table: list) -> float:
+        """
+        Returns a gain scale factor relative to a reference temperature.
+        ff_table: list of (voltage, temp_k) tuples sorted by temp_k.
+        Reference point is fixed at ~1473 K (1200°C) — the bottom of our TDS ramp.
+        """
+        if len(ff_table) < 2:
+            return 1.0
+
+        REFERENCE_TEMP_K = 1473.0
+
+        def interp_dvdt(t_k):
+            for i in range(len(ff_table) - 1):
+                v0, t0 = ff_table[i][0],   ff_table[i][1]
+                v1, t1 = ff_table[i + 1][0], ff_table[i + 1][1]
+                if t0 <= t_k <= t1:
+                    dt = t1 - t0
+                    if dt < 1.0:
+                        return (v1 - v0) / 1.0
+                    return (v1 - v0) / dt
+            # Extrapolate from last segment
+            v0, t0 = ff_table[-2][0], ff_table[-2][1]
+            v1, t1 = ff_table[-1][0], ff_table[-1][1]
+            return (v1 - v0) / max(t1 - t0, 1.0)
+
+        dvdt_now = interp_dvdt(temp_k)
+        dvdt_ref = interp_dvdt(REFERENCE_TEMP_K)
+        if dvdt_ref < 1e-9:
+            return 1.0
+        return dvdt_now / dvdt_ref
 
     def get_debug_terms(self) -> dict:
         """Return the P, I, D contributions from the most recent compute() call.
