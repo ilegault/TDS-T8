@@ -143,16 +143,24 @@ class DataAcquisition:
                 if not tc.get('enabled', True):
                     continue
                 _name = tc['name']
-                if (_enabled_idx == 0
-                        and self.program_executor is not None
-                        and hasattr(self.program_executor, '_practice_temp_k')
-                        and self.program_executor.is_running()):
-                    # Primary TC follows the PID-simulated temperature from ProgramExecutor
-                    sim_temp_k = self.program_executor._practice_temp_k or 293.15
-                    val = sim_temp_k - 273.15  # convert K → °C for display
+                if _enabled_idx == 0:
+                    # Primary TC: check TempRampExecutor first, then legacy ProgramExecutor
+                    _tramp = getattr(self, 'temp_ramp_executor', None)
+                    _prog = self.program_executor
+                    if (_tramp is not None
+                            and hasattr(_tramp, '_practice_temp_k')
+                            and _tramp.is_running()):
+                        sim_temp_k = _tramp._practice_temp_k or 293.15
+                        val = sim_temp_k - 273.15
+                    elif (_prog is not None
+                          and hasattr(_prog, '_practice_temp_k')
+                          and _prog.is_running()):
+                        sim_temp_k = _prog._practice_temp_k or 293.15
+                        val = sim_temp_k - 273.15
+                    else:
+                        val = 20.0 + 5.0 * math.sin(_t / 10.0) + random.uniform(-0.5, 0.5)
                 else:
-                    # Secondary TCs (or when no TempRamp is active): independent
-                    # sine-wave noise around room temperature so they don't clone TC_1.
+                    # Secondary TCs: independent sine-wave noise around room temperature
                     val = 20.0 + 5.0 * math.sin(_t / 10.0 + _enabled_idx * 1.3) + random.uniform(-0.5, 0.5)
                 tc_readings[_name] = val
                 # Simulate raw TC voltage: typical range ±0.1V (100mV)
@@ -393,23 +401,27 @@ class DataAcquisition:
 
     def get_tc_kelvin_by_name(self, tc_name: str):
         """
-        Read a thermocouple by name and return the value in Kelvin.
-
-        WARNING: This method already converts C→K. Do NOT add another
-        +273.15 anywhere in the call chain. The ThermocoupleReader always
-        outputs Celsius (EF_CONFIG_A=1). This is the ONLY conversion point.
-
-        Returns:
-            float: Temperature in Kelvin, or None if reading failed.
+        Read a thermocouple by name and return in Kelvin.
+        In practice mode, returns simulated temperature from the active executor.
         """
+        if self.practice_mode:
+            # Check TempRampExecutor first (PID-driven TC ramp simulation)
+            executor = getattr(self, 'temp_ramp_executor', None)
+            if executor is not None and hasattr(executor, '_practice_temp_k') and executor.is_running():
+                return float(executor._practice_temp_k)
+            # Fallback: check legacy ProgramExecutor
+            if self.program_executor is not None and hasattr(self.program_executor, '_practice_temp_k'):
+                if self.program_executor.is_running():
+                    return float(self.program_executor._practice_temp_k)
+            # No executor running: return room temp
+            return 293.15
+
         if self.tc_reader is None:
             return None
         try:
             temp_c = self.tc_reader.read_single(tc_name)
             if temp_c is None:
                 return None
-            # ThermocoupleReader always outputs Celsius (EF_CONFIG_A=1)
-            # Convert to Kelvin for PID consumption
             return temp_c + 273.15
         except Exception as e:
             print(f"[DAQ] get_tc_kelvin_by_name({tc_name}) error: {e}")

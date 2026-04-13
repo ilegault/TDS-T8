@@ -11,7 +11,7 @@ from datetime import datetime
 
 
 class DataBuffer:
-    def __init__(self, max_seconds=60, sample_rate_ms=100):
+    def __init__(self, max_seconds=None, sample_rate_ms=100):
         """
         Initialize the data buffer.
 

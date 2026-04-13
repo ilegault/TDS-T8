@@ -941,6 +941,11 @@ class MainWindow:
         self._live_plots.append(self.plot_ps)
         profiler.checkpoint("PS plot created")
 
+        # Clear CSV cache when rebuilding plots
+        for _p in (self.plot_tc, self.plot_pressure, self.plot_ps):
+            _p._loaded_timestamps = []
+            _p._loaded_plot_data = {}
+
         # Row 1, Col 1 — Placeholder (future camera / IR)
         placeholder_frame = ttk.LabelFrame(parent, text="Camera / IR")
         placeholder_frame.grid(row=1, column=1, sticky='nsew', padx=2, pady=2)
@@ -1503,25 +1508,29 @@ class MainWindow:
                      if g.get('enabled', True)]
 
         if self._viewing_historical and self._loaded_data:
-            _hist_tc = self._loaded_tc_names or tc_names
-            _hist_press = self._loaded_press_names or frg_names
-            if hasattr(self, 'plot_tc'):
-                self.plot_tc.update_from_loaded_data(
-                    self._loaded_data, _hist_tc,
-                    data_units=self._loaded_data_units
-                )
-            if hasattr(self, 'plot_pressure'):
-                self.plot_pressure.update_from_loaded_data(
-                    self._loaded_data, _hist_press,
-                    data_units=self._loaded_data_units
-                )
-            if hasattr(self, 'plot_ps'):
-                ps_names = [n for n in self._loaded_data
-                            if n in ('PS_Voltage', 'PS_Current')]
-                self.plot_ps.update_from_loaded_data(
-                    self._loaded_data, ps_names,
-                    data_units=self._loaded_data_units
-                )
+            # Only push loaded data to plots on first entry; after that, plots
+            # are frozen and the scrollbar drives rendering via sync_scroll.
+            if not getattr(self, '_historical_plots_initialized', False):
+                _hist_tc = self._loaded_tc_names or tc_names
+                _hist_press = self._loaded_press_names or frg_names
+                if hasattr(self, 'plot_tc'):
+                    self.plot_tc.update_from_loaded_data(
+                        self._loaded_data, _hist_tc,
+                        data_units=self._loaded_data_units
+                    )
+                if hasattr(self, 'plot_pressure'):
+                    self.plot_pressure.update_from_loaded_data(
+                        self._loaded_data, _hist_press,
+                        data_units=self._loaded_data_units
+                    )
+                if hasattr(self, 'plot_ps'):
+                    ps_names = [n for n in self._loaded_data
+                                if n in ('PS_Voltage', 'PS_Current')]
+                    self.plot_ps.update_from_loaded_data(
+                        self._loaded_data, ps_names,
+                        data_units=self._loaded_data_units
+                    )
+                self._historical_plots_initialized = True
 
             if self._loaded_data.get('timestamps'):
                 last_readings = {name: self._loaded_data[name][-1]
@@ -1562,6 +1571,7 @@ class MainWindow:
 
             self._loaded_data = data
             self._viewing_historical = True
+            self._historical_plots_initialized = False
 
             # Derive which columns are TCs vs pressure from the file itself so that
             # old-format files (TC_1/P_1) and new-format files (1/2/FRG702_T1) both work.
@@ -1645,6 +1655,7 @@ class MainWindow:
 
     def _return_to_live(self):
         self._viewing_historical = False
+        self._historical_plots_initialized = False
         self._loaded_data = None
         self._loaded_tc_names = []
         self._loaded_press_names = []

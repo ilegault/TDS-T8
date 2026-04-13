@@ -218,7 +218,7 @@ class ProgramPanel:
         list_container = ttk.Frame(main_frame)
         list_container.pack(fill=tk.BOTH, expand=True)
 
-        self._canvas = tk.Canvas(list_container, highlightthickness=0, height=110)
+        self._canvas = tk.Canvas(list_container, highlightthickness=0, height=160)
         self._scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=self._canvas.yview)
         self._scrollable_frame = ttk.Frame(self._canvas)
 

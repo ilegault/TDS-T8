@@ -33,8 +33,8 @@ class LivePlot:
     DEFAULT_PS_V_RANGE = (0, 6)         # V (Keysight N5700 max is 6V)
     DEFAULT_PS_I_RANGE = (0, 180)       # A (Keysight N5700 max is 180A)
 
-    # Rolling window for all plots (5 minutes = 300 seconds)
-    WINDOW_SECONDS = 300
+    # Rolling window for all plots (2 minutes = 120 seconds)
+    WINDOW_SECONDS = 120
 
     def __init__(self, parent_frame, data_buffer, plot_type='tc', show_scrollbar=True):
         """
@@ -156,6 +156,8 @@ class LivePlot:
         # whose right edge tracks the slider position.  'history_pct' shows all
         # data from session start up to the slider position (zoom-out view).
         self._slider_mode = 'window_2min'
+        self._loaded_timestamps = []   # timestamps from CSV load (list of datetime)
+        self._loaded_plot_data = {}    # {sensor_name: [values]} from CSV load
 
         # Programmer overlay (dotted preview lines)
         self._overlay_times = []       # list of floats (seconds relative to ramp start)
@@ -218,7 +220,9 @@ class LivePlot:
             self._do_update_frozen()
 
     def _get_all_timestamps(self):
-        """Return all timestamps from the data buffer (from any available sensor)."""
+        """Return all timestamps (CSV cache first, then data buffer)."""
+        if self._loaded_timestamps:
+            return self._loaded_timestamps
         # Try common sensor names first for efficiency
         for prefix in ('TC_1', 'TC_2', 'FRG702_1', 'PS_Voltage', 'PS_Current'):
             ts, _ = self.data_buffer.get_sensor_data(prefix)
@@ -335,26 +339,23 @@ class LivePlot:
                                 window_seconds=None, data_units=None):
         """
         Update plot with pre-loaded CSV data.
-
-        Args:
-            loaded_data:   dict with 'timestamps' key and per-sensor value lists
-            sensor_names:  names to display (None = auto-select by plot_type)
-            window_seconds: optional time-window override (default: WINDOW_SECONDS)
-            data_units:    dict like {'temp': 'C', 'press': 'mbar'}
+        On first call: enters frozen mode and caches the data.
+        Subsequent calls: no-op if already frozen (scroll handles rendering).
         """
         timestamps = loaded_data.get('timestamps', [])
         if not timestamps:
             return
 
+        if data_units:
+            self._data_units.update(data_units)
+
         if sensor_names is not None:
             plot_data = {n: loaded_data[n] for n in sensor_names if n in loaded_data}
             self._valid_sensor_names = set(sensor_names)
         else:
-            # Auto-select based on plot_type
             if self.plot_type == 'tc':
                 plot_data = {k: v for k, v in loaded_data.items()
-                             if self._sensor_belongs(k)
-                             and k != 'timestamps'}
+                             if self._sensor_belongs(k) and k != 'timestamps'}
             elif self.plot_type == 'pressure':
                 plot_data = {k: v for k, v in loaded_data.items()
                              if self._sensor_belongs(k) and k != 'timestamps'}
@@ -364,12 +365,20 @@ class LivePlot:
             else:
                 plot_data = {}
 
-        # Show all data from the file: pass right_edge so the X axis spans the
-        # file's own time range rather than datetime.now() (which would put old
-        # CSV data outside the visible window entirely).
-        ws = window_seconds  # None = no time-window filtering, show all rows
-        right_edge = timestamps[-1] if timestamps else None
-        self._render(timestamps, plot_data, ws, data_units, right_edge=right_edge)
+        # Cache the loaded data so sync_scroll / _do_update_frozen can use it
+        self._loaded_timestamps = timestamps
+        self._loaded_plot_data = plot_data
+
+        # Enter frozen mode pinned to the right edge (show most recent data first)
+        self._is_live = False
+        self._frozen_right_edge = timestamps[-1]
+        if self._scrollbar is not None:
+            self._scroll_var.set(1.0)
+        if self._mode_label is not None:
+            self._mode_label.config(text="● CSV", foreground='blue')
+
+        # Render using current scroll position / slider mode
+        self._do_update_frozen()
 
     def set_absolute_scales(self, enabled=True, temp_range=None, press_range=None,
                             ps_v_range=None, ps_i_range=None):
@@ -616,27 +625,33 @@ class LivePlot:
     def _do_update_frozen(self):
         """Render frozen view ending at _frozen_right_edge.
 
-        In 'window_2min' mode the viewport is always WINDOW_SECONDS wide.
-        In 'history_pct' mode all data from the session start to
-        _frozen_right_edge is shown (no time-window clipping).
+        Uses _loaded_timestamps/_loaded_plot_data when CSV data is loaded,
+        otherwise reads from data_buffer.
+        In 'window_2min' mode the viewport is WINDOW_SECONDS wide.
+        In 'history_pct' mode all data from session start to right_edge is shown.
         """
         if self._frozen_right_edge is None:
             return
-        # Use the same sensor list that live mode uses (respects custom TC names).
-        # Fall back to prefix-based filtering if update() hasn't been called yet.
-        active = getattr(self, '_active_sensor_names', None)
-        if active:
-            names = active
+
+        # Choose data source: CSV cache takes priority over live buffer
+        if self._loaded_timestamps:
+            all_timestamps = self._loaded_timestamps
+            plot_data = self._loaded_plot_data
         else:
-            names = [n for n in self.data_buffer.get_sensor_names()
-                     if self._sensor_belongs(n)]
-        plot_data = {}
-        all_timestamps = []
-        for name in names:
-            ts, vals = self.data_buffer.get_sensor_data(name)
-            plot_data[name] = vals
-            if ts and not all_timestamps:
-                all_timestamps = ts
+            active = getattr(self, '_active_sensor_names', None)
+            if active:
+                names = active
+            else:
+                names = [n for n in self.data_buffer.get_sensor_names()
+                         if self._sensor_belongs(n)]
+            plot_data = {}
+            all_timestamps = []
+            for name in names:
+                ts, vals = self.data_buffer.get_sensor_data(name)
+                plot_data[name] = vals
+                if ts and not all_timestamps:
+                    all_timestamps = ts
+
         ws = self.WINDOW_SECONDS if self._slider_mode == 'window_2min' else None
         self._render(all_timestamps, plot_data, ws,
                      data_units=self._data_units,
@@ -868,13 +883,10 @@ class LivePlot:
             self.ax.relim()
             if self._use_absolute_scales:
                 self.ax.autoscale_view(scaley=False)
+                if self.ax2 is not None:
+                    self.ax2.relim()
             else:
-                self.ax.autoscale_view()
-
-            if self.ax2 is not None:
-                self.ax2.relim()
-                if not self._use_absolute_scales:
-                    self.ax2.autoscale_view()
+                self._autoscale_visible_only()
 
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         self.ax.grid(True, alpha=0.3)
