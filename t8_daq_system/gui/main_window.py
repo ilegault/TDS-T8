@@ -348,7 +348,6 @@ class MainWindow:
         # Mode tracking
         self._viewing_historical = False
         self._practice_mode = False
-        self._practice_banner = None  # tk.Frame shown in practice mode
         self._loaded_data = None
         self._loaded_data_units = {'temp': 'C', 'press': 'PSI'}
         self._loaded_tc_names = []
@@ -684,7 +683,19 @@ class MainWindow:
 
         # ── Configure ttk Styles ──────────────────────────────────────────────
         style = ttk.Style()
+        style.theme_use('clam')  # 'clam' respects background/foreground on buttons; Windows native themes do not
+        _BG = '#d9d9d9'  # clam theme standard background — used for root window and plots too
+        self.root.configure(bg=_BG)
+        style.configure('TFrame', background=_BG)
+        style.configure('TLabelframe', background=_BG)
+        style.configure('TLabelframe.Label', background=_BG)
+        style.configure('TLabel', background=_BG)
         style.configure('Settings.TButton', foreground='#1a5f7a')
+        style.configure('Red.TButton', foreground='white', background='#cc0000',
+                        bordercolor='#990000', darkcolor='#990000', lightcolor='#ee3333')
+        style.map('Red.TButton',
+                  background=[('active', '#990000'), ('pressed', '#880000')],
+                  foreground=[('active', 'white'), ('pressed', 'white')])
         profiler.checkpoint("Styles configured")
 
         # ── Menu bar ─────────────────────────────────────────────────────────
@@ -771,6 +782,14 @@ class MainWindow:
         )
         # Do NOT pack yet — only shown when programmer is active AND profile is ready
 
+        self.cut_power_btn = ttk.Button(
+            control_frame,
+            text="Cut Power",
+            command=self._cut_power_output,
+            style='Red.TButton'
+        )
+        self.cut_power_btn.pack(side=tk.LEFT, padx=5)
+
         # Separator
         ttk.Separator(control_frame, orient='vertical').pack(
             side=tk.LEFT, padx=10, fill='y'
@@ -788,18 +807,19 @@ class MainWindow:
         self._build_indicators()
         profiler.checkpoint("Control buttons and indicators created")
 
-        status_label = ttk.Label(
-            control_frame, textvariable=self.status_var, font=('Arial', 10, 'bold')
-        )
-        status_label.pack(side=tk.RIGHT, padx=10)
-
-        ttk.Label(control_frame, text="Status:").pack(side=tk.RIGHT)
         profiler.checkpoint("Status labels created")
 
         profiler.checkpoint("Creating safety status bar...")
         # Safety Status Bar at bottom
         safety_frame = ttk.Frame(self.root)
         safety_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(2, 10))
+
+        ttk.Label(safety_frame, text="Status:", font=('Arial', 8, 'bold')).pack(side=tk.LEFT, padx=(0, 2))
+        self.status_label_bottom = ttk.Label(
+            safety_frame, textvariable=self.status_var, font=('Arial', 8, 'bold')
+        )
+        self.status_label_bottom.pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Separator(safety_frame, orient='vertical').pack(side=tk.LEFT, padx=5, fill='y')
 
         ttk.Label(safety_frame, text="Safety:", font=('Arial', 8, 'bold')).pack(side=tk.LEFT)
 
@@ -993,29 +1013,16 @@ class MainWindow:
             # ── Feature C: Window title ───────────────────────────────────
             self.root.title('[PRACTICE MODE] T8 DAQ System with Power Supply Control')
 
-            # ── Feature C: Orange banner below control buttons ────────────
-            if self._practice_banner is None:
-                self._practice_banner = tk.Frame(self.root, bg='#FF8C00', height=28)
-                self._practice_banner.pack(fill=tk.X, padx=0, pady=0,
-                                           after=self.control_frame)
-                banner_label = tk.Label(
-                    self._practice_banner,
-                    text='⚠  PRACTICE MODE — No real hardware is being controlled  ⚠',
-                    bg='#FF8C00', fg='white',
-                    font=('Arial', 10, 'bold')
-                )
-                banner_label.pack(expand=True)
-
             # ── Feature C: Practice button style ─────────────────────────
-            try:
-                style = ttk.Style()
-                style.configure('PracticeOn.TButton',
-                                background='#FF8C00',
-                                foreground='white',
-                                font=('Arial', 9, 'bold'))
-                self.practice_btn.configure(style='PracticeOn.TButton')
-            except Exception:
-                pass  # Theme may not support background color changes
+            style = ttk.Style()
+            style.configure('PracticeOn.TButton',
+                            background='#FF8C00',
+                            foreground='white',
+                            font=('Arial', 9, 'bold'))
+            style.map('PracticeOn.TButton',
+                      background=[('active', '#cc7000'), ('pressed', '#aa5e00')],
+                      foreground=[('active', 'white'), ('pressed', 'white')])
+            self.practice_btn.configure(style='PracticeOn.TButton')
 
         else:
             self.practice_btn.config(text="Practice Mode: OFF")
@@ -1043,16 +1050,8 @@ class MainWindow:
             # ── Feature C: Revert window title ────────────────────────────
             self.root.title('T8 DAQ System with Power Supply Control')
 
-            # ── Feature C: Destroy orange banner ─────────────────────────
-            if self._practice_banner is not None:
-                self._practice_banner.destroy()
-                self._practice_banner = None
-
             # ── Feature C: Revert practice button style ───────────────────
-            try:
-                self.practice_btn.configure(style='TButton')
-            except Exception:
-                pass
+            self.practice_btn.configure(style='TButton')
 
         self._rebuild_sensor_panel()
         self._update_plot_settings()
@@ -1135,9 +1134,10 @@ class MainWindow:
         pass
 
     def _deactivate_power_programmer(self):
-        # SAFETY: If a ramp is currently running, stop it safely first
-        if self._programmer_ramp_running:
-            self._stop_programmer_ramp_safe()
+        # NOTE: Do NOT stop a running ramp when navigating away from the programmer.
+        # The executor thread is independent of the UI panel.
+        # The run continues in the background; the Stop button and Cut Power button
+        # remain available from the main toolbar.
 
         # Save profile data before destroying panel
         if self._programmer_panel:
@@ -1428,6 +1428,36 @@ class MainWindow:
         if self._programmer_preview_plot is not None:
             self._programmer_preview_plot.clear_progress_dot()
         # Restore default legend if it was modified during a run
+        if hasattr(self, 'plot_ps'):
+            self.plot_ps.set_legend_label_overrides({})
+            self.plot_ps.update(['PS_Voltage', 'PS_Current'])
+
+    def _cut_power_output(self):
+        """
+        Immediately command 0 V / 0 A to the power supply and stop any
+        running executor. Safe to call at any time.
+        """
+        import time as _time
+
+        # Stop program executor if running
+        if self._program_executor and self._program_executor.is_running():
+            self._program_executor.stop()
+
+        # Command 0 V then 0 A to hardware
+        if hasattr(self, 'ps_controller') and self.ps_controller is not None:
+            try:
+                self.ps_controller.set_voltage(0.0)
+                _time.sleep(0.3)
+                self.ps_controller.set_current(0.0)
+            except Exception as e:
+                messagebox.showwarning("Cut Power Warning", f"Error commanding 0V/0A: {e}")
+
+        # Reset run state
+        self._programmer_ramp_running = False
+        self.run_ramp_btn.config(text="Run Program")
+        self.status_var.set("Power Cut")
+
+        # Restore default legend
         if hasattr(self, 'plot_ps'):
             self.plot_ps.set_legend_label_overrides({})
             self.plot_ps.update(['PS_Voltage', 'PS_Current'])
@@ -2054,15 +2084,16 @@ class MainWindow:
 
     def _on_toggle_logging(self):
         if not self.is_logging:
-            # Clear all graphs and the data buffer so logging starts fresh
-            self.data_buffer.clear()
-            for plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
-                if hasattr(self, plot_attr):
-                    getattr(self, plot_attr).clear()
-            # Reset timeline slider to live position
-            if hasattr(self, 'master_scroll_var'):
-                self.master_scroll_var.set(1.0)
-                self._on_master_scroll(1.0)
+            # Optionally clear all graphs and the data buffer so logging starts fresh
+            if self._app_settings.reset_graph_on_start_logging:
+                self.data_buffer.clear()
+                for plot_attr in ('plot_tc', 'plot_pressure', 'plot_ps'):
+                    if hasattr(self, plot_attr):
+                        getattr(self, plot_attr).clear()
+                # Reset timeline slider to live position
+                if hasattr(self, 'master_scroll_var'):
+                    self.master_scroll_var.set(1.0)
+                    self._on_master_scroll(1.0)
 
             dialog = LoggingDialog(self.root)
             self.root.wait_window(dialog)
@@ -2305,12 +2336,16 @@ class MainWindow:
             handle = self.connection.get_handle()
             self.tc_reader = ThermocoupleReader(handle, self.config['thermocouples'])
 
-            # Handle FRG702 Analog transition
+            # Handle FRG702 reader initialization / config refresh
+            frg702_config = self.config.get('frg702_gauges', [])
             if self.config.get('frg_interface') == "Analog":
-                frg702_config = self.config.get('frg702_gauges', [])
                 if frg702_config:
                     self.frg702_reader = FRG702AnalogReader(handle, frg702_config)
                     print("Analog FRG-702 reader initialized via LabJack AIN")
+            elif self.frg702_reader is not None and frg702_config:
+                # XGS600 mode: keep the live serial connection but sync gauge config
+                # so readings are keyed by the current sensor names/units.
+                self.frg702_reader.gauges = frg702_config
 
             # Update live DAQ engine if running
             if self.daq:
@@ -2320,7 +2355,13 @@ class MainWindow:
                     config=self.config
                 )
 
-            self._check_connections()
+            # Only probe hardware directly when the DAQ is NOT running.
+            # When acquisition is active the background thread owns the serial
+            # port; calling _check_connections() here races with it and can
+            # corrupt the XGS-600 serial exchange, setting _connected=False and
+            # causing a persistent "disconnected" state.
+            if not self.is_running:
+                self._check_connections()
             return True
         except Exception as e:
             print(f"Error initializing hardware readers: {e}")

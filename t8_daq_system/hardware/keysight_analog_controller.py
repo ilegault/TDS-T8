@@ -402,12 +402,16 @@ class KeysightAnalogController:
 
             # Safety check for reasonable values - allow for small negative noise (-0.05V raw)
             if raw_v < -0.05 or actual_voltage > self.rated_max_volts * 1.083:
-                print(f"WARNING: Voltage reading {actual_voltage:.3f}V is out of expected range (0-{self.rated_max_volts}V)")
-                print(f"         Raw AIN reading was: {raw_v:.4f}V on {self._AIN_VOLTAGE}")
-                if raw_v < -0.3:
-                    print(f"         HINT: A large negative raw reading typically means the Keysight")
-                    print(f"         output is OFF or not enabled. Check: (1) front panel output button,")
-                    print(f"         (2) FIO1 shutoff pin state, (3) SW1 switches 1 & 2 are UP.")
+                import time as _time
+                _now = _time.monotonic()
+                if not hasattr(self, '_voltage_warn_time') or _now - self._voltage_warn_time >= 10:
+                    self._voltage_warn_time = _now
+                    print(f"WARNING: Voltage reading {actual_voltage:.3f}V is out of expected range (0-{self.rated_max_volts}V)")
+                    print(f"         Raw AIN reading was: {raw_v:.4f}V on {self._AIN_VOLTAGE}")
+                    if raw_v < -0.3:
+                        print(f"         HINT: A large negative raw reading typically means the Keysight")
+                        print(f"         output is OFF or not enabled. Check: (1) front panel output button,")
+                        print(f"         (2) FIO1 shutoff pin state, (3) SW1 switches 1 & 2 are UP.")
 
             return actual_voltage
         except Exception as e:

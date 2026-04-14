@@ -207,13 +207,14 @@ class ProgramExecutor:
         self._current_get_temp_k = self._get_temp_k_provider("TC_1")
         block_start_temp_k = self._current_get_temp_k() if self._current_get_temp_k else 293.15
         
-        # For inter-block continuity
+        # Seed from actual PS output if supply is already live,
+        # so that starting a continuation program does not snap back to 0 V.
         last_voltage = 0.0
         if self._ps:
             try:
-                # Try to get current state if possible, else 0
-                last_voltage = 0.0 
-            except:
+                _measured_v = self._ps.get_voltage()
+                last_voltage = _measured_v if _measured_v > 0.1 else 0.0
+            except Exception:
                 pass
 
         # Use the first temp_ramp block's TC name for the initial reading so

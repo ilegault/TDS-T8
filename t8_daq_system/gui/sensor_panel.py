@@ -6,9 +6,8 @@ PURPOSE: Display current sensor values as text/numbers
 import tkinter as tk
 from tkinter import ttk
 from t8_daq_system.hardware.frg702_reader import (
-    FRG702Reader, STATUS_VALID, STATUS_UNDERRANGE, STATUS_OVERRANGE,
+    STATUS_VALID, STATUS_UNDERRANGE, STATUS_OVERRANGE,
     STATUS_SENSOR_ERROR_NO_SUPPLY, STATUS_SENSOR_ERROR_PIRANI_DEFECTIVE,
-    MODE_PIRANI_ONLY, MODE_COMBINED, MODE_UNKNOWN,
 )
 
 
@@ -30,8 +29,7 @@ class SensorPanel:
 
         # FRG-702 specific widgets
         self.global_pressure_unit = "mbar"
-        self.frg702_mode_labels = {}   # sensor_name: Label for operating mode
-        self.frg702_status_indicators = {}  # sensor_name: Canvas for status color
+        self.frg702_names = set()      # sensor names that are FRG-702 gauges
 
         # Click-to-toggle state (Change 6)
         self._sensor_visible = {}    # sensor_name: bool
@@ -103,20 +101,13 @@ class SensorPanel:
                 name = gauge['name']
                 default_unit = gauge.get('units', 'mbar')
                 self._sensor_visible[name] = True
+                self.frg702_names.add(name)
 
-                # Wider frame for FRG-702 to accommodate unit selector and mode
-                frame = ttk.LabelFrame(parent_frame, text=name, width=240, height=120)
+                # Same size frame as TC/PS panels
+                frame = ttk.LabelFrame(parent_frame, text=name, width=206, height=90)
                 frame.grid(row=0, column=i, padx=6, pady=5)
                 frame.pack_propagate(False)
                 self.frames[name] = frame
-
-                # Status color indicator (green/yellow/red circle)
-                status_canvas = tk.Canvas(frame, width=12, height=12,
-                                          highlightthickness=0)
-                status_canvas.pack(anchor='ne', padx=2, pady=1)
-                status_canvas.create_oval(1, 1, 11, 11, fill='gray', outline='black',
-                                          tags='indicator')
-                self.frg702_status_indicators[name] = status_canvas
 
                 # Large value display (scientific notation)
                 value_label = ttk.Label(
@@ -124,22 +115,12 @@ class SensorPanel:
                     text="-.--e--",
                     font=('Courier', 14, 'bold')
                 )
-                value_label.pack(padx=5, pady=5)
+                value_label.pack(padx=5, pady=1)
 
                 # Unit display label (fixed)
                 self.unit_labels = {} if not hasattr(self, 'unit_labels') else self.unit_labels
                 self.unit_labels[name] = ttk.Label(frame, text=default_unit)
                 self.unit_labels[name].pack(pady=(0, 1))
-
-                # Operating mode label
-                mode_label = ttk.Label(
-                    frame,
-                    text="",
-                    font=('Arial', 6, 'italic'),
-                    foreground='gray'
-                )
-                mode_label.pack(pady=(0, 1))
-                self.frg702_mode_labels[name] = mode_label
 
                 # Status text label
                 status_label = ttk.Label(
@@ -294,7 +275,7 @@ class SensorPanel:
                     else:
                         self.displays[name].config(text=f"{value:.3f} A", foreground='black')
                         self.status_labels[name].config(text="CONNECTED", foreground='green')
-            elif name in self.frg702_mode_labels:
+            elif name in self.frg702_names:
                 # FRG-702 display: use scientific notation
                 self._update_frg702_display(name, value)
             elif value is None:
@@ -311,16 +292,10 @@ class SensorPanel:
         if value is None:
             self.displays[name].config(text="-.--e--", foreground='gray')
             self.status_labels[name].config(text="DISCONNECTED", foreground='red')
-            self._set_frg702_indicator(name, 'gray')
             return
 
-        # Show in scientific notation. Value is already in display unit.
-        self.displays[name].config(
-            text=f"{value:.2e}",
-            foreground='black'
-        )
+        self.displays[name].config(text=f"{value:.2e}", foreground='black')
         self.status_labels[name].config(text="CONNECTED", foreground='green')
-        self._set_frg702_indicator(name, '#00FF00')
 
     def update_frg702_status(self, frg702_detail_readings):
         """
@@ -336,55 +311,30 @@ class SensorPanel:
 
             pressure = info.get('pressure')
             status = info.get('status', '')
-            mode = info.get('mode', MODE_UNKNOWN)
 
-            # Update mode label if configured
-            if name in self.frg702_mode_labels:
-                self.frg702_mode_labels[name].config(text=mode)
-
-            # Determine indicator color and display based on status
             if status == STATUS_VALID:
-                if mode == MODE_COMBINED:
-                    indicator_color = '#00FF00'  # Green for combined mode
-                elif mode == MODE_PIRANI_ONLY:
-                    indicator_color = '#FFFF00'  # Yellow for Pirani-only
-                else:
-                    indicator_color = '#00FF00'  # Green default for valid
-
-                # Display value. Pressure is already in display unit.
-                self.displays[name].config(
-                    text=f"{pressure:.2e}",
-                    foreground='black'
-                )
+                self.displays[name].config(text=f"{pressure:.2e}", foreground='black')
                 self.status_labels[name].config(text="CONNECTED", foreground='green')
 
             elif status == STATUS_UNDERRANGE:
-                indicator_color = '#FF0000'
                 self.displays[name].config(text="UNDERRANGE", foreground='orange')
                 self.status_labels[name].config(text="UNDERRANGE", foreground='orange')
 
             elif status == STATUS_OVERRANGE:
-                indicator_color = '#FF0000'
                 self.displays[name].config(text="OVERRANGE", foreground='orange')
                 self.status_labels[name].config(text="OVERRANGE", foreground='orange')
 
             elif status == STATUS_SENSOR_ERROR_NO_SUPPLY:
-                indicator_color = '#FF0000'
                 self.displays[name].config(text="NO SUPPLY", foreground='red')
                 self.status_labels[name].config(text="ERROR", foreground='red')
 
             elif status == STATUS_SENSOR_ERROR_PIRANI_DEFECTIVE:
-                indicator_color = '#FF0000'
                 self.displays[name].config(text="DEFECTIVE", foreground='red')
                 self.status_labels[name].config(text="ERROR", foreground='red')
 
             else:
-                # This handles 'error' status from read_all_with_status when disconnected
-                indicator_color = 'gray'
                 self.displays[name].config(text="-.--e--", foreground='gray')
                 self.status_labels[name].config(text="DISCONNECTED", foreground='red')
-
-            self._set_frg702_indicator(name, indicator_color)
 
     def update_global_pressure_unit(self, new_unit):
         """Update the global pressure unit and labels."""
@@ -392,14 +342,6 @@ class SensorPanel:
         if hasattr(self, 'unit_labels'):
             for label in self.unit_labels.values():
                 label.config(text=new_unit)
-
-    def _set_frg702_indicator(self, name, color):
-        """Set the color of an FRG-702 status indicator circle."""
-        if name in self.frg702_status_indicators:
-            canvas = self.frg702_status_indicators[name]
-            canvas.delete('indicator')
-            canvas.create_oval(1, 1, 11, 11, fill=color, outline='black',
-                               tags='indicator')
 
     def set_error(self, sensor_name, message="ERR"):
         """
@@ -412,8 +354,6 @@ class SensorPanel:
         if sensor_name in self.displays:
             self.displays[sensor_name].config(text=message, foreground='red')
             self.status_labels[sensor_name].config(text="ERROR", foreground='red')
-            if sensor_name in self.frg702_status_indicators:
-                self._set_frg702_indicator(sensor_name, '#FF0000')
 
     def clear_all(self):
         """Reset all displays to default state."""
@@ -422,14 +362,12 @@ class SensorPanel:
                 self.displays[name].config(text="--- V", foreground='black')
             elif name == 'PS_Current':
                 self.displays[name].config(text="--- A", foreground='black')
-            elif name in self.frg702_mode_labels:
+            elif name in self.frg702_names:
                 self.displays[name].config(text="-.--e--", foreground='black')
             else:
                 placeholder = "--.--" if self.precisions.get(name) == 2 else "--.-"
                 self.displays[name].config(text=placeholder, foreground='black')
             self.status_labels[name].config(text="WAITING", foreground='gray')
-            if name in self.frg702_status_indicators:
-                self._set_frg702_indicator(name, 'gray')
 
     def highlight(self, sensor_name, color='green'):
         """

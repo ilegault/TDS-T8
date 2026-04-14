@@ -28,8 +28,8 @@ class SettingsDialog(tk.Toplevel):
     def __init__(self, parent, settings, on_save_callback=None):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("500x900")
-        self.minsize(500, 900)
+        self.geometry("550x900")
+        self.minsize(550, 900)
         self.resizable(True, True)
         self.grab_set()
         self.transient(parent)
@@ -759,6 +759,14 @@ class SettingsDialog(tk.Toplevel):
                         text="Skip wiring pre-flight check on Start",
                         variable=self._skip_preflight_check_var).pack(anchor='w', padx=5, pady=5)
 
+        logging_behaviour_frame = ttk.LabelFrame(tab, text="Logging Behaviour", padding=10)
+        logging_behaviour_frame.pack(fill=tk.X, pady=5)
+
+        self._reset_graph_on_start_logging_var = tk.BooleanVar()
+        ttk.Checkbutton(logging_behaviour_frame,
+                        text="Reset graphs when starting a new log",
+                        variable=self._reset_graph_on_start_logging_var).pack(anchor='w', padx=5, pady=5)
+
     def _create_option_row(self, parent, label, var_name, values, row):
         """Helper to create a label + combobox row."""
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky='w', padx=5, pady=5)
@@ -911,6 +919,7 @@ class SettingsDialog(tk.Toplevel):
         self._ps_voltage_monitor_pin_var.set(s.ps_voltage_monitor_pin)
         self._ps_current_monitor_pin_var.set(s.ps_current_monitor_pin)
         self._skip_preflight_check_var.set(s.skip_preflight_check)
+        self._reset_graph_on_start_logging_var.set(s.reset_graph_on_start_logging)
         self._ps_enabled_var.set(s.ps_enabled)
         self._xgs_enabled_var.set(s.xgs_enabled)
         self._pp_profiles_folder_var.set(s.pp_profiles_folder)
@@ -989,6 +998,7 @@ class SettingsDialog(tk.Toplevel):
             s.ps_voltage_monitor_pin = self._ps_voltage_monitor_pin_var.get().strip()
             s.ps_current_monitor_pin = self._ps_current_monitor_pin_var.get().strip()
             s.skip_preflight_check = self._skip_preflight_check_var.get()
+            s.reset_graph_on_start_logging = self._reset_graph_on_start_logging_var.get()
             s.ps_enabled = self._ps_enabled_var.get()
             s.xgs_enabled = self._xgs_enabled_var.get()
             s.pp_profiles_folder = self._pp_profiles_folder_var.get().strip()

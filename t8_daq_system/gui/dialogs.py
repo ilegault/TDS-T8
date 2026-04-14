@@ -119,7 +119,7 @@ class LoadCSVDialog(tk.Toplevel):
         self.result = None  # Will contain filepath or None if cancelled
 
         # Configure dialog size
-        self.geometry("600x450")
+        self.geometry("600x550")
         self.minsize(500, 350)
 
         self._build_ui()

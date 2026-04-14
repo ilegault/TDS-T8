@@ -27,7 +27,7 @@ class ProgrammerPreviewPlot:
         self._parent = parent_frame
 
         self.fig = Figure(figsize=(8, 4), dpi=100)
-        self.fig.patch.set_facecolor('#f0f0f0')
+        self.fig.patch.set_facecolor('#d9d9d9')
 
         self._ax_v = self.fig.add_subplot(111)
         # Right axis created once; shown/hidden per render

@@ -96,7 +96,7 @@ class LivePlot:
 
         # ── Build matplotlib figure ───────────────────────────────────────
         self.fig = Figure(figsize=(5, 4), dpi=100)
-        self.fig.patch.set_facecolor('#f0f0f0')
+        self.fig.patch.set_facecolor('#d9d9d9')
 
         if plot_type == 'ps':
             # Two y-axes: voltage (left) and current (right)

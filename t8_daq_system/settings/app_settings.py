@@ -96,6 +96,8 @@ _DEFAULTS = {
     "qms_auto_click_enabled": ("bool", False),
     "qms_auto_click_x":       ("int",  0),
     "qms_auto_click_y":       ("int",  0),
+    # ── Logging behaviour ─────────────────────────────────────────────────
+    "reset_graph_on_start_logging": ("bool", True),
 }
 
 
@@ -189,6 +191,8 @@ class AppSettings:
         self.qms_auto_click_enabled: bool = False
         self.qms_auto_click_x: int = 0
         self.qms_auto_click_y: int = 0
+        # Logging behaviour
+        self.reset_graph_on_start_logging: bool = True
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public API
