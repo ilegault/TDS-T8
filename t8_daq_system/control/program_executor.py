@@ -280,6 +280,14 @@ class ProgramExecutor:
         start_time = time.time()
         start_temp_k = self._current_get_temp_k() if self._current_get_temp_k else 293.15
 
+        # FIX-1 START — Reset PID integrator between blocks
+        # A wound-up integral from a prior hold fights cooldown ramps by
+        # commanding positive voltage when negative correction is needed.
+        # Reset only for closed-loop blocks; voltage_ramp is open-loop.
+        if block.block_type in ("temp_ramp", "stable_hold"):
+            self._pid.reset()
+        # FIX-1 END
+
         # For StableHold stability tracking
         stability_start = None
 
