@@ -2605,18 +2605,29 @@ class MainWindow:
 
         target_v = max(0.0, min(target_v, 6.0))
 
-        # Ensure output is enabled and current limit is non-zero before writing voltage.
-        # DAC1 starts at 0V (= 0A limit) at power-on; without a non-zero ceiling the
-        # supply cannot source current even when the voltage setpoint is correct.
-        if hasattr(ps, 'is_output_on') and hasattr(ps, 'output_on'):
-            if not ps.is_output_on():
-                try:
-                    ps.output_on()
-                    max_amps = getattr(ps, 'current_limit', getattr(ps, 'rated_max_amps', 180.0))
-                    ps.set_current(max_amps)
-                    print(f"[Nudge] output_on + set_current({max_amps}A)")
-                except Exception as e:
-                    print(f"[Nudge] output_on/set_current failed: {e}")
+        # FIX-3 START — Refuse to nudge when output is off
+        # The previous implementation called output_on() + set_current(current_limit),
+        # where current_limit defaults to 10.0 A. On a hot filament needing ~78 A,
+        # this would trigger the N5700 "SO" shutoff. If the output is off during
+        # an active run, something external killed it (safety trip, FIO1 external
+        # cause, etc.) and the user must investigate before re-enabling manually.
+        if hasattr(ps, 'is_output_on') and not ps.is_output_on():
+            print("[Nudge] REFUSED — PSU output is off. Not auto-enabling.")
+            try:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "Nudge Refused",
+                    "Power supply output is OFF.\n\n"
+                    "The nudge will not re-enable the output automatically, "
+                    "because doing so with the stored current limit can trigger "
+                    "a Keysight 'SO' shutoff on a hot filament.\n\n"
+                    "If you want to resume, investigate why the output went off, "
+                    "then re-enable it deliberately from the main controls."
+                )
+            except Exception:
+                pass
+            return
+        # FIX-3 END
 
         result = ps.set_voltage(target_v)
         print(f"[Nudge] set_voltage({target_v:.3f}) → {result}")
