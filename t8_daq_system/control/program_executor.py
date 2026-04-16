@@ -357,6 +357,17 @@ class ProgramExecutor:
                         setpoint_k = block.end_temp_k
                         is_finished = True
 
+                # FIX-2 START — Suppress is_finished during the warmup window
+                # If the TC cache hasn't populated yet, start_temp_k falls back
+                # to 293.15 K. For a cooldown block with end_temp_k also near
+                # 293 K, is_finished would fire on tick 1 and the block would
+                # exit immediately. A 2 s guard lets the TC buffer populate
+                # without affecting real completions (ramps last minutes).
+                MIN_RAMP_ELAPSED_SEC = 2.0
+                if elapsed < MIN_RAMP_ELAPSED_SEC:
+                    is_finished = False
+                # FIX-2 END
+
                 ff_v = 0.0
                 pid_correction = self._pid.compute(setpoint_k, current_temp_k, now)
                 v_out = max(0.0, min(ff_v + pid_correction, 6.0))
