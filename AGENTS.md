@@ -344,25 +344,41 @@ the `tests-exempt` PR label.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Updated on 2026-09-21 18:05. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-10-05 22:42. Implement this. If something in it is wrong, say so before changing course._
 
-1. `.scratch/workflow-setup/` — CI gate (ruff, tests-first, pytest) on a Windows
-   runner, green on `main`. All tickets 01–04 done.
-2. `.scratch/rig-architecture/spec.md` — Rig module, Heater output, Simulated rig,
-   Program run, Run record (ADRs 0002–0005). **In progress.**
-   - Ticket 01 done: `01-pin-todays-control-and-csv-behaviour.md`
-   - Ticket 02 done: `02-simulated-rig-runs-on-its-own.md`
-   - Ticket 03 done: `03-rig-loop-publishes-snapshots.md`
-   - Ticket 04 done: `04-t8-adapter-reports-pressure-in-torr.md`
-   - Ticket 05 done: `05-gui-reads-the-rig-not-the-hardware.md`
-   - Ticket 06 done: `06-safety-evaluator-is-a-pure-function.md`
-   - Ticket 07 done: `07-heater-output-arbitrates-and-latches.md`
-   - Ticket 08 done: `08-trips-cut-the-heater-in-the-same-tick.md`
-   - Ticket 09 done: `09-extract-block-steps.md`
-   - Ticket 10 done: `10-program-run-on-the-rig-loop.md`
-   - Ticket 11 done: `11-run-record-writes-the-csv.md`
-   - Ticket 12 done: `12-gui-speaks-in-commands.md`
-   - Ticket 13 done: `13-practice-mode-is-the-simulated-rig.md`
-   - Ticket 14 done: `14-retire-the-old-modules.md`
-   - Next ticket: `15-no-silent-exceptions.md`
+## Active implementation plan — Cold-start safety and deployed-run traceability
+
+This is a pointer, not the work.
+
+- **Spec:** `.scratch/cold-start-and-traceability/spec.md`
+- **Tickets:** `.scratch/cold-start-and-traceability/issues/19`–`36`
+- **Binding ADRs:** `docs/adr/0006-soft-start-and-current-caps.md`, `0007-registry-is-the-single-source-of-settings.md`, `0008-diagnostic-log-and-build-id.md`, plus 0001 (tests first, never mute) and 0003 (trips).
+- **New glossary terms (`CONTEXT.md`):** Soft start, Handoff, Soft-start current cap, Run current cap, Gains in use, Suggestion engine, Run history, Run ID, Diagnostic log, Heartbeat, Build ID; Bumpless transfer redefined to include Feedforward.
+- **Tracker conventions:** `docs/agents/issue-tracker.md`. Previous effort `.scratch/rig-architecture/` is done through 15; its bench tickets 16–18 are the developer's.
+
+**Next:** 19, 20 and 34 have no blockers. Start with **19** (Run settings travel with Start) — it is the prefactor every control ticket builds on. 20 and 34 can run in parallel with it.
+
+Dependency graph:
+
+    19 ─┬─ 21 ─┐
+        │      ├─ 22 ─┬─ 23 ─┐
+    20 ─┼──────┘      │      ├─ 25 ─┐
+        │             │      │      │
+        ├─ 24 ─┬──────┼──────┘      │
+        │      └─ 26 ─┼─ 27 ─ 28    │
+        │             ├─ 29 (also 22, 23)
+        │             ├─ 30 (also 24)
+        └─ 31 (also 26) ─ 32 (also 24)
+                      └─ 33 ──────────┴─ 36 [ready-for-developer: bench]
+    34 (independent)
+    35 [held: Auto-merge no, changes AGENTS.md] ← 23, 24, 26, 33
+
+Requirements an implementer would treat as preferences — they are not:
+- Block steps, the Soft-start step, `compute_preview`, `run_metrics`/`suggest` and `build_id` are **pure functions** (no clock, hardware or Tk), because the tests drive them directly.
+- `PIDController` has **no default gains**; `PIDRunLogger` has **no default path**. Silent defaults are the bug this effort removes.
+- The heartbeat runs on the Run record's thread, **never on the Rig loop**.
+- No test is deleted. A test whose behaviour changed is rewritten in place under the same name.
+- `SimulatedRig` must draw > 40 A at 0.29 V cold (ticket 20) before any cap test means anything.
+
+Deliberately not done here: remote trip alerts (`docs/future/remote-trip-alerts.md`), hotfixes to old deployed builds, zone gain scheduling, feedforward auto-ingest, any change to CV-only / DAC1.
 <!-- ACTIVE-PLAN:END -->
