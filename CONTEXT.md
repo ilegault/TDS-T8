@@ -71,8 +71,21 @@ intended shape, not the current code.
 - **Feedforward map** — the rate-indexed, self-building table of steady-state
   voltage versus temperature, ingested from historical CSV logs. Returns the baseline
   voltage the PID corrects around.
-- **Bumpless transfer** — re-seeding the PID at a block boundary so its first output
-  equals the voltage already being commanded.
+- **Bumpless transfer** — re-seeding the PID at a block boundary or Soft-start
+  handoff so the first output of `FF + PID` equals the voltage already being
+  commanded: the PID is seeded with `V_now − FF(T_now)` and may go negative. ADR 0006.
+- **Soft start** — the locked first phase of every Program run while the control TC
+  is below the *soft-start threshold*: open-loop DAC0 ramp at the *soft-start ramp
+  rate*, no Feedforward. Not a block; cannot be deleted. ADR 0006.
+- **Handoff** — the end of Soft start, at the first of: control TC ≥ soft-start
+  threshold, or measured current ≥ *soft-start handoff current*. Always a bumpless
+  transfer; the reason is recorded.
+- **Gains in use** — the Kp/Ki/Kd read from Settings when Run is pressed and frozen
+  for that run.
+- **Suggestion engine** — the single pure function that turns a completed live
+  TempRamp's metrics into suggested gains with reasons. Advisory only. ADR 0007.
+- **Run history** — the per-run metric records the Suggestion engine reads
+  (`pid_runs.json`); live runs only, each tagged with build ID and run ID.
 
 ## Heater output and safety
 
@@ -84,7 +97,12 @@ intended shape, not the current code.
 - **Trip** — a condition that forces the heater off. Every trip does the same thing:
   instant cutoff — 0 V, output off (Shut Off pin asserted) — and latches. Trip kinds:
   temperature limit, temperature override, pressure interlock, control TC stale,
-  pressure stale, LabJack lost, program step error. ADR 0003.
+  pressure stale, LabJack lost, program step error (ADR 0003), soft-start
+  overcurrent, run overcurrent (ADR 0006).
+- **Soft-start current cap** — measured current above which a trip fires during Soft
+  start. Default 40 A, editable, toggleable. ADR 0006.
+- **Run current cap** — measured current above which a trip fires after handoff.
+  Default 120 A, editable, toggleable. ADR 0006.
 - **Latch** — after a trip, Operator and Program requests are ignored until the
   operator explicitly *resets*. A reset is refused while the tripping condition is
   still present.
@@ -105,10 +123,21 @@ intended shape, not the current code.
   Selected by a toggle that is disabled while running or logging. Every line of
   control, safety and logging code runs identically in both modes. ADR 0005.
 
+- **Run ID** — the identifier shared by one run's CSV, Diagnostic log and Run
+  history record.
+- **Diagnostic log** — the per-session `logging` file under `logs/console/`; what the
+  operator sends when something goes wrong. Never per-tick at INFO. ADR 0008.
+- **Heartbeat** — the periodic (default 30 s) INFO line summarising phase, control TC,
+  setpoint, V, I, FF and P/I/D.
+- **Build ID** — `YYYY-MM-DD_<git short hash>[-dirty]`, stamped on the dist folder,
+  exe, `BUILD_INFO.txt`, window title, Diagnostic log and CSV header. ADR 0008.
+
 ## Avoid
 
 - "Mock PS", "demo voltage", `practice_mode` flags inside control code — replaced by
   the Simulated rig.
+- "Current limit" for DAC1 or for the caps — DAC1 is pinned (CV-only); the caps are
+  the *Soft-start current cap* and *Run current cap*.
 - "Rampdown" — there is no controlled ramp-down any more; every trip is an instant
   cutoff (ADR 0003).
 - "Service", "manager", "handler" for the modules above — use the names here.
