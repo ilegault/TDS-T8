@@ -1,0 +1,17 @@
+name: Integrity Gate
+
+on:
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  integrity:
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    uses: ilegault/ticket-engine/.github/workflows/integrity.yml@v1
+    with:
+      python-version: "3.14"
+    secrets:
+      PIPELINE_TOKEN: ${{ secrets.PIPELINE_TOKEN }}

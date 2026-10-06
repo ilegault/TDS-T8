@@ -1,0 +1,15 @@
+name: Dispatch
+
+on:
+  push:
+    branches: [master, main]
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    uses: ilegault/ticket-engine/.github/workflows/dispatch.yml@v1
+    secrets:
+      PIPELINE_TOKEN: ${{ secrets.PIPELINE_TOKEN }}
+      JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
