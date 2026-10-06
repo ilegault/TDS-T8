@@ -392,8 +392,6 @@ See `src/ticket_engine/resources/ticket_skill.md` in `ilegault/ticket-engine`.
 
 Key rules for all workers:
 - Write tests from the acceptance criteria **before** any implementation.
-- Cores are pure: no I/O in dispatch, integrity, or bootstrap cores.
-- Every tunable lives in `.ticket-engine.toml`, never hardcoded in logic.
 - Use `logging.getLogger(__name__)`; never `print()` in library code.
 - One ticket, one branch, one PR. Never commit to the default branch.
 
