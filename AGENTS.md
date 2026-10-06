@@ -382,3 +382,23 @@ Requirements an implementer would treat as preferences — they are not:
 
 Deliberately not done here: remote trip alerts (`docs/future/remote-trip-alerts.md`), hotfixes to old deployed builds, zone gain scheduling, feedforward auto-ingest, any change to CV-only / DAC1.
 <!-- ACTIVE-PLAN:END -->
+
+## Implementation Protocol
+
+<!-- ticket-engine-bootstrap: implementation-protocol -->
+
+Tickets are implemented following the engine's runner-agnostic skill.
+See `src/ticket_engine/resources/ticket_skill.md` in `ilegault/ticket-engine`.
+
+Key rules for all workers:
+- Write tests from the acceptance criteria **before** any implementation.
+- Use `logging.getLogger(__name__)`; never `print()` in library code.
+- One ticket, one branch, one PR. Never commit to the default branch.
+
+## Roles, Not People
+
+<!-- ticket-engine-bootstrap: roles-not-people -->
+
+Never write real people's names, Slack IDs, or emails in code, commits,
+tickets, or documentation. Refer to **roles** ("the approver", "a buyer",
+"the developer"). See `ilegault/ticket-engine` ADR 0002.
