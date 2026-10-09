@@ -189,6 +189,22 @@ class Rig:
         """Set whether CSV logging is active."""
         self._logging_active = bool(active)
 
+
+    def get_ff_map(self) -> Any:
+        if self._program_run is not None:
+            return getattr(self._program_run, '_ff_map', None)
+        return None
+
+    def get_pid_logger(self) -> Any:
+        if self._program_run is not None:
+            return self._program_run.get_pid_logger()
+        return None
+
+    def get_last_run_record(self) -> dict | None:
+        if self._program_run is not None:
+            return getattr(self._program_run, '_last_run_record', None)
+        return None
+
     def set_run_record(self, run_record: Any) -> None:
         """Attach a RunRecord as the step-7 Snapshot consumer for CSV logging."""
         self._run_record = run_record
@@ -449,12 +465,12 @@ class Rig:
             # ProgramRun lifecycle: start/stop from drained commands
             if self._program_run is not None:
                 has_stop = any(isinstance(c, StopProgram) for c in drained_heater_cmds)
-                has_start = any(isinstance(c, StartProgram) for c in drained_heater_cmds)
+                start_cmd = next((c for c in drained_heater_cmds if isinstance(c, StartProgram)), None)
                 if has_stop:
                     self._program_run.stop()
-                if has_start and not self._program_run.running:
+                if start_cmd and not self._program_run.running:
                     self._program_run.start(
-                        snap_for_heater, now, commanded_volts=self._commanded_volts
+                        snap_for_heater, now, commanded_volts=self._commanded_volts, settings=start_cmd.settings
                     )
 
             # ProgramRun step: get voltage request or program_error trip

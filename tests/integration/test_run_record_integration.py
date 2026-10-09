@@ -25,7 +25,7 @@ from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.data.data_logger import DataLogger
 from t8_daq_system.data.run_record import RunRecord, build_header
 from t8_daq_system.rig.clock import ManualClock
-from t8_daq_system.rig.commands import LoadProgram, StartProgram
+from t8_daq_system.rig.commands import RunSettings, LoadProgram, StartProgram
 from t8_daq_system.rig.rig import Rig
 from t8_daq_system.rig.simulated import SimulatedRig
 
@@ -160,7 +160,7 @@ def test_three_block_run_one_row_per_tick(tmp_path):
     rig.submit_command(LoadProgram(program=blocks))
     # Run one tick to establish first readings before starting
     _advance(rig, clock, 1)
-    rig.submit_command(StartProgram())
+    rig.submit_command(StartProgram(settings=RunSettings(kp=0.014, ki=0.00078, kd=0.00845, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
     # Run enough ticks to complete all three blocks (each block ~4 control steps) + extra
     N_TICKS = 30
     _advance(rig, clock, N_TICKS)
@@ -201,7 +201,7 @@ def test_trip_writes_event_and_trip_reason_on_rows(tmp_path):
     blocks = [VoltageRampBlock(start_voltage=0.0, end_voltage=2.0, duration_sec=10.0)]
     rig.submit_command(LoadProgram(program=blocks))
     _advance(rig, clock, 1)
-    rig.submit_command(StartProgram())
+    rig.submit_command(StartProgram(settings=RunSettings(kp=0.014, ki=0.00078, kd=0.00845, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
     # Run a few ticks with normal pressure
     _advance(rig, clock, 4)
 

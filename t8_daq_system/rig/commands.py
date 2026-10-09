@@ -26,10 +26,27 @@ class LoadProgram:
 
 
 @dataclass(frozen=True)
+class RunSettings:
+    """Frozen control and safety parameters applied at run start."""
+
+    kp: float
+    ki: float
+    kd: float
+    windup_limit: float
+    soft_start_threshold_c: float
+    soft_start_ramp_v_per_s: float
+    soft_start_handoff_current_a: float
+    soft_start_cap_enabled: bool
+    soft_start_cap_a: float
+    run_cap_enabled: bool
+    run_cap_a: float
+
+
+@dataclass(frozen=True)
 class StartProgram:
     """Start execution of the loaded program."""
 
-    pass
+    settings: RunSettings
 
 
 @dataclass(frozen=True)

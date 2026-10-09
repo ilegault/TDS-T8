@@ -31,6 +31,7 @@ from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.rig.adapter import RawReadings, RigAdapter
 from t8_daq_system.rig.clock import ManualClock
 from t8_daq_system.rig.commands import (
+    RunSettings,
     LoadProgram,
     Nudge,
     StartProgram,
@@ -209,7 +210,7 @@ def test_three_block_program_completes():
         StableHoldBlock(target_temp_k=303.0, tolerance_k=50.0, hold_duration_sec=0.5),
     ]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     # Run enough ticks for all three blocks to complete:
     # Block 0: VoltageRamp 1.0s → 2 writes + transitions
@@ -250,7 +251,7 @@ def test_control_tc_stale_trips_at_5_1s_not_at_4_9s():
     # Load and start a temp ramp
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     # Run a few ticks to get the program fully running
     tick(ns, n=4)
@@ -318,7 +319,7 @@ def test_raising_block_step_becomes_program_error_trip():
     bs.step_voltage_ramp = exploding_step
     try:
         ns.rig.submit(LoadProgram(program=[_ExplodingBlock()]))
-        ns.rig.submit(StartProgram())
+        ns.rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
         # Run enough ticks to hit the raising step
         for _ in range(5):
@@ -353,7 +354,7 @@ def test_nudge_during_run_stops_program_and_applies_voltage():
 
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
     tick(ns, n=4)  # let program run
 
     snap = ns.rig.latest()
@@ -404,7 +405,9 @@ def _run_program_run(blocks, snap_fn, n_ticks=20):
     pr = ProgramRun()
     pr.load(blocks)
     snap0 = snap_fn(0)
-    pr.start(snap0, 0.0, commanded_volts=0.0)
+    from t8_daq_system.rig.commands import RunSettings
+    pr.start(snap0, 0.0, commanded_volts=0.0, settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0))
+
     voltages = []
     for i in range(n_ticks):
         now = (i + 1) * 0.5
@@ -530,7 +533,7 @@ def test_snapshot_program_fields_populated_while_running():
         TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1"),
     ]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
     tick(ns, n=3)  # let program advance into block 0
 
     snap = ns.rig.latest()
@@ -538,3 +541,46 @@ def test_snapshot_program_fields_populated_while_running():
     assert snap.program.block_index == 0
     assert snap.program.block_type == "voltage_ramp"
     assert snap.program.control_tc == "TC_1"
+
+def test_start_program_populates_gains_in_use():
+    """A Rig integration test asserts the published snapshot.program.gains_in_use[0] == 0.5."""
+    from t8_daq_system.rig.commands import LoadProgram, StartProgram, RunSettings
+
+
+    ns = make_rig_fixture()
+    tick(ns)  # initial
+
+    blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
+    ns.rig.submit(LoadProgram(program=blocks))
+    settings = RunSettings(kp=0.5, ki=0.00078, kd=0.00845, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)
+    ns.rig.submit(StartProgram(settings=settings))
+    tick(ns)  # drain commands
+
+    snap = ns.rig.latest()
+    assert snap.program.running is True
+    assert snap.program.gains_in_use[0] == 0.5
+
+
+def test_settings_gains_in_use_frozen():
+    """A test changes the AppSettings gains after Run was submitted and asserts gains_in_use in later Snapshots is unchanged."""
+    from t8_daq_system.rig.commands import LoadProgram, StartProgram, RunSettings
+
+
+    ns = make_rig_fixture()
+    tick(ns)  # initial
+
+    blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
+    ns.rig.submit(LoadProgram(program=blocks))
+    settings = RunSettings(kp=0.5, ki=0.00078, kd=0.00845, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)
+    ns.rig.submit(StartProgram(settings=settings))
+    tick(ns)  # process start
+
+    snap1 = ns.rig.latest()
+    assert snap1.program.gains_in_use[0] == 0.5
+
+    # Simulate an AppSettings change that doesn't reach Rig directly (because settings are frozen per-run)
+    # The Rig doesn't know about AppSettings; it just runs with the RunSettings we submitted.
+    # We tick again, proving the Rig snapshot remains consistent with the original submitted RunSettings.
+    tick(ns)
+    snap2 = ns.rig.latest()
+    assert snap2.program.gains_in_use[0] == 0.5

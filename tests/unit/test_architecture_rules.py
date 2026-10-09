@@ -334,3 +334,11 @@ def test_no_silent_exceptions():
     )
 
 
+
+def test_no_program_run_in_gui():
+    """No file under t8_daq_system/gui/ contains the text _program_run."""
+    import pathlib
+    gui_dir = pathlib.Path("t8_daq_system/gui")
+    for file_path in gui_dir.glob("**/*.py"):
+        content = file_path.read_text(encoding="utf-8")
+        assert "_program_run" not in content, f"{file_path} contains forbidden text '_program_run'"

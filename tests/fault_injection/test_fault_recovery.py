@@ -22,7 +22,7 @@ from t8_daq_system.control.program_run import ProgramRun
 from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.rig.adapter import RawReadings, RigAdapter
 from t8_daq_system.rig.clock import ManualClock
-from t8_daq_system.rig.commands import LoadProgram, Nudge, StartProgram
+from t8_daq_system.rig.commands import RunSettings, LoadProgram, Nudge, StartProgram
 from t8_daq_system.rig.rig import Rig
 from t8_daq_system.rig.simulated import SimulatedRig
 
@@ -126,7 +126,7 @@ def test_so_latched_executor_stops_gracefully():
         TempRampBlock(rate_k_per_min=60.0, end_temp_k=1000.0, tc_name="TC_1"),
     ]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     # Run a few ticks into the program
     for _ in range(5):
@@ -156,7 +156,7 @@ def test_so_latched_dac_not_nonzero_after_fault():
 
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=2000.0, tc_name="TC_1")]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     for _ in range(4):
         clock.advance(0.5)
@@ -185,7 +185,7 @@ def test_ovp_trip_sets_interlock():
 
     blocks = [TempRampBlock(rate_k_per_min=600.0, end_temp_k=1000.0, tc_name="TC_1")]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     for _ in range(4):
         clock.advance(0.5)
@@ -217,7 +217,7 @@ def test_comms_timeout_executor_survives():
         VoltageRampBlock(start_voltage=0.0, end_voltage=3.0, duration_sec=10),
     ]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     for _ in range(3):
         clock.advance(0.5)
@@ -245,7 +245,7 @@ def test_output_off_mid_run_executor_stops():
         VoltageRampBlock(start_voltage=0.0, end_voltage=3.0, duration_sec=10),
     ]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     for _ in range(4):
         clock.advance(0.5)
@@ -298,7 +298,7 @@ def test_regression_nudge_during_run_does_not_assert_fio1():
 
     blocks = [VoltageRampBlock(start_voltage=0.0, end_voltage=3.0, duration_sec=2)]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     for _ in range(10):
         rig.submit(Nudge(direction="up"))
@@ -321,7 +321,7 @@ def test_regression_gui_state_matches_ps_after_so_latch():
 
     blocks = [TempRampBlock(rate_k_per_min=600.0, end_temp_k=1000.0, tc_name="TC_1")]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=RunSettings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0, soft_start_threshold_c=200.0, soft_start_ramp_v_per_s=0.02, soft_start_handoff_current_a=35.0, soft_start_cap_enabled=True, soft_start_cap_a=40.0, run_cap_enabled=True, run_cap_a=120.0)))
 
     for _ in range(3):
         clock.advance(0.5)

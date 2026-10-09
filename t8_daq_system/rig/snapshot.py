@@ -47,6 +47,7 @@ class ProgramStatus:
     waiting_for_confirmation: bool = False
     elapsed_in_block: float = 0.0
     setpoint_k: float = 0.0
+    gains_in_use: tuple[float, float, float] = (0.0, 0.0, 0.0)
     sched_kp: float = 0.0
     sched_ki: float = 0.0
     sched_kd: float = 0.0

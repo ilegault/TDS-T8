@@ -71,7 +71,7 @@ class ProgramRun:
         self._running: bool = False
         self._block_index: int = 0
 
-        self._pid = PIDController()
+        self._pid: PIDController | None = None
         self._ff_map = FeedforwardMap()
         self._ff_map.load()
         self._pid_logger = PIDRunLogger()
@@ -127,7 +127,7 @@ class ProgramRun:
         """Load a block sequence.  Safe to call at any time; takes effect on next start()."""
         self._blocks = list(blocks)
 
-    def start(self, snapshot: Snapshot, now_s: float, *, commanded_volts: float = 0.0) -> None:
+    def start(self, snapshot: Snapshot, now_s: float, *, commanded_volts: float = 0.0, settings: Any = None) -> None:
         """
         Begin execution from block 0.
 
@@ -145,6 +145,17 @@ class ProgramRun:
         self._block_index = 0
         self._just_started_phase = 2
         self._last_step_volts = commanded_volts
+
+        if settings is not None:
+            self._pid = PIDController(
+                kp=settings.kp,
+                ki=settings.ki,
+                kd=settings.kd,
+                integral_windup_limit=settings.windup_limit
+            )
+        else:
+            self._pid = PIDController(kp=0.014, ki=0.00078, kd=0.00845) # fallback if called directly in tests without settings
+
         self._pid.reset()
         self._sched = SchedValues()
         self._setpoint_k = 0.0
@@ -255,6 +266,8 @@ class ProgramRun:
         block_type = getattr(block, "block_type", "") if block else ""
         control_tc = self._get_control_tc()
 
+        gains_in_use = (self._pid._kp, self._pid._ki, self._pid._kd) if self._pid else (0.0, 0.0, 0.0)
+
         return ProgramStatus(
             running=self._running,
             block_index=block_index,
@@ -262,6 +275,7 @@ class ProgramRun:
             waiting_for_confirmation=self._waiting_for_confirmation,
             elapsed_in_block=self._elapsed_s,
             setpoint_k=self._setpoint_k,
+            gains_in_use=gains_in_use,
             sched_kp=self._sched.kp,
             sched_ki=self._sched.ki,
             sched_kd=self._sched.kd,
