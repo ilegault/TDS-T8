@@ -16,6 +16,18 @@ def test_simulated_rig_implements_protocol():
     assert rig.is_connected() is True
 
 
+def test_cold_start_large_current():
+    """At cold start (~20 °C), writing 0.29V draws a large current (> 40.0 A)."""
+    clock = ManualClock()
+    # At clock start, specimen is at 300K (~26.85 °C)
+    rig = SimulatedRig(clock=clock)
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+    readings = rig.read()
+
+    assert readings.ps_amps > 40.0, f"Expected ps_amps > 40.0, got {readings.ps_amps}"
+
+
 def test_simulated_rig_settles_to_steady_state():
     """For a fixed voltage, SimulatedRig settles to TungstenSim.steady_state_temp within tolerance."""
     clock = ManualClock()

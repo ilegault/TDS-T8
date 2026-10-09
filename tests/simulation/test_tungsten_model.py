@@ -47,3 +47,19 @@ def test_current_increases_from_cold():
     for _ in range(200):
         _, I_hot = sim.step(2.0)
     assert I_hot < I_cold, "Current should fall as tungsten heats (rising R)"
+
+
+def test_resistance_at_300k():
+    """Resistance at 300 K is within [0.004, 0.006] Ω."""
+    sim = TungstenSim(dt=0.5)
+    r = sim._resistance(300.0)
+    assert 0.004 <= r <= 0.006, f"Resistance at 300K is {r}, not in [0.004, 0.006]"
+
+
+def test_steady_state_current_at_6v():
+    """At steady-state for 6.0 V, current is within [120, 180] A."""
+    sim = TungstenSim(dt=0.5)
+    t_ss = sim.steady_state_temp(6.0)
+    r_ss = sim._resistance(t_ss)
+    i_ss = 6.0 / r_ss
+    assert 120 <= i_ss <= 180, f"Steady-state current at 6.0V is {i_ss}, not in [120, 180]"
