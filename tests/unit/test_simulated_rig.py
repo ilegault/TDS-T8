@@ -134,6 +134,18 @@ def test_fault_injection_fail_next_write():
     rig.set_output(False)
 
 
+def test_cold_start_current_exceeds_40_amps():
+    """SimulatedRig with specimen at ~20 °C, write_voltage(0.29), one read() -> ps_amps > 40.0."""
+    clock = ManualClock()
+    # At initialization, TungstenSim is at 300K which is ~26.85 °C.
+    rig = SimulatedRig(clock=clock, tc_names=["TC_1"])
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+    # The requirement specifies "one read()" to get the value
+    readings = rig.read()
+    assert readings.ps_amps > 40.0
+
+
 def test_fault_injection_disconnect_and_reconnect():
     clock = ManualClock()
     rig = SimulatedRig(clock=clock)

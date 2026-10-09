@@ -40,6 +40,21 @@ def test_step_returns_tuple():
     assert current > 0.0
 
 
+def test_resistance_at_300k():
+    """TungstenSim resistance at 300K should be within [0.004, 0.006]."""
+    sim = TungstenSim(dt=0.5)
+    r = sim._resistance(300.0)
+    assert 0.004 <= r <= 0.006, f"Resistance {r} is outside [0.004, 0.006]"
+
+
+def test_steady_state_current_at_6v():
+    """At steady state for 6.0V, current should be within [120, 180] A."""
+    sim = TungstenSim(dt=0.5)
+    t_ss = sim.steady_state_temp(6.0)
+    i_ss = 6.0 / sim._resistance(t_ss)
+    assert 120 <= i_ss <= 180, f"Current {i_ss} is outside [120, 180]"
+
+
 def test_current_increases_from_cold():
     """At cold start, current should drop as tungsten heats up (resistance rises)."""
     sim = TungstenSim(dt=0.5)
