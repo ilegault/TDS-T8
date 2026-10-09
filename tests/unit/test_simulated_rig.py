@@ -16,6 +16,22 @@ def test_simulated_rig_implements_protocol():
     assert rig.is_connected() is True
 
 
+def test_simulated_rig_cold_start_draws_high_current():
+    """SimulatedRig with specimen at about 20 °C (ambient), write_voltage(0.29), one read() → ps_amps > 40.0."""
+    clock = ManualClock()
+    rig = SimulatedRig(clock=clock)
+
+    # Enable output and apply 0.29V to cold tungsten
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+
+    # 20°C is ~293.15K, ambient in TungstenSim is 300K (~26.85°C).
+    # Both are very cold for tungsten.
+    readings = rig.read()
+
+    assert readings.ps_amps > 40.0
+
+
 def test_simulated_rig_settles_to_steady_state():
     """For a fixed voltage, SimulatedRig settles to TungstenSim.steady_state_temp within tolerance."""
     clock = ManualClock()
