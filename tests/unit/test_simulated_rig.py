@@ -158,3 +158,14 @@ def test_fault_injection_disconnect_and_reconnect():
     assert rig.is_connected() is True
     readings = rig.read()
     assert readings.tc_c["TC_1"] is not None
+
+def test_cold_start_draws_realistic_current():
+    """At 20 °C, 0.29 V draws > 40 A due to cold tungsten resistance."""
+    clock = ManualClock()
+    rig = SimulatedRig(clock=clock)
+
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+    readings = rig.read()
+
+    assert readings.ps_amps > 40.0

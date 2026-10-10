@@ -215,8 +215,8 @@ def test_three_block_program_completes():
     # Block 0: VoltageRamp 1.0s → 2 writes + transitions
     # Block 1: TempRamp 60K/min → 3 s to reach 303K + FIX-2 guard (~7 ticks)
     # Block 2: StableHold 50K tolerance → 2-3 ticks
-    # Total budget: 30 ticks (15 simulated seconds)
-    for _ in range(30):
+    # Total budget: 300 ticks (150 simulated seconds) - increased because with the more realistic model it takes a bit longer to cool down and reach the hold target
+    for _ in range(300):
         ns.rig.run_tick()
         ns.clock.advance(0.5)
         snap = ns.rig.latest()

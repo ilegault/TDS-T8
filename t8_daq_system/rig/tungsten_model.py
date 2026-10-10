@@ -13,6 +13,10 @@ resistance rising ~17x from 300 K to 2500 K. This physical model couples Ohmic
 heating P = V^2 / R(T) with Stefan-Boltzmann radiation and conduction loss,
 accurately reproducing steady-state temperatures and electrical characteristics
 without real hardware (ADR 0005).
+
+The model's constants (e.g. R_COLD, AREA) are calibrated based on physical
+behaviour observed in run logs from March 2026. This ensures simulated
+limits (like current caps) test the system realistically.
 """
 from __future__ import annotations
 
@@ -31,15 +35,17 @@ class TungstenSim:
     #   * Numerically stable steps at dt=0.5 s (no explosive first-step)
     #   * Monotonically increasing T_ss with voltage (matches feedforward table trend)
     #   * At 3.0V steady-state T_ss in the 1400–1900 K ballpark
+    #   * March 2026 logs: 300K resistance ~0.005 Ω. At 6.0V draws ~120-180A steady state.
+    #   * 0.29V on a cold specimen draws > 40A.
     #
-    # R_COLD = 0.033 Ω  → at cold start 6V draws ~180A (matching rated max)
+    # R_COLD = 0.005 Ω  → 300K resistance (derived from March 2026 logs)
     # MASS   = 0.010 kg → thermal mass 1.4 J/K, limits dT to ~43 K/step at cold
-    R_COLD = 0.033          # Ohms at 300K — cold resistance, ~6V/180A rated point
+    R_COLD = 0.005          # Ohms at 300K — cold resistance (derived from March 2026 logs)
     ALPHA = 0.0045          # /K  linear TCR (positive, tungsten heats ~17x cold→hot)
     MASS = 0.010            # kg  ~10g specimen, sufficient thermal mass for dt=0.5 s
     C_P = 140.0             # J/(kg K)  specific heat capacity (relatively flat for W)
     EMISSIVITY = 0.25       # emissivity (polished W)
-    AREA = 2e-4             # m^2  effective radiating surface area
+    AREA = 0.0022           # m^2  effective radiating surface area
     K_COND = 0.005          # W/K  lead conduction loss (small)
     T_AMB = 300.0           # K   ambient / mounting temperature
 
