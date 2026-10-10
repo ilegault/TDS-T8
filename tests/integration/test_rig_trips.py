@@ -303,16 +303,16 @@ def test_operator_commands_reach_heater_output_and_adapter_writes():
 
     rig.run_tick()
 
-    # SetOutput(True) and SetVoltage(1.5)
+    # SetOutput(True) and SetVoltage(0.5) - low enough to not trigger 180A cold limit
     rig.submit(SetOutput(enabled=True))
-    rig.submit(SetVoltage(volts=1.5))
+    rig.submit(SetVoltage(volts=0.5))
     clock.advance(0.5)
     rig.run_tick()
 
     assert rig.latest().output_enabled is True
-    assert rig.latest().commanded_volts == 1.5
+    assert rig.latest().commanded_volts == 0.5
     assert ("set_output", True) in spy.calls
-    assert ("write_voltage", 1.5) in spy.calls
+    assert ("write_voltage", 0.5) in spy.calls
 
     # Nudge up
     spy.calls.clear()
@@ -320,8 +320,8 @@ def test_operator_commands_reach_heater_output_and_adapter_writes():
     clock.advance(0.5)
     rig.run_tick()
 
-    assert rig.latest().commanded_volts == pytest.approx(1.55)
-    assert ("write_voltage", pytest.approx(1.55)) in spy.calls
+    assert rig.latest().commanded_volts == pytest.approx(0.55)
+    assert ("write_voltage", pytest.approx(0.55)) in spy.calls
 
 
 def test_no_rampdown_references_remain_in_t8_daq_system():

@@ -7,6 +7,22 @@ from tests.simulation.tungsten_thermal_model import TungstenSim
 pytestmark = pytest.mark.simulation
 
 
+def test_cold_resistance_target():
+    """At 300K, resistance should be between 0.004 and 0.006 Ohms (March 2026 calibration)."""
+    sim = TungstenSim(dt=0.5)
+    r_cold = sim._resistance(300.0)
+    assert 0.004 <= r_cold <= 0.006, f"R_COLD {r_cold:.4f} out of range [0.004, 0.006]"
+
+
+def test_steady_state_6v_current_target():
+    """At 6.0V steady-state, current should be between 120 and 180 A (March 2026 calibration)."""
+    sim = TungstenSim(dt=0.5)
+    T_ss = sim.steady_state_temp(6.0)
+    r_ss = sim._resistance(T_ss)
+    i_ss = 6.0 / r_ss
+    assert 120.0 <= i_ss <= 180.0, f"6.0V steady-state current {i_ss:.1f}A out of range [120, 180]"
+
+
 def test_steady_state_3v_near_table():
     """At 3.0V steady-state temp should be within 200K of 1680K (feedforward table)."""
     sim = TungstenSim(dt=0.5)

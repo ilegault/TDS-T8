@@ -32,14 +32,16 @@ class TungstenSim:
     #   * Monotonically increasing T_ss with voltage (matches feedforward table trend)
     #   * At 3.0V steady-state T_ss in the 1400–1900 K ballpark
     #
-    # R_COLD = 0.033 Ω  → at cold start 6V draws ~180A (matching rated max)
-    # MASS   = 0.010 kg → thermal mass 1.4 J/K, limits dT to ~43 K/step at cold
-    R_COLD = 0.033          # Ohms at 300K — cold resistance, ~6V/180A rated point
+    # Calibrated from March 2026 run logs:
+    #   * R_COLD target is 0.004–0.006 Ω (measured ~0.005 Ω cold)
+    #   * At 6.0V steady-state, draws ~120–180 A (around 122 A)
+    #   * MASS bumped to 0.150 kg to limit dT at cold start given the much lower R_COLD
+    R_COLD = 0.005          # Ohms at 300K — cold resistance from March 2026 logs
     ALPHA = 0.0045          # /K  linear TCR (positive, tungsten heats ~17x cold→hot)
-    MASS = 0.010            # kg  ~10g specimen, sufficient thermal mass for dt=0.5 s
+    MASS = 0.150            # kg  thermal mass to limit explosive heating at 6V cold start
     C_P = 140.0             # J/(kg K)  specific heat capacity (relatively flat for W)
     EMISSIVITY = 0.25       # emissivity (polished W)
-    AREA = 2e-4             # m^2  effective radiating surface area
+    AREA = 2e-3             # m^2  effective radiating surface area
     K_COND = 0.005          # W/K  lead conduction loss (small)
     T_AMB = 300.0           # K   ambient / mounting temperature
 
