@@ -158,3 +158,25 @@ def test_fault_injection_disconnect_and_reconnect():
     assert rig.is_connected() is True
     readings = rig.read()
     assert readings.tc_c["TC_1"] is not None
+
+def test_cold_start_voltage_current():
+    clock = ManualClock()
+    rig = SimulatedRig(clock=clock)
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+    clock.advance(0.5)
+    readings = rig.read()
+    assert readings.ps_amps > 40.0
+
+
+def test_tungsten_sim_resistance_at_300k():
+    r = TungstenSim()._resistance(300.0)
+    assert 0.004 <= r <= 0.006
+
+
+def test_tungsten_sim_steady_state_current_at_6v():
+    sim = TungstenSim(dt=0.5)
+    t_ss = sim.steady_state_temp(6.0)
+    r = sim._resistance(t_ss)
+    curr = 6.0 / r
+    assert 120 <= curr <= 180
