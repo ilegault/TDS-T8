@@ -134,6 +134,26 @@ def test_fault_injection_fail_next_write():
     rig.set_output(False)
 
 
+def test_simulated_rig_draws_large_current_on_cold_start():
+    clock = ManualClock()
+    rig = SimulatedRig(clock=clock, tc_names=["TC_1"])
+
+    # Verify specimen is near 20 °C (ambient is 300 K which is ~26.85 °C, so around 20-30 C)
+    initial_readings = rig.read()
+    assert 20.0 < initial_readings.tc_c["TC_1"] < 30.0
+
+    # Write 0.29 V
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+
+    # One read step
+    clock.advance(0.5)
+    readings = rig.read()
+
+    # Assert current > 40.0 A
+    assert readings.ps_amps > 40.0
+
+
 def test_fault_injection_disconnect_and_reconnect():
     clock = ManualClock()
     rig = SimulatedRig(clock=clock)
