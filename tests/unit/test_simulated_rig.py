@@ -158,3 +158,13 @@ def test_fault_injection_disconnect_and_reconnect():
     assert rig.is_connected() is True
     readings = rig.read()
     assert readings.tc_c["TC_1"] is not None
+
+def test_cold_start_large_current():
+    """SimulatedRig with specimen at ~20C, write_voltage(0.29), one read() draws ps_amps > 40.0"""
+    clock = ManualClock()
+    rig = SimulatedRig(clock=clock, tc_names=["TC_1"])
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+    readings = rig.read()
+
+    assert readings.ps_amps > 40.0

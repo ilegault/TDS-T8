@@ -214,9 +214,11 @@ def test_three_block_program_completes():
     # Run enough ticks for all three blocks to complete:
     # Block 0: VoltageRamp 1.0s → 2 writes + transitions
     # Block 1: TempRamp 60K/min → 3 s to reach 303K + FIX-2 guard (~7 ticks)
-    # Block 2: StableHold 50K tolerance → 2-3 ticks
-    # Total budget: 30 ticks (15 simulated seconds)
-    for _ in range(30):
+    # Block 2: StableHold 50K tolerance → requires reaching/settling at 303K
+    # With updated realistic TungstenSim thermal constants (Issue #20), it takes
+    # ~130-140 ticks to fully complete and settle the run instead of 30.
+    # Total budget: 200 ticks (100 simulated seconds)
+    for _ in range(200):
         ns.rig.run_tick()
         ns.clock.advance(0.5)
         snap = ns.rig.latest()
