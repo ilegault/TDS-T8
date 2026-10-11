@@ -19,6 +19,23 @@ from typing import Mapping
 
 import pytest
 
+from t8_daq_system.rig.commands import RunSettings
+def make_dummy_run_settings():
+    return RunSettings(
+        kp=0.014,
+        ki=0.00078,
+        kd=0.00845,
+        windup_limit=0.4,
+        soft_start_threshold_c=200.0,
+        soft_start_ramp_v_per_s=0.02,
+        soft_start_handoff_current_a=35.0,
+        soft_start_cap_enabled=True,
+        soft_start_cap_a=40.0,
+        run_cap_enabled=True,
+        run_cap_a=120.0,
+    )
+
+
 from t8_daq_system.control.heater_output import (
     HeaterOutput,
     ProgramHeaterRequest,
@@ -300,7 +317,7 @@ class TestRule3OutputEnablingAndNudge:
         ho = HeaterOutput()
         snap = _make_snapshot(permissive_ok=True)
 
-        cmd = ho.resolve([StartProgram()], snap)
+        cmd = ho.resolve([StartProgram(settings=make_dummy_run_settings())], snap)
         assert cmd.output_enabled
 
     def test_output_refused_when_permissive_not_ok(self):
@@ -312,7 +329,7 @@ class TestRule3OutputEnablingAndNudge:
         assert not cmd1.output_enabled
         assert cmd1.refusal_reason is not None
 
-        cmd2 = ho.resolve([StartProgram()], snap)
+        cmd2 = ho.resolve([StartProgram(settings=make_dummy_run_settings())], snap)
         assert not cmd2.output_enabled
 
     def test_nudge_never_enables_output_when_off(self):
@@ -550,7 +567,7 @@ class TestHeaterOutputProperties:
                     SetVoltage(rng.uniform(-2.0, 10.0)),
                     Nudge(rng.choice(["up", "down"])),
                     ProgramHeaterRequest(rng.uniform(-1.0, 8.0)),
-                    StartProgram(),
+                    StartProgram(settings=make_dummy_run_settings()),
                     StopProgram(),
                     ResetTrip(),
                     Trip(kind="temp_override", reason="test override", sensor="TC_1", value=tc_temp),

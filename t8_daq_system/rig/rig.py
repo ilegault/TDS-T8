@@ -157,6 +157,22 @@ class Rig:
 
     # --- Properties & public methods ---
 
+
+    def get_ff_map(self):
+        if self._program_run is not None:
+            return getattr(self._program_run, '_ff_map', None)
+        return None
+
+    def get_last_run_record(self):
+        if self._program_run is not None:
+            return getattr(self._program_run, '_last_run_record', None)
+        return None
+
+    def get_pid_logger(self):
+        if self._program_run is not None and hasattr(self._program_run, 'get_pid_logger'):
+            return self._program_run.get_pid_logger()
+        return None
+
     @property
     def heater_output(self) -> HeaterOutput:
         """The HeaterOutput instance arbitrating requests and latching trips."""
@@ -453,8 +469,9 @@ class Rig:
                 if has_stop:
                     self._program_run.stop()
                 if has_start and not self._program_run.running:
+                    start_cmd = next(c for c in drained_heater_cmds if isinstance(c, StartProgram))
                     self._program_run.start(
-                        snap_for_heater, now, commanded_volts=self._commanded_volts
+                        snap_for_heater, now, commanded_volts=self._commanded_volts, settings=start_cmd.settings
                     )
 
             # ProgramRun step: get voltage request or program_error trip

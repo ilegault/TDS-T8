@@ -15,6 +15,23 @@ from __future__ import annotations
 from typing import Any
 import pytest
 
+from t8_daq_system.rig.commands import RunSettings
+def make_dummy_run_settings():
+    return RunSettings(
+        kp=0.014,
+        ki=0.00078,
+        kd=0.00845,
+        windup_limit=0.4,
+        soft_start_threshold_c=200.0,
+        soft_start_ramp_v_per_s=0.02,
+        soft_start_handoff_current_a=35.0,
+        soft_start_cap_enabled=True,
+        soft_start_cap_a=40.0,
+        run_cap_enabled=True,
+        run_cap_a=120.0,
+    )
+
+
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import (
     StableHoldBlock,
@@ -159,7 +176,7 @@ def _run_with_invariants(blocks: list, temp_k: float = 300.0, max_ticks: int = 1
     rig.run_tick()
 
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_dummy_run_settings()))
 
     ran = False
     for _ in range(max_ticks):

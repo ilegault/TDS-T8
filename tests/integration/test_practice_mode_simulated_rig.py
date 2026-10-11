@@ -17,6 +17,23 @@ from pathlib import Path
 
 import pytest
 
+from t8_daq_system.rig.commands import RunSettings
+def make_dummy_run_settings():
+    return RunSettings(
+        kp=0.014,
+        ki=0.00078,
+        kd=0.00845,
+        windup_limit=0.4,
+        soft_start_threshold_c=200.0,
+        soft_start_ramp_v_per_s=0.02,
+        soft_start_handoff_current_a=35.0,
+        soft_start_cap_enabled=True,
+        soft_start_cap_a=40.0,
+        run_cap_enabled=True,
+        run_cap_a=120.0,
+    )
+
+
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import TempRampBlock
 from t8_daq_system.control.program_run import ProgramRun
@@ -86,7 +103,7 @@ def test_practice_run_uses_same_pipeline_as_hardware_path():
     rig.submit_command(LoadProgram(program=blocks))
     _advance(rig, clock, 1)
 
-    rig.submit_command(StartProgram())
+    rig.submit_command(StartProgram(settings=make_dummy_run_settings()))
     _advance(rig, clock, 4)
 
     snap = rig.latest()

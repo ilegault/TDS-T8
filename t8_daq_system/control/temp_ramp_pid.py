@@ -39,16 +39,14 @@ class PIDController:
     """
 
     # FF-1 START — reconcile gain source of truth
-    def __init__(self, kp=0.02, ki=0.0013, kd=0.005,
-                 output_min=0.0, output_max=6.0,
-                 integral_windup_limit=30.0):
+    def __init__(self, kp: float, ki: float, kd: float,
+                 output_min: float = 0.0, output_max: float = 6.0,
+                 integral_windup_limit: float = 30.0):
         """
-        Base gains are the authoritative values in AppSettings; this default is a fallback only.
-
         Args:
-            kp: Proportional gain (very small — power supply is high-current).
+            kp: Proportional gain.
             ki: Integral gain.
-            kd: Derivative gain (0.005 — best oscillation result, 2026-06-30 run).
+            kd: Derivative gain.
             output_min: Minimum clamped output (fraction of full power).
             output_max: Maximum clamped output (fraction of full power).
             integral_windup_limit: Clamp integral accumulator to ±this (K·s).

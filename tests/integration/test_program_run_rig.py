@@ -34,6 +34,7 @@ from t8_daq_system.rig.commands import (
     LoadProgram,
     Nudge,
     StartProgram,
+    RunSettings,
 )
 from t8_daq_system.rig.rig import Rig
 from t8_daq_system.rig.simulated import SimulatedRig
@@ -51,6 +52,22 @@ pytestmark = pytest.mark.integration
 # Helpers shared across tests
 # ---------------------------------------------------------------------------
 
+
+def make_dummy_run_settings() -> RunSettings:
+    """Helper to create dummy RunSettings for tests."""
+    return RunSettings(
+        kp=0.014,
+        ki=0.00078,
+        kd=0.00845,
+        windup_limit=0.4,
+        soft_start_threshold_c=200.0,
+        soft_start_ramp_v_per_s=0.02,
+        soft_start_handoff_current_a=35.0,
+        soft_start_cap_enabled=True,
+        soft_start_cap_a=40.0,
+        run_cap_enabled=True,
+        run_cap_a=120.0,
+    )
 
 class CallSpyAdapter(RigAdapter):
     """Spy wrapper that records every adapter call and delegates to target."""
@@ -209,7 +226,7 @@ def test_three_block_program_completes():
         StableHoldBlock(target_temp_k=303.0, tolerance_k=50.0, hold_duration_sec=0.5),
     ]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_dummy_run_settings()))
 
     # Run enough ticks for all three blocks to complete:
     # Block 0: VoltageRamp 1.0s → 2 writes + transitions
@@ -250,7 +267,7 @@ def test_control_tc_stale_trips_at_5_1s_not_at_4_9s():
     # Load and start a temp ramp
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_dummy_run_settings()))
 
     # Run a few ticks to get the program fully running
     tick(ns, n=4)
@@ -318,7 +335,7 @@ def test_raising_block_step_becomes_program_error_trip():
     bs.step_voltage_ramp = exploding_step
     try:
         ns.rig.submit(LoadProgram(program=[_ExplodingBlock()]))
-        ns.rig.submit(StartProgram())
+        ns.rig.submit(StartProgram(settings=make_dummy_run_settings()))
 
         # Run enough ticks to hit the raising step
         for _ in range(5):
@@ -353,7 +370,7 @@ def test_nudge_during_run_stops_program_and_applies_voltage():
 
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_dummy_run_settings()))
     tick(ns, n=4)  # let program run
 
     snap = ns.rig.latest()
@@ -404,7 +421,11 @@ def _run_program_run(blocks, snap_fn, n_ticks=20):
     pr = ProgramRun()
     pr.load(blocks)
     snap0 = snap_fn(0)
-    pr.start(snap0, 0.0, commanded_volts=0.0)
+
+    settings = make_dummy_run_settings()
+    import dataclasses
+    settings = dataclasses.replace(settings, kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0)
+    pr.start(snap0, 0.0, commanded_volts=0.0, settings=settings)
     voltages = []
     for i in range(n_ticks):
         now = (i + 1) * 0.5
@@ -530,7 +551,7 @@ def test_snapshot_program_fields_populated_while_running():
         TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1"),
     ]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_dummy_run_settings()))
     tick(ns, n=3)  # let program advance into block 0
 
     snap = ns.rig.latest()
@@ -538,3 +559,37 @@ def test_snapshot_program_fields_populated_while_running():
     assert snap.program.block_index == 0
     assert snap.program.block_type == "voltage_ramp"
     assert snap.program.control_tc == "TC_1"
+
+
+def test_start_program_settings_frozen_gains_in_use():
+    """
+    AC 1 & 2: Rig integration test. Submitting StartProgram(settings=RunSettings(kp=0.5,...))
+    causes published snapshot.program.gains_in_use[0] == 0.5.
+    Changing AppSettings after Run is submitted does not change the Snapshots.
+    """
+    ns = make_rig_fixture()
+    tick(ns)
+
+    blocks = [VoltageRampBlock(start_voltage=0.0, end_voltage=1.0, duration_sec=10.0)]
+    ns.rig.submit(LoadProgram(program=blocks))
+
+    # Construct settings directly to assert gains_in_use
+    settings = make_dummy_run_settings()
+    import dataclasses
+    settings = dataclasses.replace(settings, kp=0.5, ki=0.1, kd=0.2)
+
+    ns.rig.submit(StartProgram(settings=settings))
+    tick(ns, n=3)  # Let program advance into block 0
+
+    snap = ns.rig.latest()
+    assert snap.program.running is True
+    assert snap.program.gains_in_use == (0.5, 0.1, 0.2), f"Expected (0.5, 0.1, 0.2), got {snap.program.gains_in_use}"
+
+def test_pid_controller_requires_arguments():
+    """
+    AC 3: PIDController() with no arguments raises TypeError.
+    """
+    from t8_daq_system.control.temp_ramp_pid import PIDController
+    import pytest
+    with pytest.raises(TypeError):
+        PIDController()

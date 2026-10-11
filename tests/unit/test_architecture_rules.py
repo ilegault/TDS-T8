@@ -334,3 +334,20 @@ def test_no_silent_exceptions():
     )
 
 
+
+def test_no_program_run_in_gui():
+    """
+    AC 4: No file under t8_daq_system/gui/ contains the text `_program_run`.
+    """
+    gui_dir = PACKAGE_ROOT / "gui"
+    if not gui_dir.exists():
+        return
+
+    violations = []
+    for py_file in _iter_python_files(gui_dir):
+        rel_path = py_file.relative_to(REPO_ROOT)
+        text = py_file.read_text(encoding="utf-8")
+        if "_program_run" in text:
+            violations.append(f"{rel_path} contains forbidden text '_program_run'")
+
+    assert not violations, "Found direct reach into _program_run from GUI:\n" + "\n".join(violations)

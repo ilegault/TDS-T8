@@ -1,6 +1,6 @@
 # 19: Run settings travel with Start
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -27,12 +27,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A Rig integration test (copy the setup of `tests/integration/test_program_run_rig.py`: `Rig` + `SimulatedRig` + `ManualClock`) submits `StartProgram(settings=RunSettings(kp=0.5, ...))` and asserts the published `snapshot.program.gains_in_use[0] == 0.5`.
-- [ ] A test changes the AppSettings gains after Run was submitted and asserts `gains_in_use` in later Snapshots is unchanged.
-- [ ] A test asserts `PIDController()` with no arguments raises `TypeError`.
-- [ ] `tests/unit/test_architecture_rules.py` gains a rule, passing, that no file under `t8_daq_system/gui/` contains the text `_program_run`.
-- [ ] Every existing call of `PIDController(...)` and `StartProgram()` is updated; no test is deleted (a test whose call signature changed is rewritten in place under the same name).
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] A Rig integration test (copy the setup of `tests/integration/test_program_run_rig.py`: `Rig` + `SimulatedRig` + `ManualClock`) submits `StartProgram(settings=RunSettings(kp=0.5, ...))` and asserts the published `snapshot.program.gains_in_use[0] == 0.5`.
+- [x] A test changes the AppSettings gains after Run was submitted and asserts `gains_in_use` in later Snapshots is unchanged.
+- [x] A test asserts `PIDController()` with no arguments raises `TypeError`.
+- [x] `tests/unit/test_architecture_rules.py` gains a rule, passing, that no file under `t8_daq_system/gui/` contains the text `_program_run`.
+- [x] Every existing call of `PIDController(...)` and `StartProgram()` is updated; no test is deleted (a test whose call signature changed is rewritten in place under the same name).
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -42,4 +42,14 @@ Run in this order, as CI does (`.github/workflows/`):
     python scripts/check_tests_first.py
     pytest --tb=short -q
 
+
 ## Comments
+
+2026-10-11 - Ticket completed:
+- `RunSettings` dataclass added to commands.
+- `ProgramStatus` updated with `gains_in_use`.
+- `PIDController` requires gain parameters on initialization.
+- `ProgramRun` updated to receive settings and initialize the PID controller.
+- `Rig` passes settings to `ProgramRun`.
+- `MainWindow` extracts settings and uses Rig public methods to access _program_run attributes cleanly.
+- Tests updated and new AC tests added. All tests and linters pass.

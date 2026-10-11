@@ -45,6 +45,7 @@ from t8_daq_system.control.heater_output import ProgramHeaterRequest
 from t8_daq_system.control.safety_monitor import Trip
 from t8_daq_system.control.temp_ramp_pid import PIDController, PIDRunLogger
 from t8_daq_system.rig.snapshot import ProgramStatus, Snapshot
+from t8_daq_system.rig.commands import RunSettings
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class ProgramRun:
         self._running: bool = False
         self._block_index: int = 0
 
-        self._pid = PIDController()
+        self._pid: PIDController | None = None
         self._ff_map = FeedforwardMap()
         self._ff_map.load()
         self._pid_logger = PIDRunLogger()
@@ -127,7 +128,7 @@ class ProgramRun:
         """Load a block sequence.  Safe to call at any time; takes effect on next start()."""
         self._blocks = list(blocks)
 
-    def start(self, snapshot: Snapshot, now_s: float, *, commanded_volts: float = 0.0) -> None:
+    def start(self, snapshot: Snapshot, now_s: float, *, commanded_volts: float = 0.0, settings: RunSettings) -> None:
         """
         Begin execution from block 0.
 
@@ -140,6 +141,13 @@ class ProgramRun:
         if self._running:
             logger.debug("ProgramRun.start() ignored: already running")
             return
+
+        self._pid = PIDController(
+            kp=settings.kp,
+            ki=settings.ki,
+            kd=settings.kd,
+            integral_windup_limit=settings.windup_limit,
+        )
 
         self._running = True
         self._block_index = 0
@@ -254,6 +262,7 @@ class ProgramRun:
         block = self._blocks[block_index] if self._blocks else None
         block_type = getattr(block, "block_type", "") if block else ""
         control_tc = self._get_control_tc()
+        gains_in_use = (self._pid._kp, self._pid._ki, self._pid._kd) if self._pid is not None else (0.0, 0.0, 0.0)
 
         return ProgramStatus(
             running=self._running,
@@ -269,6 +278,7 @@ class ProgramRun:
             ff_voltage=self._sched.ff_voltage,
             pid_correction=self._sched.pid_correction,
             control_tc=control_tc,
+            gains_in_use=gains_in_use,
         )
 
     # ------------------------------------------------------------------
