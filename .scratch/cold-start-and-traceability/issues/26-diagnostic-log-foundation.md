@@ -26,12 +26,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test with `tmp_path`: `start_session` creates `console/<date>_<run_id>.log` whose first line contains `Build dev` and the run id.
-- [ ] Unit test: with `keep=3` and 5 older log files present, after `start_session` exactly 3 files remain and the new session's file is one of them.
-- [ ] Unit test: after `start_session` with an AppSettings whose `pid_kp` came from the registry, the file has a line containing `setting pid_kp=` and `(registry)`.
-- [ ] Unit test: an exception raised in a `threading.Thread` target writes an ERROR line containing the exception message and `Traceback`.
-- [ ] Unit test: a CSV written by the Run record to `tmp_path` has a metadata line whose `run_id` equals the session's run id.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_start_session_creates_a_log_with_build_and_run_id`: Unit test with `tmp_path`: `start_session` creates `console/<date>_<run_id>.log` whose first line contains `Build dev` and the run id.
+- [ ] `test_start_session_keeps_only_the_newest_logs`: Unit test: with `keep=3` and 5 older log files present, after `start_session` exactly 3 files remain and the new session's file is one of them.
+- [ ] `test_session_log_records_settings_with_their_source`: Unit test: after `start_session` with an AppSettings whose `pid_kp` came from the registry, the file has a line containing `setting pid_kp=` and `(registry)`.
+- [ ] `test_thread_exception_is_logged_with_traceback`: Unit test: an exception raised in a `threading.Thread` target writes an ERROR line containing the exception message and `Traceback`.
+- [ ] `test_run_record_csv_carries_the_session_run_id`: Unit test: a CSV written by the Run record to `tmp_path` has a metadata line whose `run_id` equals the session's run id.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

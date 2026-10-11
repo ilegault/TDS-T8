@@ -23,10 +23,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test (Agg backend, as in `tests/unit/test_live_plot.py`): after plotting a constant 1.4998 V with ±0.0001 V noise and drawing, the y-axis formatter's offset text is empty and every tick label parses to a float within [1.47, 1.53].
-- [ ] Same plot: the voltage axis `get_ylim()` span is at least 0.05 and the current axis span at least 1.0.
-- [ ] Unit test: a pressure plot's y-axis scale is still `log`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_voltage_axis_shows_true_values_not_an_offset`: Unit test (Agg backend, as in `tests/unit/test_live_plot.py`): after plotting a constant 1.4998 V with ±0.0001 V noise and drawing, the y-axis formatter's offset text is empty and every tick label parses to a float within [1.47, 1.53].
+- [ ] `test_voltage_axis_shows_true_values_not_an_offset`: Same plot: the voltage axis `get_ylim()` span is at least 0.05 and the current axis span at least 1.0.
+- [ ] `test_pressure_axis_is_still_logarithmic`: Unit test: a pressure plot's y-axis scale is still `log`.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

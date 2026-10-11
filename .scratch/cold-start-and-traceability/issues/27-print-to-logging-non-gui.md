@@ -24,10 +24,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A rule in `test_architecture_rules.py` walks the AST of every file in those packages and finds zero `print` calls.
-- [ ] Integration test: a 60 s `ManualClock` Rig run (120 control steps) at INFO produces fewer than 20 records from loggers under `t8_daq_system.control` and `t8_daq_system.rig`.
-- [ ] The same run at DEBUG produces at least 120 records from loggers under `t8_daq_system.control`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_no_print_calls_in_control_packages`: A rule in `test_architecture_rules.py` walks the AST of every file in those packages and finds zero `print` calls.
+- [ ] `test_info_logging_is_quiet_over_a_60_second_run`: Integration test: a 60 s `ManualClock` Rig run (120 control steps) at INFO produces fewer than 20 records from loggers under `t8_daq_system.control` and `t8_daq_system.rig`.
+- [ ] `test_debug_logging_covers_every_control_step`: The same run at DEBUG produces at least 120 records from loggers under `t8_daq_system.control`.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

@@ -27,12 +27,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A Rig integration test (copy the setup of `tests/integration/test_program_run_rig.py`: `Rig` + `SimulatedRig` + `ManualClock`) submits `StartProgram(settings=RunSettings(kp=0.5, ...))` and asserts the published `snapshot.program.gains_in_use[0] == 0.5`.
-- [ ] A test changes the AppSettings gains after Run was submitted and asserts `gains_in_use` in later Snapshots is unchanged.
-- [ ] A test asserts `PIDController()` with no arguments raises `TypeError`.
-- [ ] `tests/unit/test_architecture_rules.py` gains a rule, passing, that no file under `t8_daq_system/gui/` contains the text `_program_run`.
-- [ ] Every existing call of `PIDController(...)` and `StartProgram()` is updated; no test is deleted (a test whose call signature changed is rewritten in place under the same name).
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_start_program_settings_set_gains_in_use`: A Rig integration test (copy the setup of `tests/integration/test_program_run_rig.py`: `Rig` + `SimulatedRig` + `ManualClock`) submits `StartProgram(settings=RunSettings(kp=0.5, ...))` and asserts the published `snapshot.program.gains_in_use[0] == 0.5`.
+- [ ] `test_gains_in_use_ignores_later_settings_changes`: A test changes the AppSettings gains after Run was submitted and asserts `gains_in_use` in later Snapshots is unchanged.
+- [ ] `test_pid_controller_requires_its_gains`: A test asserts `PIDController()` with no arguments raises `TypeError`.
+- [ ] `test_no_program_run_reference_in_gui`: `tests/unit/test_architecture_rules.py` gains a rule, passing, that no file under `t8_daq_system/gui/` contains the text `_program_run`.
+- [ ] Every existing call of `PIDController(...)` and `StartProgram()` is updated; no test is deleted (a test whose call signature changed is rewritten in place under the same name). (by hand)
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

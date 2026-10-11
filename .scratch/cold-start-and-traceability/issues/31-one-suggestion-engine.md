@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test: a run log oscillating ±1 K around setpoint gives an oscillation count of 0; ±5 K gives more than 0.
-- [ ] Unit test: metrics with 20 % rate-tracking error and no overshoot → suggested `ki` greater than the gains-in-use `ki`, with a reason containing `rate`.
-- [ ] Unit test: metrics with 8 K overshoot → suggested `kp` less than the gains-in-use `kp`.
-- [ ] Integration test: a completed TempRamp on SimulatedRig leaves the `tmp_path` history file absent or empty; the same program through a fake live adapter writes one record containing `run_id` and `adapter`.
-- [ ] A rule in `test_architecture_rules.py`: no call `PIDRunLogger()` without arguments exists under `t8_daq_system/` or `tests/`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_oscillation_count_ignores_one_kelvin_and_counts_five`: Unit test: a run log oscillating ±1 K around setpoint gives an oscillation count of 0; ±5 K gives more than 0.
+- [ ] `test_rate_tracking_error_raises_ki_with_a_rate_reason`: Unit test: metrics with 20 % rate-tracking error and no overshoot → suggested `ki` greater than the gains-in-use `ki`, with a reason containing `rate`.
+- [ ] `test_overshoot_lowers_kp`: Unit test: metrics with 8 K overshoot → suggested `kp` less than the gains-in-use `kp`.
+- [ ] `test_history_is_written_only_for_live_adapters`: Integration test: a completed TempRamp on SimulatedRig leaves the `tmp_path` history file absent or empty; the same program through a fake live adapter writes one record containing `run_id` and `adapter`.
+- [ ] `test_no_pidrunlogger_without_arguments`: A rule in `test_architecture_rules.py`: no call `PIDRunLogger()` without arguments exists under `t8_daq_system/` or `tests/`.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

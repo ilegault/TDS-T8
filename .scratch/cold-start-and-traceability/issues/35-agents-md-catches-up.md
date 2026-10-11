@@ -21,9 +21,9 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] AGENTS.md contains `Soft start`, `Run current cap`, `scripts/build.py` and `0.014` in the sections named above.
-- [ ] `git diff` shows no changed line between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] AGENTS.md contains `Soft start`, `Run current cap`, `scripts/build.py` and `0.014` in the sections named above. (by hand)
+- [ ] `git diff` shows no changed line between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->`. (by hand)
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

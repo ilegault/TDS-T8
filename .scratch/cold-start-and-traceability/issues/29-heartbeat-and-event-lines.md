@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test: an 8-hour TempRamp + Hold program on SimulatedRig with `ManualClock` writes fewer than 2 000 lines at INFO or above to the session log in `tmp_path`.
-- [ ] Same test: the number of lines containing ` HB ` is within ±2 of `8*3600/30`.
-- [ ] Integration test: a forced `soft_start_overcurrent` trip writes an ERROR line containing the trip's reason sentence.
-- [ ] Integration test: `run_cap_enabled=False` writes a WARNING line containing `Run current cap is OFF` at run start.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_eight_hour_run_log_stays_small_and_has_heartbeats`: Integration test: an 8-hour TempRamp + Hold program on SimulatedRig with `ManualClock` writes fewer than 2 000 lines at INFO or above to the session log in `tmp_path`.
+- [ ] `test_eight_hour_run_log_stays_small_and_has_heartbeats`: Same test: the number of lines containing ` HB ` is within ±2 of `8*3600/30`.
+- [ ] `test_overcurrent_trip_is_logged_as_an_error`: Integration test: a forced `soft_start_overcurrent` trip writes an ERROR line containing the trip's reason sentence.
+- [ ] `test_run_cap_off_is_logged_as_a_warning_at_run_start`: Integration test: `run_cap_enabled=False` writes a WARNING line containing `Run current cap is OFF` at run start.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A test in `tests/unit/test_simulated_rig.py`: `SimulatedRig` with the specimen at about 20 °C, `write_voltage(0.29)`, one `read()` → `ps_amps > 40.0`.
-- [ ] A test asserts `TungstenSim()._resistance(300.0)` is within [0.004, 0.006].
-- [ ] A test asserts that at `TungstenSim().steady_state_temp(6.0)` the current `6.0 / R` is within [120, 180] A.
-- [ ] The full existing suite passes with the new constants, practice-mode and Rig tests included.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_cold_specimen_draws_over_40_amps_at_first_voltage`: A test in `tests/unit/test_simulated_rig.py`: `SimulatedRig` with the specimen at about 20 °C, `write_voltage(0.29)`, one `read()` → `ps_amps > 40.0`.
+- [ ] `test_tungsten_cold_resistance_is_in_range`: A test asserts `TungstenSim()._resistance(300.0)` is within [0.004, 0.006].
+- [ ] `test_tungsten_steady_state_current_is_in_range`: A test asserts that at `TungstenSim().steady_state_temp(6.0)` the current `6.0 / R` is within [120, 180] A.
+- [ ] The full existing suite passes with the new constants, practice-mode and Rig tests included. (by hand)
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

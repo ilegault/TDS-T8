@@ -21,10 +21,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] The no-print rule from ticket 27 is widened to all of `t8_daq_system/` and passes.
-- [ ] Unit test (Tk mocked): invoking the Run handler logs an INFO record containing `Run` and the number of blocks; invoking Reset trip logs a record containing `Reset trip`.
-- [ ] Unit test: saving Settings logs one INFO record per changed key containing the old and new value.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_no_print_calls_in_t8_daq_system`: The no-print rule from ticket 27 is widened to all of `t8_daq_system/` and passes.
+- [ ] `test_run_and_reset_trip_handlers_log_info`: Unit test (Tk mocked): invoking the Run handler logs an INFO record containing `Run` and the number of blocks; invoking Reset trip logs a record containing `Reset trip`.
+- [ ] `test_saving_settings_logs_each_changed_key`: Unit test: saving Settings logs one INFO record per changed key containing the old and new value.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

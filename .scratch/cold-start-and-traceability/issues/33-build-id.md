@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test: `build_id('7656f09', date(2026, 10, 5), False) == '2026-10-05_7656f09'`, and with `dirty=True` the result ends with `-dirty`.
-- [ ] Unit test: `main([])` with a faked `run` reporting a dirty tree exits non-zero with a message containing `uncommitted`; `main(['--allow-dirty'])` reaches the faked PyInstaller call.
-- [ ] Unit test: `build_info_text` output contains the id, the branch and every file name passed.
-- [ ] Unit test: with no `_build_info` module importable, `get_build_id() == 'dev'`, and the main window title (Tk mocked) ends with `dev`.
-- [ ] Unit test: a CSV written by the Run record to `tmp_path` has a metadata line containing `build_id`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_build_id_format_and_dirty_suffix`: Unit test: `build_id('7656f09', date(2026, 10, 5), False) == '2026-10-05_7656f09'`, and with `dirty=True` the result ends with `-dirty`.
+- [ ] `test_build_script_refuses_a_dirty_tree_unless_allowed`: Unit test: `main([])` with a faked `run` reporting a dirty tree exits non-zero with a message containing `uncommitted`; `main(['--allow-dirty'])` reaches the faked PyInstaller call.
+- [ ] `test_build_info_text_lists_id_branch_and_files`: Unit test: `build_info_text` output contains the id, the branch and every file name passed.
+- [ ] `test_missing_build_info_gives_dev_in_the_title`: Unit test: with no `_build_info` module importable, `get_build_id() == 'dev'`, and the main window title (Tk mocked) ends with `dev`.
+- [ ] `test_run_record_csv_carries_the_build_id`: Unit test: a CSV written by the Run record to `tmp_path` has a metadata line containing `build_id`.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

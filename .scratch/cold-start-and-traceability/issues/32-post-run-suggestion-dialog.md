@@ -23,10 +23,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test (Tk mocked): with a stored Suggestion, invoking Apply opens the Settings dialog whose gain variables equal the suggested values, and `save` was not called on the real `AppSettings` (fake winreg) passed in.
-- [ ] Unit test: the dialog's message text contains every reason string from the Suggestion.
-- [ ] Unit test: `inspect.getsource(MainWindow._show_pid_run_summary)` contains none of `* 0.7`, `* 0.6`, `* 1.3`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_apply_opens_settings_with_suggested_gains_without_saving`: Unit test (Tk mocked): with a stored Suggestion, invoking Apply opens the Settings dialog whose gain variables equal the suggested values, and `save` was not called on the real `AppSettings` (fake winreg) passed in.
+- [ ] `test_dialog_message_lists_every_suggestion_reason`: Unit test: the dialog's message text contains every reason string from the Suggestion.
+- [ ] `test_run_summary_has_no_hardcoded_gain_factors`: Unit test: `inspect.getsource(MainWindow._show_pid_run_summary)` contains none of `* 0.7`, `* 0.6`, `* 1.3`.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

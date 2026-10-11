@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test (Rig + SimulatedRig + ManualClock, as in `tests/integration/test_block_transitions.py`): program VoltageRamp to 1.0 V then TempRamp; the first TempRamp commanded voltage equals the last VoltageRamp voltage within 0.0001 V — run once with a Feedforward map whose value at the handoff temperature is above 1.0 V and once with it below.
-- [ ] The same assertion holds for StableHold → TempRamp and TempRamp → StableHold boundaries.
-- [ ] Unit test: a Feedforward map whose first point is (50 °C, 0.29 V) returns 0.0 at 20 °C and 0.29 at 50 °C.
-- [ ] Unit test: with measured temperature above setpoint after seeding, `step_temp_ramp` returns a total voltage below the Feedforward value (the correction went negative).
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_tempramp_hands_off_the_voltage_ramp_voltage`: Integration test (Rig + SimulatedRig + ManualClock, as in `tests/integration/test_block_transitions.py`): program VoltageRamp to 1.0 V then TempRamp; the first TempRamp commanded voltage equals the last VoltageRamp voltage within 0.0001 V — run once with a Feedforward map whose value at the handoff temperature is above 1.0 V and once with it below.
+- [ ] `test_stablehold_and_tempramp_boundaries_hand_off_the_voltage`: The same assertion holds for StableHold → TempRamp and TempRamp → StableHold boundaries.
+- [ ] `test_feedforward_first_point_returns_zero_below_it`: Unit test: a Feedforward map whose first point is (50 °C, 0.29 V) returns 0.0 at 20 °C and 0.29 at 50 °C.
+- [ ] `test_tempramp_correction_goes_negative_above_setpoint`: Unit test: with measured temperature above setpoint after seeding, `step_temp_ramp` returns a total voltage below the Feedforward value (the correction went negative).
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

@@ -26,12 +26,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test: `soft_start_cap_a=40`, a SimulatedRig forced to report 45 A during Soft start → in that same Snapshot the heater output is off, commanded voltage is 0, trip kind is `soft_start_overcurrent`, and the reason contains `45` and `40`.
-- [ ] Integration test: after handoff with `run_cap_a=120`, forced 125 A → trip kind `run_overcurrent`.
-- [ ] With `soft_start_cap_enabled=False`, forced 45 A during Soft start → no trip.
-- [ ] `ResetTrip` while the forced current is still 45 A is refused; after the current drops below the cap it is accepted.
-- [ ] A rule in `test_architecture_rules.py` asserts no file under `t8_daq_system/` contains `COLD_CURRENT_LIMIT_A`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_soft_start_overcurrent_trips_in_the_same_snapshot`: Integration test: `soft_start_cap_a=40`, a SimulatedRig forced to report 45 A during Soft start → in that same Snapshot the heater output is off, commanded voltage is 0, trip kind is `soft_start_overcurrent`, and the reason contains `45` and `40`.
+- [ ] `test_run_overcurrent_trips_after_handoff`: Integration test: after handoff with `run_cap_a=120`, forced 125 A → trip kind `run_overcurrent`.
+- [ ] `test_soft_start_cap_disabled_does_not_trip`: With `soft_start_cap_enabled=False`, forced 45 A during Soft start → no trip.
+- [ ] `test_reset_trip_refused_while_current_is_over_the_cap`: `ResetTrip` while the forced current is still 45 A is refused; after the current drops below the cap it is accepted.
+- [ ] `test_no_cold_current_limit_constant_in_the_package`: A rule in `test_architecture_rules.py` asserts no file under `t8_daq_system/` contains `COLD_CURRENT_LIMIT_A`.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

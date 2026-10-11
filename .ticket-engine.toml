@@ -5,3 +5,4 @@ daily_cap = 10
 concurrency = 2
 jules_reserve = 10
 box_enabled = true
+jules_enabled = false

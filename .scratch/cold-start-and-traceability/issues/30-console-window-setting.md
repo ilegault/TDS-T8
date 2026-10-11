@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test with a fake `kernel32` whose `GetConsoleWindow` returns 0: `attach_console(True, 'win32', fake)` returns True and `AllocConsole` was called once.
-- [ ] Unit test: `attach_console(True, 'linux', fake)` returns False and calls nothing on `fake`.
-- [ ] Unit test: `attach_console(False, 'win32', fake)` returns False.
-- [ ] Unit test: after a successful attach, one log record reaches both the session file and the added stream handler.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_attach_console_allocates_when_none_exists`: Unit test with a fake `kernel32` whose `GetConsoleWindow` returns 0: `attach_console(True, 'win32', fake)` returns True and `AllocConsole` was called once.
+- [ ] `test_attach_console_does_nothing_off_windows`: Unit test: `attach_console(True, 'linux', fake)` returns False and calls nothing on `fake`.
+- [ ] `test_attach_console_does_nothing_when_disabled`: Unit test: `attach_console(False, 'win32', fake)` returns False.
+- [ ] `test_attached_console_receives_log_records`: Unit test: after a successful attach, one log record reaches both the session file and the added stream handler.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

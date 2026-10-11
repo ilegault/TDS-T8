@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test with the fake `winreg` from `tests/conftest.py`: empty registry → after `load()`, `pid_kp == 0.014` and `sources['pid_kp'] == 'default'`; registry holding `pid_kp=0.02` → `0.02` and `'registry'`.
-- [ ] Unit test: a registry containing `pid_output_max` and `ps_current_limit` loads without error, the `AppSettings` object has neither attribute, and `save()` writes neither key.
-- [ ] Unit test: after setting `settings.run_cap_a = 150`, `run_settings_from_app_settings(settings).run_cap_a == 150`.
-- [ ] Unit test (Tk mocked): building the Settings dialog creates no widget whose text contains `History may override` or `Max Output`.
-- [ ] Unit test: invoking the Reset PID handler sets the three gain variables to the `_DEFAULTS` values.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_settings_load_defaults_and_registry_values`: Unit test with the fake `winreg` from `tests/conftest.py`: empty registry → after `load()`, `pid_kp == 0.014` and `sources['pid_kp'] == 'default'`; registry holding `pid_kp=0.02` → `0.02` and `'registry'`.
+- [ ] `test_retired_settings_keys_are_ignored_and_not_saved`: Unit test: a registry containing `pid_output_max` and `ps_current_limit` loads without error, the `AppSettings` object has neither attribute, and `save()` writes neither key.
+- [ ] `test_run_settings_follow_app_settings_run_cap`: Unit test: after setting `settings.run_cap_a = 150`, `run_settings_from_app_settings(settings).run_cap_a == 150`.
+- [ ] `test_settings_dialog_has_no_retired_widgets`: Unit test (Tk mocked): building the Settings dialog creates no widget whose text contains `History may override` or `Max Output`.
+- [ ] `test_reset_pid_restores_default_gains`: Unit test: invoking the Reset PID handler sets the three gain variables to the `_DEFAULTS` values.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 

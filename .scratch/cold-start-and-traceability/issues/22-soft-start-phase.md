@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test (Rig + SimulatedRig + ManualClock), TempRamp program on a cold specimen: while `snapshot.program.phase == 'soft_start'`, each commanded voltage exceeds the previous by at most `ramp × 0.5 + 1e-9` V.
-- [ ] Same run: it hands off with `handoff_reason` starting `"handoff current"` or `"threshold"`.
-- [ ] A run started with the specimen above threshold has `phase == 'block'` on its first Snapshot and `handoff_reason` starting `"skipped"`.
-- [ ] The Run record CSV written to `tmp_path` in that test contains exactly one event row whose detail contains the handoff reason.
-- [ ] The first block's first commanded voltage equals the last Soft-start voltage within 0.0001 V.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [ ] `test_soft_start_ramps_then_hands_off_on_a_cold_specimen`: Integration test (Rig + SimulatedRig + ManualClock), TempRamp program on a cold specimen: while `snapshot.program.phase == 'soft_start'`, each commanded voltage exceeds the previous by at most `ramp × 0.5 + 1e-9` V.
+- [ ] `test_soft_start_ramps_then_hands_off_on_a_cold_specimen`: Same run: it hands off with `handoff_reason` starting `"handoff current"` or `"threshold"`.
+- [ ] `test_run_started_above_threshold_skips_soft_start`: A run started with the specimen above threshold has `phase == 'block'` on its first Snapshot and `handoff_reason` starting `"skipped"`.
+- [ ] `test_soft_start_ramps_then_hands_off_on_a_cold_specimen`: The Run record CSV written to `tmp_path` in that test contains exactly one event row whose detail contains the handoff reason.
+- [ ] `test_first_block_voltage_continues_the_last_soft_start_voltage`: The first block's first commanded voltage equals the last Soft-start voltage within 0.0001 V.
+- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (by hand)
 
 ## Gate
 
