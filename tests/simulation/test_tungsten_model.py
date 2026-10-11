@@ -14,6 +14,22 @@ def test_steady_state_3v_near_table():
     assert 1400 < T_ss < 1900, f"3.0V steady state {T_ss:.0f}K out of range"
 
 
+def test_resistance_at_300k():
+    """TungstenSim()._resistance(300.0) is within [0.004, 0.006]."""
+    sim = TungstenSim(dt=0.5)
+    r_300k = sim._resistance(300.0)
+    assert 0.004 <= r_300k <= 0.006, f"Resistance {r_300k} out of range"
+
+
+def test_steady_state_current_at_6v():
+    """At TungstenSim().steady_state_temp(6.0) the current 6.0 / R is within [120, 180] A."""
+    sim = TungstenSim(dt=0.5)
+    t_6v = sim.steady_state_temp(6.0)
+    r_6v = sim._resistance(t_6v)
+    current_6v = 6.0 / r_6v
+    assert 120 <= current_6v <= 180, f"Current {current_6v} out of range"
+
+
 def test_steady_state_increases_with_voltage():
     """Higher voltage must give higher steady-state temperature."""
     sim = TungstenSim(dt=0.5)
