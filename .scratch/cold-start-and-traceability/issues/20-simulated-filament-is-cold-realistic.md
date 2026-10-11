@@ -1,6 +1,6 @@
 # 20: Simulated filament is cold-realistic
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A test in `tests/unit/test_simulated_rig.py`: `SimulatedRig` with the specimen at about 20 °C, `write_voltage(0.29)`, one `read()` → `ps_amps > 40.0`.
-- [ ] A test asserts `TungstenSim()._resistance(300.0)` is within [0.004, 0.006].
-- [ ] A test asserts that at `TungstenSim().steady_state_temp(6.0)` the current `6.0 / R` is within [120, 180] A.
-- [ ] The full existing suite passes with the new constants, practice-mode and Rig tests included.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] A test in `tests/unit/test_simulated_rig.py`: `SimulatedRig` with the specimen at about 20 °C, `write_voltage(0.29)`, one `read()` → `ps_amps > 40.0`.
+- [x] A test asserts `TungstenSim()._resistance(300.0)` is within [0.004, 0.006].
+- [x] A test asserts that at `TungstenSim().steady_state_temp(6.0)` the current `6.0 / R` is within [120, 180] A.
+- [x] The full existing suite passes with the new constants, practice-mode and Rig tests included.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -39,3 +39,4 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+Summary (2026-10-11): Recalibrated `TungstenSim` constants (R_COLD=0.005, AREA=5.34e-3, MASS=0.150) to match March 2026 logs. Added unit tests to verify cold start current > 40A at 0.29V, resistance between 0.004 and 0.006 at 300K, and steady state current between 120 and 180A at 6.0V. Fixed one integration test that was failing because the new parameters triggered the cold tungsten guard. Full test suite and lint checks pass.

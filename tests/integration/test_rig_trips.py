@@ -314,6 +314,11 @@ def test_operator_commands_reach_heater_output_and_adapter_writes():
     assert ("set_output", True) in spy.calls
     assert ("write_voltage", 1.5) in spy.calls
 
+    # Advance clock enough to heat up tungsten and drop current below COLD_CURRENT_LIMIT_A (180A)
+    for _ in range(50):
+        clock.advance(0.5)
+        rig.run_tick()
+
     # Nudge up
     spy.calls.clear()
     rig.submit(Nudge(direction="up"))

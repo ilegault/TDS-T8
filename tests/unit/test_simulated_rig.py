@@ -158,3 +158,27 @@ def test_fault_injection_disconnect_and_reconnect():
     assert rig.is_connected() is True
     readings = rig.read()
     assert readings.tc_c["TC_1"] is not None
+
+def test_simulated_rig_cold_start_current_draw():
+    """At 0.29V on a cold specimen (~20 C), current must exceed 40A."""
+    clock = ManualClock()
+    # Force 20 C room temp to match criteria
+    rig = SimulatedRig(clock=clock, room_temp_c=20.0)
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+    # One read steps the simulation
+    readings = rig.read()
+    assert readings.ps_amps > 40.0, f"Expected > 40.0 A, got {readings.ps_amps:.1f} A"
+
+def test_tungsten_sim_cold_resistance_target():
+    """TungstenSim._resistance(300.0) must be between 0.004 and 0.006 Ohms."""
+    sim = TungstenSim(dt=0.5)
+    r_cold = sim._resistance(300.0)
+    assert 0.004 <= r_cold <= 0.006, f"Expected 0.004 <= R <= 0.006, got {r_cold:.4f}"
+
+def test_tungsten_sim_steady_state_current_target():
+    """At 6.0V, steady-state current must be between 120 and 180 A."""
+    sim = TungstenSim(dt=0.5)
+    t_ss = sim.steady_state_temp(6.0)
+    i_ss = 6.0 / sim._resistance(t_ss)
+    assert 120 <= i_ss <= 180, f"Expected 120 <= I_ss <= 180, got {i_ss:.1f} A"
