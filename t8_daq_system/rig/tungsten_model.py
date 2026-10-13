@@ -27,6 +27,10 @@ class TungstenSim:
     Simple lumped-parameter tungsten thermal simulator.
 
     Call step(voltage_v) repeatedly. Each call advances by dt seconds.
+
+    Calibration targets (source: March 2026 run logs, 0.0093 V -> 2.17 A at 27 C):
+      * resistance at 300 K between 0.004 and 0.006 Ohm
+      * steady-state current at 6.0 V between 120 and 180 A
     """
 
     # Physical constants
