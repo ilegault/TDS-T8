@@ -13,6 +13,7 @@ import tkinter as tk
 import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from t8_daq_system.gui.live_plot import use_true_value_ticks
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,8 @@ class ProgrammerPreviewPlot:
         # Right axis created once; shown/hidden per render
         self._ax_a = self._ax_v.twinx()
         self._ax_a.set_visible(False)
+        use_true_value_ticks(self._ax_v)
+        use_true_value_ticks(self._ax_a)
 
         self._v_color  = '#e84118'
         self._a_color  = '#d62728'
@@ -204,6 +207,8 @@ class ProgrammerPreviewPlot:
         self._ax_v.cla()
         self._ax_a.cla()
         self._ax_a.set_visible(False)
+        use_true_value_ticks(self._ax_v)  # cla() resets the formatter
+        use_true_value_ticks(self._ax_a)
         self._dot_temp = None
         self._dot_volt = None
 
@@ -394,6 +399,8 @@ class ProgrammerPreviewPlot:
         self._ax_v.cla()
         self._ax_a.cla()
         self._ax_a.set_visible(False)
+        use_true_value_ticks(self._ax_v)  # cla() resets the formatter
+        use_true_value_ticks(self._ax_a)
         self._temp_mode = True
         self._line_v    = None
         self._line_a    = None
@@ -462,6 +469,7 @@ class ProgrammerPreviewPlot:
                            linestyle=':', alpha=0.8, label='150\u00b0C preheat target')
 
         ax2 = self._ax_v.twinx()
+        use_true_value_ticks(ax2)
         c_min_plot, c_max_plot = self._ax_v.get_ylim()
         ax2.set_ylim(c_min_plot + 273.15, c_max_plot + 273.15)
         ax2.set_ylabel('Temperature (K)', color='#888888', rotation=270, labelpad=15)

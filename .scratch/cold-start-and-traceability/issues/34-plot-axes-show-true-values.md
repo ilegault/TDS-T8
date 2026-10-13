@@ -1,6 +1,6 @@
 # 34: Plot axes show true values
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -23,10 +23,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test (Agg backend, as in `tests/unit/test_live_plot.py`): after plotting a constant 1.4998 V with ±0.0001 V noise and drawing, the y-axis formatter's offset text is empty and every tick label parses to a float within [1.47, 1.53].
-- [ ] Same plot: the voltage axis `get_ylim()` span is at least 0.05 and the current axis span at least 1.0.
-- [ ] Unit test: a pressure plot's y-axis scale is still `log`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test (Agg backend, as in `tests/unit/test_live_plot.py`): after plotting a constant 1.4998 V with ±0.0001 V noise and drawing, the y-axis formatter's offset text is empty and every tick label parses to a float within [1.47, 1.53].
+- [x] Same plot: the voltage axis `get_ylim()` span is at least 0.05 and the current axis span at least 1.0.
+- [x] Unit test: a pressure plot's y-axis scale is still `log`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -37,3 +37,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+Done (2026-10-13). `use_true_value_ticks(ax)` in `live_plot.py` is applied to every linear axis (LivePlot `__init__`/`clear()`, incl. `ax2`; Power Programmer preview axes, re-applied after each `cla()`). PS autoscale (`_render` and `_autoscale_visible_only`) widens to >= 0.05 V / 1 A. Tests: `TestTrueValueAxes` in `tests/unit/test_live_plot.py` (criteria 1-3; real matplotlib on Agg swapped in because conftest mocks it). conftest gains a `matplotlib.ticker` mock. No bench verification needed.

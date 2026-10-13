@@ -62,4 +62,5 @@ if "matplotlib" not in sys.modules:
     sys.modules["matplotlib.backends"] = MagicMock()
     sys.modules["matplotlib.backends.backend_tkagg"] = MagicMock()
     sys.modules["matplotlib.dates"] = MagicMock()
+    sys.modules["matplotlib.ticker"] = MagicMock()
 
