@@ -19,23 +19,6 @@ from typing import Mapping
 
 import pytest
 
-from t8_daq_system.rig.commands import RunSettings
-def make_dummy_run_settings():
-    return RunSettings(
-        kp=0.014,
-        ki=0.00078,
-        kd=0.00845,
-        windup_limit=0.4,
-        soft_start_threshold_c=200.0,
-        soft_start_ramp_v_per_s=0.02,
-        soft_start_handoff_current_a=35.0,
-        soft_start_cap_enabled=True,
-        soft_start_cap_a=40.0,
-        run_cap_enabled=True,
-        run_cap_a=120.0,
-    )
-
-
 from t8_daq_system.control.heater_output import (
     HeaterOutput,
     ProgramHeaterRequest,
@@ -60,6 +43,24 @@ from t8_daq_system.settings.safety_limits import (
     DAC0_MAX_V,
     TEMP_OVERRIDE_RESET_C,
 )
+
+from t8_daq_system.rig.commands import RunSettings
+
+def make_dummy_run_settings():
+    return RunSettings(
+        kp=0.014,
+        ki=0.00078,
+        kd=0.00845,
+        windup_limit=0.4,
+        soft_start_threshold_c=200.0,
+        soft_start_ramp_v_per_s=0.02,
+        soft_start_handoff_current_a=35.0,
+        soft_start_cap_enabled=True,
+        soft_start_cap_a=40.0,
+        run_cap_enabled=True,
+        run_cap_a=120.0,
+    )
+
 
 pytestmark = pytest.mark.unit
 

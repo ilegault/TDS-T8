@@ -17,7 +17,20 @@ from pathlib import Path
 
 import pytest
 
+from t8_daq_system.control.heater_output import HeaterOutput
+from t8_daq_system.control.program_block import TempRampBlock
+from t8_daq_system.control.program_run import ProgramRun
+from t8_daq_system.control.safety_monitor import SafetyEvaluator
+from t8_daq_system.data.data_logger import DataLogger
+from t8_daq_system.data.run_record import RunRecord, build_header
+from t8_daq_system.rig.adapter import RawReadings, RigAdapter
+from t8_daq_system.rig.clock import ManualClock
+from t8_daq_system.rig.commands import LoadProgram, SelectAdapter, StartProgram
+from t8_daq_system.rig.rig import Rig
+from t8_daq_system.rig.simulated import SimulatedRig
+
 from t8_daq_system.rig.commands import RunSettings
+
 def make_dummy_run_settings():
     return RunSettings(
         kp=0.014,
@@ -33,18 +46,6 @@ def make_dummy_run_settings():
         run_cap_a=120.0,
     )
 
-
-from t8_daq_system.control.heater_output import HeaterOutput
-from t8_daq_system.control.program_block import TempRampBlock
-from t8_daq_system.control.program_run import ProgramRun
-from t8_daq_system.control.safety_monitor import SafetyEvaluator
-from t8_daq_system.data.data_logger import DataLogger
-from t8_daq_system.data.run_record import RunRecord, build_header
-from t8_daq_system.rig.adapter import RawReadings, RigAdapter
-from t8_daq_system.rig.clock import ManualClock
-from t8_daq_system.rig.commands import LoadProgram, SelectAdapter, StartProgram
-from t8_daq_system.rig.rig import Rig
-from t8_daq_system.rig.simulated import SimulatedRig
 
 pytestmark = pytest.mark.integration
 
