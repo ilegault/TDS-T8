@@ -13,6 +13,11 @@ resistance rising ~17x from 300 K to 2500 K. This physical model couples Ohmic
 heating P = V^2 / R(T) with Stefan-Boltzmann radiation and conduction loss,
 accurately reproducing steady-state temperatures and electrical characteristics
 without real hardware (ADR 0005).
+
+Calibration targets (source: March 2026 run logs, 0.0093 V -> 2.17 A at 27 C):
+resistance at 300 K between 0.004 and 0.006 Ohm, and steady-state current at
+6.0 V between 120 and 180 A. A cold specimen therefore draws a large current
+from a small voltage, which the soft-start current caps (ADR 0006) must handle.
 """
 from __future__ import annotations
 
@@ -27,19 +32,20 @@ class TungstenSim:
     # Physical constants
     STEFAN_BOLTZMANN = 5.67e-8  # W/(m^2 K^4)
 
-    # Specimen parameters -- tuned to give:
-    #   * Numerically stable steps at dt=0.5 s (no explosive first-step)
-    #   * Monotonically increasing T_ss with voltage (matches feedforward table trend)
-    #   * At 3.0V steady-state T_ss in the 1400–1900 K ballpark
-    #
-    # R_COLD = 0.033 Ω  → at cold start 6V draws ~180A (matching rated max)
-    # MASS   = 0.010 kg → thermal mass 1.4 J/K, limits dT to ~43 K/step at cold
-    R_COLD = 0.033          # Ohms at 300K — cold resistance, ~6V/180A rated point
+    # Specimen parameters -- calibrated to the March 2026 run logs (ADR 0005, 0006):
+    #   * Target 1: R(300 K) between 0.004 and 0.006 Ohm (logs: 0.0093 V -> 2.17 A
+    #     at 27 C, i.e. ~4-5 mOhm cold), so 0.29 V on a cold specimen draws > 40 A.
+    #   * Target 2: steady-state current at 6.0 V between 120 and 180 A.
+    #   * Numerically stable steps at dt=0.5 s, monotonic T_ss with voltage, and
+    #     3.0 V steady state in the 1400-1900 K ballpark.
+    # AREA was raised from 2e-4 to 3e-3 m^2 so the much lower cold resistance
+    # (far more power at a given voltage) still balances at a realistic T_ss.
+    R_COLD = 0.005          # Ohms at 300K -- cold resistance (March 2026 logs)
     ALPHA = 0.0045          # /K  linear TCR (positive, tungsten heats ~17x cold→hot)
     MASS = 0.010            # kg  ~10g specimen, sufficient thermal mass for dt=0.5 s
     C_P = 140.0             # J/(kg K)  specific heat capacity (relatively flat for W)
     EMISSIVITY = 0.25       # emissivity (polished W)
-    AREA = 2e-4             # m^2  effective radiating surface area
+    AREA = 3e-3             # m^2  effective radiating surface area
     K_COND = 0.005          # W/K  lead conduction loss (small)
     T_AMB = 300.0           # K   ambient / mounting temperature
 

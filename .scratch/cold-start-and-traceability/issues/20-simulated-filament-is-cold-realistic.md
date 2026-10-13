@@ -1,6 +1,6 @@
 # 20: Simulated filament is cold-realistic
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A test in `tests/unit/test_simulated_rig.py`: `SimulatedRig` with the specimen at about 20 °C, `write_voltage(0.29)`, one `read()` → `ps_amps > 40.0`.
-- [ ] A test asserts `TungstenSim()._resistance(300.0)` is within [0.004, 0.006].
-- [ ] A test asserts that at `TungstenSim().steady_state_temp(6.0)` the current `6.0 / R` is within [120, 180] A.
-- [ ] The full existing suite passes with the new constants, practice-mode and Rig tests included.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] A test in `tests/unit/test_simulated_rig.py`: `SimulatedRig` with the specimen at about 20 °C, `write_voltage(0.29)`, one `read()` → `ps_amps > 40.0`.
+- [x] A test asserts `TungstenSim()._resistance(300.0)` is within [0.004, 0.006].
+- [x] A test asserts that at `TungstenSim().steady_state_temp(6.0)` the current `6.0 / R` is within [120, 180] A.
+- [x] The full existing suite passes with the new constants, practice-mode and Rig tests included.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -39,3 +39,7 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: `TungstenSim` recalibrated: `R_COLD` 0.033 -> 0.005 Ω, `AREA` 2e-4 -> 3e-3 m² (so the lower cold R still balances at a realistic T_ss: 3 V ≈ 1574 K, 6 V ≈ 2077 K / 133 A). Targets and source recorded in module and class docs.
+Tests (tests/unit/test_simulated_rig.py): cold 0.29 V > 40 A; R(300 K) in [0.004, 0.006]; 6 V steady-state current in [120, 180] A.
+Rewritten in place: `test_three_block_program_completes` ramp end voltage 1.0 -> 0.1 V (1 V on the cold specimen now overheats past the 303 K hold). No test deleted. No bench verification needed.
