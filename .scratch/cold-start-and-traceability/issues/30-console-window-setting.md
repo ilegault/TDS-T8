@@ -1,6 +1,6 @@
 # 30: Console window setting
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test with a fake `kernel32` whose `GetConsoleWindow` returns 0: `attach_console(True, 'win32', fake)` returns True and `AllocConsole` was called once.
-- [ ] Unit test: `attach_console(True, 'linux', fake)` returns False and calls nothing on `fake`.
-- [ ] Unit test: `attach_console(False, 'win32', fake)` returns False.
-- [ ] Unit test: after a successful attach, one log record reaches both the session file and the added stream handler.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test with a fake `kernel32` whose `GetConsoleWindow` returns 0: `attach_console(True, 'win32', fake)` returns True and `AllocConsole` was called once.
+- [x] Unit test: `attach_console(True, 'linux', fake)` returns False and calls nothing on `fake`.
+- [x] Unit test: `attach_console(False, 'win32', fake)` returns False.
+- [x] Unit test: after a successful attach, one log record reaches both the session file and the added stream handler.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -39,3 +39,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+Done (2026-10-13): `attach_console` + `_open_conout` seam in `utils/diagnostic_log.py`; called from `main.py` after `start_session`; checkbox on Paths & Resources tab (load/save wired). Tests in `tests/unit/test_diagnostic_log.py` cover each criterion (fake kernel32, in-memory CONOUT$). Bench check still wanted: real console appears on the lab PC with the setting on.
