@@ -4,8 +4,11 @@ PURPOSE: Track startup timing to identify PyInstaller bottlenecks
 FIXED: Handle all encoding issues for Windows console
 """
 
+import logging
 import sys
 import time
+
+logger = logging.getLogger(__name__)
 
 PROFILER_ENABLED = False  # Set True to re-enable startup timing output
 
@@ -22,14 +25,8 @@ class StartupProfiler:
             self.log(f"=== PROFILER ACTIVE ({mode}) ===")
 
     def _safe_print(self, text):
-        """Print text safely, handling encoding errors."""
-        try:
-            print(text)
-        except UnicodeEncodeError:
-            # If print fails, encode to ASCII and replace problematic chars
-            safe_text = text.encode('ascii', errors='replace').decode('ascii')
-            print(safe_text)
-        sys.stdout.flush()
+        """Emit text on the module logger; log handlers deal with encoding."""
+        logger.info("%s", text)
 
     def log(self, event):
         if not self.enabled:

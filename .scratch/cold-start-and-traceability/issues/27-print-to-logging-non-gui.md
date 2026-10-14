@@ -1,6 +1,6 @@
 # 27: Replace print with logging outside the GUI
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -24,10 +24,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A rule in `test_architecture_rules.py` walks the AST of every file in those packages and finds zero `print` calls.
-- [ ] Integration test: a 60 s `ManualClock` Rig run (120 control steps) at INFO produces fewer than 20 records from loggers under `t8_daq_system.control` and `t8_daq_system.rig`.
-- [ ] The same run at DEBUG produces at least 120 records from loggers under `t8_daq_system.control`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] A rule in `test_architecture_rules.py` walks the AST of every file in those packages and finds zero `print` calls.
+- [x] Integration test: a 60 s `ManualClock` Rig run (120 control steps) at INFO produces fewer than 20 records from loggers under `t8_daq_system.control` and `t8_daq_system.rig`.
+- [x] The same run at DEBUG produces at least 120 records from loggers under `t8_daq_system.control`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -38,3 +38,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: Replaced all 175 `print(` calls in control/data/hardware/utils with module loggers (level by rule: except-handler failures `logger.exception`, guarded/debug dumps DEBUG, state changes INFO). Added a per-step DEBUG record in `ProgramRun.step`. Tests: `test_no_print_calls_outside_gui` (criterion 1), `tests/integration/test_logging_volume.py` (criteria 2-3). Four `test_power_supply.py` tests that captured stdout were rewritten in place (same names) to capture log records. No bench verification needed.

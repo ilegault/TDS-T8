@@ -6,8 +6,11 @@ No GUI / tkinter imports — pure control/logic module.
 """
 
 import json
+import logging
 import os
 import sys
+
+logger = logging.getLogger(__name__)
 
 
 # ── Soft-Start / Phase 1 constants ────────────────────────────────────────────
@@ -373,8 +376,8 @@ class PIDRunLogger:
         try:
             with open(self.log_file, 'w') as f:
                 json.dump(self._runs, f, indent=2)
-        except Exception as exc:
-            print(f"[PIDRunLogger] Could not write log: {exc}")
+        except Exception:
+            logger.exception("PIDRunLogger: could not write log %s", self.log_file)
 
     def get_all_runs(self) -> list:
         """Return a copy of all stored run records, newest last."""

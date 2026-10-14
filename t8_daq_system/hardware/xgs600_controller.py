@@ -63,7 +63,7 @@ class XGS600Controller:
             True if connection successful, False otherwise
         """
         if self.debug:
-            print(f"XGS-600: Attempting connection on {self.port} at {self.baudrate} baud...")
+            logger.debug(f"XGS-600: Attempting connection on {self.port} at {self.baudrate} baud...")
 
         try:
             self._serial = serial.Serial(
@@ -79,7 +79,7 @@ class XGS600Controller:
             )
 
             if self.debug:
-                print(f"XGS-600: Serial port {self.port} opened successfully.")
+                logger.debug(f"XGS-600: Serial port {self.port} opened successfully.")
 
             # Flush any stale data
             self._serial.reset_input_buffer()
@@ -87,23 +87,23 @@ class XGS600Controller:
 
             # Verify connection by requesting software version
             if self.debug:
-                print("XGS-600: Sending software version query (#0005) for verification...")
+                logger.debug("XGS-600: Sending software version query (#0005) for verification...")
 
             response = self.send_command("05")
             if response is None:
                 if not silent:
-                    print("XGS-600: No response to version query")
+                    logger.warning("XGS-600: No response to version query")
                 self.disconnect()
                 return False
 
             self._connected = True
             if not silent:
-                print(f"XGS-600 connected on {self.port}, version: {response}")
+                logger.info(f"XGS-600 connected on {self.port}, version: {response}")
             return True
 
         except serial.SerialException as e:
             if not silent:
-                print(f"XGS-600 connection failed on {self.port}: {e}")
+                logger.exception(f"XGS-600 connection failed on {self.port}: {e}")
             if self._serial and self._serial.is_open:
                 self._serial.close()
             self._serial = None
@@ -114,13 +114,13 @@ class XGS600Controller:
         """Close serial port."""
         if self._serial and self._serial.is_open:
             if self.debug:
-                print(f"XGS-600: Closing serial port {self.port}.")
+                logger.debug(f"XGS-600: Closing serial port {self.port}.")
             try:
                 self._serial.close()
             except serial.SerialException as e:
                 # Serial port may already be closed or disconnected by OS; state is cleared below
                 if self.debug:
-                    print(f"XGS-600: Error closing serial port {self.port}: {e}")
+                    logger.exception(f"XGS-600: Error closing serial port {self.port}: {e}")
                 logger.debug("Error closing serial port %s (%s)", self.port, e)
         self._serial = None
         self._connected = False
@@ -141,7 +141,7 @@ class XGS600Controller:
         """
         if not self._serial or not self._serial.is_open:
             if self.debug:
-                print("XGS-600: Cannot send command - serial port not open.")
+                logger.warning("XGS-600: Cannot send command - serial port not open.")
             self._connected = False
             return None
 
@@ -158,7 +158,7 @@ class XGS600Controller:
             self._serial.reset_input_buffer()
 
             if self.debug:
-                print(f"XGS-600 TX: {repr(full_command)} (hex: {full_command.encode('ascii').hex()})")
+                logger.debug(f"XGS-600 TX: {repr(full_command)} (hex: {full_command.encode('ascii').hex()})")
 
             # Send command
             self._serial.write(full_command.encode('ascii'))
@@ -171,22 +171,22 @@ class XGS600Controller:
             response = self._serial.read_until(b'\r', size=256)
 
             if not response:
-                print("XGS-600: serial timeout — no response received")
+                logger.warning("XGS-600: serial timeout — no response received")
                 # Timeout means the connection is lost — flag for reconnection
                 self._connected = False
                 return None
 
             if self.debug:
-                print(f"XGS-600 RX: {repr(response)} (hex: {response.hex()})")
+                logger.debug(f"XGS-600 RX: {repr(response)} (hex: {response.hex()})")
 
             if DEBUG_PRESSURE:
-                print(f"[XGS600 SERIAL] Sent: {repr(full_command)}  Received: {repr(response)}")
+                logger.debug(f"[XGS600 SERIAL] Sent: {repr(full_command)}  Received: {repr(response)}")
 
             try:
                 response_str = response.decode('ascii').strip('\r\n')
             except UnicodeDecodeError:
                 if self.debug:
-                    print(f"XGS-600: Failed to decode response as ASCII: {response}")
+                    logger.exception(f"XGS-600: Failed to decode response as ASCII: {response}")
                 return None
 
             # ?FF = command unsupported (e.g., ion gauge query with no ion boards).
@@ -197,7 +197,7 @@ class XGS600Controller:
             # Other ? errors are unexpected; log them in debug mode.
             if response_str.startswith('?'):
                 if self.debug:
-                    print(f"XGS-600 error response: {response_str} for command: {command}")
+                    logger.error(f"XGS-600 error response: {response_str} for command: {command}")
                 return None
 
             # Success — strip the leading '>' and return the data string
@@ -207,7 +207,7 @@ class XGS600Controller:
             return response_str
 
         except (serial.SerialException, serial.SerialTimeoutException) as e:
-            print(f"XGS-600 serial error: {e}")
+            logger.exception(f"XGS-600 serial error: {e}")
             self._connected = False
             return None
 
@@ -269,7 +269,7 @@ class XGS600Controller:
         # Do not query ion gauge commands (codes 30–55) — no ion boards installed
         if sensor_code.upper().startswith('I'):
             if self.debug:
-                print(f"XGS-600: Skipping ion gauge query for {sensor_code} — no ion boards installed")
+                logger.warning(f"XGS-600: Skipping ion gauge query for {sensor_code} — no ion boards installed")
             return None
 
         response = self.send_command(f"02{sensor_code}")
@@ -284,7 +284,7 @@ class XGS600Controller:
             return float(value_str)
         except ValueError:
             if self.debug:
-                print(f"XGS-600: Could not parse pressure '{value_str}' for sensor {sensor_code}")
+                logger.debug(f"XGS-600: Could not parse pressure '{value_str}' for sensor {sensor_code}")
             return None
 
     def read_units(self):

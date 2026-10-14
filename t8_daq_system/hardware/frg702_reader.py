@@ -5,12 +5,15 @@ KEY CONCEPT: XGS-600 provides digital pressure readings over RS-232, eliminating
 analog voltage conversion. Pressure values are read directly from the controller.
 """
 
+import logging
 
 from labjack import ljm
 from t8_daq_system.utils.helpers import (
     UNIT_CONVERSIONS,
     convert_pressure as _convert_pressure,
 )
+
+logger = logging.getLogger(__name__)
 
 DEBUG_PRESSURE = False   # Set False to silence once working correctly
 
@@ -163,7 +166,7 @@ class FRG702Reader:
                     }
 
             except Exception as e:
-                print(f"Error reading {gauge['name']}: {e}")
+                logger.exception(f"Error reading {gauge['name']}: {e}")
                 readings[gauge['name']] = {
                     'pressure': None,
                     'status': 'error',
@@ -190,7 +193,7 @@ class FRG702Reader:
                     conv_str = (f"Converted {dev_u} -> {target_u}: "
                                 f"raw / {f_factor} * {t_factor} = {conv_val}")
 
-                print(
+                logger.debug(
                     f"[PRESSURE DEBUG] Sensor: {name}\n"
                     f"  Serial raw string : {result.get('_raw_str', '?')}\n"
                     f"  Parsed float      : {raw_val}\n"
@@ -236,7 +239,7 @@ class FRG702Reader:
                     raw = self.controller.read_pressure(gauge['sensor_code'])
                     return self.convert_pressure(raw, device_unit, 'Torr')
                 except Exception as e:
-                    print(f"Error reading {channel_name}: {e}")
+                    logger.exception(f"Error reading {channel_name}: {e}")
                     return None
         return None
 
@@ -272,7 +275,7 @@ class FRG702AnalogReader:
                 pressure = FRG702Reader.convert_pressure(pressure_mbar, 'mbar', 'Torr') if pressure_mbar is not None else None
                 readings[gauge['name']] = pressure
             except Exception as e:
-                print(f"Error reading analog gauge {gauge['name']}: {e}")
+                logger.exception(f"Error reading analog gauge {gauge['name']}: {e}")
                 readings[gauge['name']] = None
         return readings
 
@@ -294,7 +297,7 @@ class FRG702AnalogReader:
                     'voltage': voltage
                 }
             except Exception as e:
-                print(f"Error reading analog gauge {gauge['name']}: {e}")
+                logger.exception(f"Error reading analog gauge {gauge['name']}: {e}")
                 readings[gauge['name']] = {
                     'pressure': None,
                     'status': 'error',

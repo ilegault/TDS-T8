@@ -4,7 +4,11 @@ PURPOSE: Connect to LabJack T8 and manage the connection
 FLOW: Open device -> Return handle -> Close when done
 """
 
+import logging
+
 from labjack import ljm
+
+logger = logging.getLogger(__name__)
 
 
 class LabJackConnection:
@@ -31,7 +35,7 @@ class LabJackConnection:
 
             # Get device info to confirm connection
             self.device_info = ljm.getHandleInfo(self.handle)
-            print(f"Connected to T8, Serial: {self.device_info[2]}")
+            logger.info(f"Connected to T8, Serial: {self.device_info[2]}")
             return True
 
         except ljm.LJMError:
@@ -40,7 +44,7 @@ class LabJackConnection:
                 try:
                     ljm.close(self.handle)
                 except ljm.LJMError as e:
-                    print(f"Error closing LabJack handle: {e}")
+                    logger.exception(f"Error closing LabJack handle: {e}")
                 self.handle = None
             return False
 
@@ -49,7 +53,7 @@ class LabJackConnection:
         if self.handle:
             ljm.close(self.handle)
             self.handle = None
-            print("Disconnected from T8")
+            logger.info("Disconnected from T8")
 
     def get_handle(self):
         """Other parts of code use this to talk to the device."""
@@ -86,7 +90,7 @@ class LabJackConnection:
             results = ljm.eReadNames(self.handle, len(names), names)
             return list(results)
         except ljm.LJMError as e:
-            print(f"Batch read error: {e}")
+            logger.exception(f"Batch read error: {e}")
             return [None] * len(names)
 
     def get_device_info(self):
@@ -120,7 +124,7 @@ class LabJackConnection:
             True if all writes succeeded, False otherwise
         """
         if not self.handle:
-            print("Cannot configure AIN: Device not connected")
+            logger.warning("Cannot configure AIN: Device not connected")
             return False
 
         success = True
@@ -134,11 +138,11 @@ class LabJackConnection:
                 # Verify write
                 val = ljm.eReadName(self.handle, reg)
                 if int(val) != val_to_write:
-                    print(f"Verification failed for {reg}: wrote {val_to_write}, read {val}")
+                    logger.error(f"Verification failed for {reg}: wrote {val_to_write}, read {val}")
                     success = False
                 else:
-                    print(f"Successfully configured {reg} to single-ended ({val_to_write})")
+                    logger.info(f"Successfully configured {reg} to single-ended ({val_to_write})")
             except ljm.LJMError as e:
-                print(f"Error configuring {reg}: {e}")
+                logger.exception(f"Error configuring {reg}: {e}")
                 success = False
         return success
