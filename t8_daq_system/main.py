@@ -5,7 +5,10 @@ PURPOSE: Application entry point for the T8 DAQ System
 
 import sys
 import os
+import logging
 import multiprocessing
+
+logger = logging.getLogger(__name__)
 
 # PyInstaller Windows fix: must be called before any other code when frozen
 # Prevents recursive subprocess spawning (numpy/matplotlib internals) that
@@ -24,7 +27,7 @@ os.environ['ZEROCONF_DISABLE'] = '1'
 # FROZEN EXE OPTIMIZATIONS
 # ============================================================================
 if getattr(sys, 'frozen', False):
-    print("[FROZEN MODE] Applying performance optimizations...")
+    logger.info("Frozen mode: applying performance optimizations")
 
     # Matplotlib: disable font scanning (biggest startup bottleneck)
     os.environ['MPLBACKEND'] = 'TkAgg'
@@ -42,10 +45,10 @@ if getattr(sys, 'frozen', False):
         fm._load_fontmanager = lambda try_read_cache=True: fm.FontManager()
     except Exception as e:
         # Best-effort startup speedup in frozen mode; safe to continue if matplotlib internals changed
-        print(f"[FROZEN MODE] FontManager override skipped: {e}")
+        logger.warning("Frozen mode: FontManager override skipped: %s", e)
 
 
-    print("[FROZEN MODE] Matplotlib optimization complete")
+    logger.info("Frozen mode: matplotlib optimization complete")
 
 # ============================================================================
 # PATH SETUP
@@ -131,9 +134,7 @@ def main():
     # Print profiling summary before GUI loop
     profiler.summary()
 
-    print("\n" + "="*80)
-    print("DETAILED MAINWINDOW PROFILER OUTPUT SHOWN ABOVE")
-    print("="*80 + "\n")
+    logger.info("Detailed MainWindow profiler output shown above")
 
     profiler.disable()
 

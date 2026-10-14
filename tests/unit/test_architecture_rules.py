@@ -348,28 +348,22 @@ def test_gui_never_reaches_into_rig_program_run():
     assert not violations, f"GUI touches _program_run: {violations}"
 
 
-_NO_PRINT_PACKAGES = ("control", "rig", "data", "hardware", "core", "utils", "settings")
-
-
 def test_no_print_calls_outside_gui():
     """
-    Rule: library packages log through `logging.getLogger(__name__)` and never
-    call `print` (ADR 0008: the Diagnostic log is the single record of what ran).
+    Rule: nothing under `t8_daq_system/` (library packages, `gui/` and `main.py`)
+    logs through `print`; it uses `logging.getLogger(__name__)` (ADR 0008: the
+    Diagnostic log is the single record of what ran).
     """
     violations = []
 
-    for package in _NO_PRINT_PACKAGES:
-        base = PACKAGE_ROOT / package
-        if not base.exists():
-            continue
-        for py_file in _iter_python_files(base):
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            for node in ast.walk(tree):
-                if (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id == "print"
-                ):
-                    violations.append(f"{py_file.relative_to(REPO_ROOT)}:{node.lineno}")
+    for py_file in _iter_python_files(PACKAGE_ROOT):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                violations.append(f"{py_file.relative_to(REPO_ROOT)}:{node.lineno}")
 
-    assert not violations, "print() calls found outside gui/:\n" + "\n".join(violations)
+    assert not violations, "print() calls found in t8_daq_system/:\n" + "\n".join(violations)

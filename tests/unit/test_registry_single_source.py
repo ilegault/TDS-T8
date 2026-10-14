@@ -183,3 +183,25 @@ def test_reset_pid_handler_restores_default_gains(dialog):
     assert float(dialog._pid_kp_var.get()) == _DEFAULTS["pid_kp"][1]
     assert float(dialog._pid_ki_var.get()) == _DEFAULTS["pid_ki"][1]
     assert float(dialog._pid_kd_var.get()) == _DEFAULTS["pid_kd"][1]
+
+
+def test_save_logs_one_info_record_per_changed_key(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(app_settings, "winreg", FakeWinreg({}))
+    s = AppSettings().load()
+    s.run_cap_a = 111.0
+    s.tc_unit = "K"
+    with caplog.at_level(logging.INFO, logger=app_settings.logger.name):
+        s.save()
+    changed = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO and "changed" in r.getMessage()]
+    assert len(changed) == 2
+    cap = [m for m in changed if "run_cap_a" in m]
+    assert len(cap) == 1
+    assert str(_DEFAULTS["run_cap_a"][1]) in cap[0] and "111.0" in cap[0]
+    assert any("tc_unit" in m and "'K'" in m for m in changed)
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=app_settings.logger.name):
+        s.save()
+    assert not [r for r in caplog.records if "changed" in r.getMessage()]

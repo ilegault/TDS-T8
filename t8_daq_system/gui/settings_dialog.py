@@ -1162,7 +1162,7 @@ class SettingsDialog(tk.Toplevel):
             try:
                 self._on_save()
             except Exception as e:
-                print(f"Error in on_save_callback: {e}")
+                logger.error("Error in on_save_callback: %s", e)
         return True
 
     def _on_save_click(self):

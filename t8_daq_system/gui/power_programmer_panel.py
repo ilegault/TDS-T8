@@ -16,8 +16,11 @@ Fires a callback with the computed preview data when the profile is confirmed.
 """
 
 import json
+import logging
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+
+logger = logging.getLogger(__name__)
 
 
 class PowerProgrammerPanel:
@@ -315,8 +318,7 @@ class PowerProgrammerPanel:
         """Update internal flag when Safe Test Mode checkbox changes."""
         self._safe_test_mode = self._safe_test_var.get()
         state = "ENABLED" if self._safe_test_mode else "DISABLED"
-        print(f"[PowerProgrammerPanel] Safe Test Mode {state} "
-              f"(max 1.0 V / 9.0 A ceiling)")
+        logger.info("Safe Test Mode %s (max 1.0 V / 9.0 A ceiling)", state)
 
     def get_safe_test_mode(self) -> bool:
         """Return True if Safe Test Mode is currently checked."""

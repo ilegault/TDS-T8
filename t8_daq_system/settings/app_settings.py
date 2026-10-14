@@ -15,8 +15,13 @@ for a setting. load() records in ``sources`` whether each key came from the
 "registry" or a "default". Keys deleted from _DEFAULTS (ps_current_limit,
 soft_start_current_limit_a, pid_output_max) may linger in an old registry; they
 are never read and never written back.
+
+save() logs one INFO line per key whose value differs from what was last loaded
+or saved (old and new value), so the Diagnostic log shows what an operator
+changed in Settings (ADR 0008).
 """
 
+import copy
 import logging
 import winreg
 
@@ -139,6 +144,8 @@ class AppSettings:
     """
 
     def __init__(self):
+        # Values as last loaded or saved; None means "every key is its default"
+        self._persisted = None
         # Populate with defaults first so the object is always fully initialised
         self.tc_count: int           = 1
         self.tc_type: str            = "C"
@@ -273,6 +280,7 @@ class AppSettings:
         if getattr(self, 'tc_unit', 'C') == 'F':
             self.tc_unit = 'C'
 
+        self._persisted = {f: copy.deepcopy(getattr(self, f, d)) for f, (_k, d) in _DEFAULTS.items()}
         return self
 
     def save(self) -> None:
@@ -288,9 +296,13 @@ class AppSettings:
             return  # Registry unavailable — fail silently
 
         try:
+            baseline = self._persisted or {f: d for f, (_k, d) in _DEFAULTS.items()}
             for field, (kind, _default) in _DEFAULTS.items():
                 value = getattr(self, field, _default)
+                if value != baseline.get(field, _default):
+                    logger.info("Setting %s changed: %r -> %r", field, baseline.get(field, _default), value)
                 _write_value(key, field, value, kind)
+            self._persisted = {f: copy.deepcopy(getattr(self, f, d)) for f, (_k, d) in _DEFAULTS.items()}
         finally:
             winreg.CloseKey(key)
 

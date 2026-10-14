@@ -88,7 +88,7 @@ class GUIProfiler:
                 self.section_times[self._current_section_name] = []
             self.section_times[self._current_section_name].append(elapsed_ms)
             if elapsed_ms > self._slow_threshold_ms:
-                print(f"[GUI SLOW] {self._current_section_name}: {elapsed_ms:.1f}ms (call #{self.call_count})")
+                _log.warning("GUI slow: %s: %.1fms (call #%d)", self._current_section_name, elapsed_ms, self.call_count)
 
     def loop_end(self):
         now = time.perf_counter()
@@ -96,22 +96,19 @@ class GUIProfiler:
         self._current_section_name = None
         total_ms = (now - self._loop_start) * 1000
         if total_ms > 100:  # Log if total loop takes > 100ms
-            print(f"[GUI SLOW LOOP] Total: {total_ms:.1f}ms (call #{self.call_count})")
+            _log.warning("GUI slow loop: total %.1fms (call #%d)", total_ms, self.call_count)
 
         # Print summary every 100 calls
         if self.call_count % 100 == 0 and self.enabled:
             self.print_summary()
 
     def print_summary(self):
-        print(f"\n{'='*60}")
-        print(f"GUI PROFILER SUMMARY (after {self.call_count} update cycles)")
-        print(f"{'='*60}")
+        _log.info("GUI profiler summary (after %d update cycles)", self.call_count)
         for name, times in sorted(self.section_times.items(), key=lambda x: sum(x[1]), reverse=True):
             avg = sum(times) / len(times)
             mx = max(times)
             total = sum(times)
-            print(f"  {name:40s} avg={avg:7.1f}ms  max={mx:7.1f}ms  total={total:8.0f}ms")
-        print(f"{'='*60}\n")
+            _log.info("  %-40s avg=%7.1fms  max=%7.1fms  total=%8.0fms", name, avg, mx, total)
         # Reset for next window
         self.section_times.clear()
 
@@ -387,8 +384,9 @@ class MainWindow:
         tc_type_list = s.get_tc_type_list(s.tc_count)
         tc_pin_list  = s.get_tc_pin_list(s.tc_count)
 
-        print(f"[DEBUG] _build_config_from_settings: tc_count={s.tc_count}, tc_pins={tc_pin_list}")
-        print(f"[DEBUG] _build_config_from_settings: ps_enabled={s.ps_enabled}, ps_v_mon={s.ps_voltage_monitor_pin}, ps_i_mon={s.ps_current_monitor_pin}")
+        _log.debug("_build_config_from_settings: tc_count=%s, tc_pins=%s", s.tc_count, tc_pin_list)
+        _log.debug("_build_config_from_settings: ps_enabled=%s, ps_v_mon=%s, ps_i_mon=%s",
+                   s.ps_enabled, s.ps_voltage_monitor_pin, s.ps_current_monitor_pin)
 
         # Conflict detection: check TC pins against Keysight monitor pins
         keysight_v_pin_str = s.ps_voltage_monitor_pin  # e.g. "AIN4"
@@ -415,8 +413,8 @@ class MainWindow:
 
         # Warn if TC count exceeds available non-PS AIN channels
         if s.tc_count > 4 and s.ps_enabled:
-            print("[CONFIG WARNING] tc_count > 4 with PS enabled: AIN4 and AIN5 are reserved "
-                  "for Keysight monitoring. Reduce TC count or disable PS.")
+            _log.warning("tc_count > 4 with PS enabled: AIN4 and AIN5 are reserved "
+                         "for Keysight monitoring. Reduce TC count or disable PS.")
 
         for i in range(s.tc_count):
             thermocouples.append({
@@ -436,7 +434,7 @@ class MainWindow:
             tc_channels_used = {f"AIN{ch}" for ch in tc_pin_list}
             for pin in frg_pin_list:
                 if pin in tc_channels_used:
-                    print(f"[CONFIG WARNING] FRG pin {pin} conflicts with a TC channel!")
+                    _log.warning("FRG pin %s conflicts with a TC channel!", pin)
         frg_name_list = s.get_frg_name_list(s.frg_count, s.frg_interface, frg_pin_list)
         for i in range(s.frg_count):
             sensor_code = f"T{2*i+1}"
@@ -657,9 +655,9 @@ class MainWindow:
         with ps_controller left as None (Disconnected state).
         """
         try:
-            print("[DEFERRED] Starting hardware initialization...")
+            _log.info("Starting hardware initialization")
 
-            print("[DEFERRED] Hardware initialization managed by Rig loop")
+            _log.info("Hardware initialization managed by Rig loop")
             self._hardware_init_attempted = True
 
             # FF-8 START — seed feedforward map from historical CSVs in background
@@ -670,13 +668,13 @@ class MainWindow:
                     try:
                         prog_run.ff_map.scan_log_folder(self.log_folder)
                     except Exception as _exc:
-                        print(f"[FF-ingest] Background scan error (non-fatal): {_exc}")
+                        _log.error("Feedforward ingest background scan error (non-fatal): %s", _exc)
                 _threading.Thread(target=_ff_ingest_thread, daemon=True,
                                   name='FF-LogIngest').start()
             # FF-8 END
 
         except Exception as exc:
-            print(f"[DEFERRED] Hardware init error (non-fatal): {exc}")
+            _log.error("Hardware init error (non-fatal): %s", exc)
             self._hardware_init_attempted = True
 
     def _update_connection_state(self, connected):
@@ -1065,6 +1063,7 @@ class MainWindow:
         snap = self.rig.latest() if hasattr(self, 'rig') and self.rig is not None else None
         current_is_practice = snap is not None and snap.adapter == "simulated"
         practice_mode = not current_is_practice
+        _log.info("Operator command: Practice mode %s", "on" if practice_mode else "off")
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(SelectAdapter(practice=practice_mode))
 
@@ -1283,7 +1282,7 @@ class MainWindow:
                 if pval is not None and isinstance(pval, (int, float)) and pval > PRESSURE_INTERLOCK_TORR:
                     if not self._pressure_interlock_fired:
                         self._pressure_interlock_fired = True
-                        print(f"[INTERLOCK] {k} pressure {pval:.2e} Torr exceeds {PRESSURE_INTERLOCK_TORR:.0e} Torr limit - output disabled")
+                        _log.error("Interlock: %s pressure %.2e Torr exceeds %.0e Torr limit - output disabled", k, pval, PRESSURE_INTERLOCK_TORR)
                         self._on_pressure_interlock(pval)
                     break
 
@@ -1335,6 +1334,7 @@ class MainWindow:
 
     def _on_reset_trip(self):
         """Submit ResetTrip command to the Rig."""
+        _log.info("Operator command: Reset trip")
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(ResetTrip())
 
@@ -1423,14 +1423,14 @@ class MainWindow:
             self.practice_btn.config(state=target_state)
 
     def _on_program_block_start(self, index, block):
-        print(f"[Program] Starting block {index+1}: {block.block_type}")
+        _log.info("Program starting block %d: %s", index + 1, block.block_type)
         self.root.after(0, lambda: self.status_var.set(f"Program: Block {index+1}"))
 
     def _on_program_block_complete(self, index):
-        print(f"[Program] Block {index+1} complete")
+        _log.info("Program block %d complete", index + 1)
 
     def _on_program_complete(self):
-        print("[Program] All blocks complete")
+        _log.info("Program: all blocks complete")
         def _gui_update():
             self.status_var.set("Program Complete")
             self._programmer_ramp_running = False
@@ -1625,6 +1625,7 @@ class MainWindow:
             messagebox.showwarning("Safety Lockout", "Safety lockout is active.")
             return
 
+        _log.info("Operator command: Run program (%d blocks)", len(blocks))
         # Submit LoadProgram and StartProgram commands to Rig
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(LoadProgram(program=blocks))
@@ -1634,10 +1635,10 @@ class MainWindow:
 
         self._programmer_ramp_running = True
         self.run_ramp_btn.config(text="Stop Program")
-        print("[Program] Started execution")
 
     def _stop_programmer_ramp_safe(self):
         """Stop the running program safely."""
+        _log.info("Operator command: Stop program")
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(StopProgram())
         self._programmer_ramp_running = False
@@ -2427,28 +2428,22 @@ class MainWindow:
         Checks which voltage range is configured for monitoring.
         User must verify the physical switch setting.
         """
-        print("\n=== KEYSIGHT MONITOR CONFIGURATION ===")
-        print("Check SW1 Switch 4 on the Keysight power supply:")
-        print("  DOWN (default) = 0-5V monitoring range")
-        print("  UP = 0-10V monitoring range")
-        print()
+        _log.info("Keysight monitor configuration: check SW1 Switch 4 "
+                  "(DOWN (default) = 0-5V monitoring range, UP = 0-10V monitoring range)")
         
         while True:
             response = input("Is SW1 Switch 4 UP or DOWN? (up/down): ").lower().strip()
             if response in ['up', 'down']:
                 return response
-            print("Please enter 'up' or 'down'")
+            _log.warning("Please enter 'up' or 'down'")
 
     def _verify_t8_input_impedance(self):
         """
         Verify T8 is configured for high impedance input.
         T8 default is 10 MΩ which exceeds 500 kΩ requirement.
         """
-        print("\n=== T8 INPUT IMPEDANCE CHECK ===")
-        print("LabJack T8 AIN channels default to 10 MΩ input impedance")
-        print("Keysight requires > 500 kΩ")
-        print("✓ T8 meets requirement (10 MΩ >> 500 kΩ)")
-        print("No configuration changes needed.")
+        _log.info("T8 input impedance check: AIN channels default to 10 MOhm, "
+                  "Keysight requires > 500 kOhm; T8 meets requirement, no configuration changes needed")
 
     def _initialize_power_supply(self):
         """Deprecated: Power supply control is managed by T8Adapter / Rig (ADR 0002)."""
@@ -2471,7 +2466,7 @@ class MainWindow:
             try:
                 self._nudge_frame.destroy()
             except (tk.TclError, AttributeError) as e:
-                print(f"[MainWindow] Error cleaning up nudge frame: {e}")
+                _log.error("Error cleaning up nudge frame: %s", e)
 
         frame = ttk.LabelFrame(parent_frame, text="Manual Voltage Nudge")
         frame.pack(side=pack_side, fill=tk.X, padx=4, pady=2)
@@ -2526,7 +2521,7 @@ class MainWindow:
                 try:
                     current_parent = self._nudge_frame.master
                 except (tk.TclError, AttributeError) as e:
-                    print(f"[MainWindow] Error accessing nudge frame master: {e}")
+                    _log.error("Error accessing nudge frame master: %s", e)
             
             if not hasattr(self, '_nudge_frame') or not self._nudge_frame or not self._nudge_frame.winfo_exists() or current_parent != target_parent:
                 self._build_manual_nudge_panel(target_parent, pack_side=pack_side)
@@ -2542,7 +2537,7 @@ class MainWindow:
                 try:
                     self._nudge_frame.destroy()
                 except (tk.TclError, AttributeError) as e:
-                    print(f"[MainWindow] Error destroying nudge frame: {e}")
+                    _log.error("Error destroying nudge frame: %s", e)
                 self._nudge_frame = None
 
     def _nudge_voltage(self, direction):
@@ -2553,6 +2548,7 @@ class MainWindow:
             or str(direction).lower() in ("up", "+", "+1")
             else "down"
         )
+        _log.info("Operator command: Nudge %s", dir_str)
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(Nudge(direction=dir_str))
 
@@ -2793,7 +2789,7 @@ class MainWindow:
         and hardware communication is synchronized.
         """
         try:
-            print("[GUI] Deep refresh triggered...")
+            _log.info("Deep refresh triggered")
             
             # 1. Re-apply settings and rebuild config
             self._apply_settings_to_gui()
@@ -2812,12 +2808,10 @@ class MainWindow:
                     plot.ax.autoscale_view()
                     plot.canvas.draw_idle()
             
-            print("[GUI] Deep refresh completed successfully")
+            _log.info("Deep refresh completed successfully")
             
         except Exception as e:
-            print(f"[GUI] Refresh error: {e}")
-            import traceback
-            traceback.print_exc()
+            _log.exception("Refresh error: %s", e)
 
     def get_pid_logger(self):
         """Return the active PIDRunLogger from Rig/ProgramRun."""
