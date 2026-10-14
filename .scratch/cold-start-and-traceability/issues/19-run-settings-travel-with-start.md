@@ -1,6 +1,6 @@
 # 19: Run settings travel with Start
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -27,12 +27,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] A Rig integration test (copy the setup of `tests/integration/test_program_run_rig.py`: `Rig` + `SimulatedRig` + `ManualClock`) submits `StartProgram(settings=RunSettings(kp=0.5, ...))` and asserts the published `snapshot.program.gains_in_use[0] == 0.5`.
-- [ ] A test changes the AppSettings gains after Run was submitted and asserts `gains_in_use` in later Snapshots is unchanged.
-- [ ] A test asserts `PIDController()` with no arguments raises `TypeError`.
-- [ ] `tests/unit/test_architecture_rules.py` gains a rule, passing, that no file under `t8_daq_system/gui/` contains the text `_program_run`.
-- [ ] Every existing call of `PIDController(...)` and `StartProgram()` is updated; no test is deleted (a test whose call signature changed is rewritten in place under the same name).
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] A Rig integration test (copy the setup of `tests/integration/test_program_run_rig.py`: `Rig` + `SimulatedRig` + `ManualClock`) submits `StartProgram(settings=RunSettings(kp=0.5, ...))` and asserts the published `snapshot.program.gains_in_use[0] == 0.5`.
+- [x] A test changes the AppSettings gains after Run was submitted and asserts `gains_in_use` in later Snapshots is unchanged.
+- [x] A test asserts `PIDController()` with no arguments raises `TypeError`.
+- [x] `tests/unit/test_architecture_rules.py` gains a rule, passing, that no file under `t8_daq_system/gui/` contains the text `_program_run`.
+- [x] Every existing call of `PIDController(...)` and `StartProgram()` is updated; no test is deleted (a test whose call signature changed is rewritten in place under the same name).
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -43,3 +43,7 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: Added `RunSettings` (rig/commands.py); `StartProgram.settings` is required; `ProgramRun.start` takes the settings and builds the `PIDController` from them; `PIDController` gains are required; `ProgramStatus.gains_in_use`; `run_settings_from_app_settings` in the GUI; the GUI reads ProgramRun only through public `Rig.program_run` / `ff_map` / `last_run_record`.
+Tests: `tests/integration/test_run_settings_travel.py` (criteria 1-3), `test_gui_never_reaches_into_rig_program_run` in `tests/unit/test_architecture_rules.py` (criterion 4); existing call sites updated in place via `tests/run_settings_helper.py` (criterion 5).
+Note: `pid_output_max` is no longer applied at Run (PID keeps its 6.0 V default); the spec removes that setting. The claim ref `claim/cold-start-and-traceability/19` was already on the remote, stale (points at a main commit; earlier PRs #78/#88 closed), so it was left untouched.

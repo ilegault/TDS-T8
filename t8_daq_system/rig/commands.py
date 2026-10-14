@@ -26,10 +26,32 @@ class LoadProgram:
 
 
 @dataclass(frozen=True)
-class StartProgram:
-    """Start execution of the loaded program."""
+class RunSettings:
+    """
+    Every value that shapes one run, captured once when the operator presses Run.
 
-    pass
+    The run uses exactly these values until it ends; later edits to the
+    operator's settings do not reach a run in progress (ADR 0007).
+    """
+
+    kp: float
+    ki: float
+    kd: float
+    windup_limit: float
+    soft_start_threshold_c: float
+    soft_start_ramp_v_per_s: float
+    soft_start_handoff_current_a: float
+    soft_start_cap_enabled: bool
+    soft_start_cap_a: float
+    run_cap_enabled: bool
+    run_cap_a: float
+
+
+@dataclass(frozen=True)
+class StartProgram:
+    """Start execution of the loaded program with the settings frozen at Run."""
+
+    settings: RunSettings
 
 
 @dataclass(frozen=True)

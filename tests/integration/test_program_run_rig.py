@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from tests.run_settings_helper import make_run_settings
 from t8_daq_system.control.heater_output import HeaterOutput, ProgramHeaterRequest
 from t8_daq_system.control.program_block import (
     StableHoldBlock,
@@ -210,7 +211,7 @@ def test_three_block_program_completes():
         StableHoldBlock(target_temp_k=303.0, tolerance_k=50.0, hold_duration_sec=0.5),
     ]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_run_settings()))
 
     # Run enough ticks for all three blocks to complete:
     # Block 0: VoltageRamp 1.0s → 2 writes + transitions
@@ -251,7 +252,7 @@ def test_control_tc_stale_trips_at_5_1s_not_at_4_9s():
     # Load and start a temp ramp
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_run_settings()))
 
     # Run a few ticks to get the program fully running
     tick(ns, n=4)
@@ -319,7 +320,7 @@ def test_raising_block_step_becomes_program_error_trip():
     bs.step_voltage_ramp = exploding_step
     try:
         ns.rig.submit(LoadProgram(program=[_ExplodingBlock()]))
-        ns.rig.submit(StartProgram())
+        ns.rig.submit(StartProgram(settings=make_run_settings()))
 
         # Run enough ticks to hit the raising step
         for _ in range(5):
@@ -354,7 +355,7 @@ def test_nudge_during_run_stops_program_and_applies_voltage():
 
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1")]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_run_settings()))
     tick(ns, n=4)  # let program run
 
     snap = ns.rig.latest()
@@ -405,7 +406,7 @@ def _run_program_run(blocks, snap_fn, n_ticks=20):
     pr = ProgramRun()
     pr.load(blocks)
     snap0 = snap_fn(0)
-    pr.start(snap0, 0.0, commanded_volts=0.0)
+    pr.start(snap0, 0.0, make_run_settings(), commanded_volts=0.0)
     voltages = []
     for i in range(n_ticks):
         now = (i + 1) * 0.5
@@ -531,7 +532,7 @@ def test_snapshot_program_fields_populated_while_running():
         TempRampBlock(rate_k_per_min=60.0, end_temp_k=600.0, tc_name="TC_1"),
     ]
     ns.rig.submit(LoadProgram(program=blocks))
-    ns.rig.submit(StartProgram())
+    ns.rig.submit(StartProgram(settings=make_run_settings()))
     tick(ns, n=3)  # let program advance into block 0
 
     snap = ns.rig.latest()
