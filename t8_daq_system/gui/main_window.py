@@ -170,7 +170,7 @@ class MainWindow:
     # Available sampling rates in milliseconds
     SAMPLE_RATES = [100, 200, 500, 1000, 2000]
 
-    def __init__(self, settings=None, rig=None):
+    def __init__(self, settings=None, rig=None, run_id=None):
         profiler.section("MainWindow.__init__ START")
         profiler.checkpoint("Entering __init__ method")
 
@@ -181,6 +181,7 @@ class MainWindow:
             settings = AppSettings()
             settings.load()
         self._app_settings = settings
+        self._run_id = run_id
 
         # Build the internal config dict from AppSettings
         self.config = self._build_config_from_settings(settings)
@@ -2202,7 +2203,8 @@ class MainWindow:
                 frg702_count=frg702_count,
                 frg702_unit=frg702_unit,
                 sample_rate_ms=int(self.sample_rate_var.get().replace('ms', '')),
-                notes=notes or ""
+                notes=notes or "",
+                run_id=self._run_id,
             )
 
             header = build_csv_header(self.config, has_ps_controller=bool(self.ps_controller))

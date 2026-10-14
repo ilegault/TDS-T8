@@ -86,6 +86,7 @@ profiler.log("MainWindow import complete")
 
 profiler.log("About to import AppSettings...")
 from t8_daq_system.settings.app_settings import AppSettings
+from t8_daq_system.utils.diagnostic_log import new_run_id, start_session
 profiler.log("AppSettings import complete")
 
 
@@ -117,8 +118,13 @@ def main():
     settings.load()
     profiler.log("AppSettings loaded")
 
+    # One Run ID names this session's Diagnostic log and the CSV metadata (ADR 0008)
+    run_id = new_run_id()
+    start_session(logs_dir, settings.diagnostic_log_keep, build_id="dev",
+                  run_id=run_id, adapter="hardware", settings=settings)
+
     profiler.log("Creating MainWindow instance...")
-    app = MainWindow(settings=settings)
+    app = MainWindow(settings=settings, run_id=run_id)
     profiler.log("MainWindow instance created")
 
     # Print profiling summary before GUI loop

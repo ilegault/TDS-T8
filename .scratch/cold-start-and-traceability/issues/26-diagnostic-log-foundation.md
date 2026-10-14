@@ -1,6 +1,6 @@
 # 26: Diagnostic log foundation
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -26,12 +26,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test with `tmp_path`: `start_session` creates `console/<date>_<run_id>.log` whose first line contains `Build dev` and the run id.
-- [ ] Unit test: with `keep=3` and 5 older log files present, after `start_session` exactly 3 files remain and the new session's file is one of them.
-- [ ] Unit test: after `start_session` with an AppSettings whose `pid_kp` came from the registry, the file has a line containing `setting pid_kp=` and `(registry)`.
-- [ ] Unit test: an exception raised in a `threading.Thread` target writes an ERROR line containing the exception message and `Traceback`.
-- [ ] Unit test: a CSV written by the Run record to `tmp_path` has a metadata line whose `run_id` equals the session's run id.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test with `tmp_path`: `start_session` creates `console/<date>_<run_id>.log` whose first line contains `Build dev` and the run id.
+- [x] Unit test: with `keep=3` and 5 older log files present, after `start_session` exactly 3 files remain and the new session's file is one of them.
+- [x] Unit test: after `start_session` with an AppSettings whose `pid_kp` came from the registry, the file has a line containing `setting pid_kp=` and `(registry)`.
+- [x] Unit test: an exception raised in a `threading.Thread` target writes an ERROR line containing the exception message and `Traceback`.
+- [x] Unit test: a CSV written by the Run record to `tmp_path` has a metadata line whose `run_id` equals the session's run id.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -42,3 +42,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: Added `utils/diagnostic_log.py` (`new_run_id`, `start_session`, excepthooks, rotation, settings dump), `run_id` in `create_metadata_dict`, `MainWindow(run_id=...)`, and startup wiring in `main.py` (build id `dev` until ticket 33). All criteria covered by `tests/unit/test_diagnostic_log.py`. Note: `main.py` passes adapter `hardware` because MainWindow starts on the T8 adapter; later switching to practice is not re-logged here.
