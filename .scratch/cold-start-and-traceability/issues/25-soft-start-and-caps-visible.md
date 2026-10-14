@@ -1,6 +1,6 @@
 # 25: Soft start and caps are visible to the operator
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
