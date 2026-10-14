@@ -348,13 +348,11 @@ def test_gui_never_reaches_into_rig_program_run():
     assert not violations, f"GUI touches _program_run: {violations}"
 
 
-_NO_PRINT_PACKAGES = ("control", "rig", "data", "hardware", "core", "utils", "settings")
-
-
 def test_no_print_calls_outside_gui():
     """
-    Rule: library packages log through `logging.getLogger(__name__)` and never
-    call `print` (ADR 0008: the Diagnostic log is the single record of what ran).
+    Rule: nothing under `t8_daq_system/` (library packages, `gui/` and `main.py`)
+    logs through `print`; it uses `logging.getLogger(__name__)` (ADR 0008: the
+    Diagnostic log is the single record of what ran).
     """
     violations = []
 

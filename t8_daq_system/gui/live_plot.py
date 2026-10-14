@@ -919,7 +919,7 @@ class LivePlot:
                 if name == 'PS_Voltage_Setpoint' and vals:
                     max_val = max([v for v in vals if v is not None] or [0])
                     if max_val > 6.1: # Allow a tiny bit of overshoot/noise but not 300
-                        print(f"[DEBUG] CRITICAL: PS_Voltage_Setpoint has high value {max_val:.1f} in LivePlot")
+                        logger.error("PS_Voltage_Setpoint has high value %.1f in LivePlot", max_val)
 
                 color = self.ps_colors.get(name, '#666666')
                 _ls = _linestyle_map.get(name, '--')

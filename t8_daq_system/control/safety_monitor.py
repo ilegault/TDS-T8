@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
+from t8_daq_system.rig.commands import RunSettings
 from t8_daq_system.rig.snapshot import Snapshot
 from t8_daq_system.settings.safety_limits import (
     PRESSURE_INTERLOCK_TORR,
@@ -44,6 +45,7 @@ class Trip:
     reason: str
     sensor: Optional[str] = None
     value: Optional[float] = None
+    limit: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,7 @@ def evaluate_safety(
     warning_threshold: float = 0.9,
     debounce_count: int = 1,
     control_tc: str = "TC_1",
+    run_settings: Optional[RunSettings] = None,
 ) -> EvaluationResult:
     """
     Pure safety evaluation function of a Snapshot (ADR 0003, ADR 0004).
@@ -109,6 +112,10 @@ def evaluate_safety(
     Evaluates:
     - temp_limit: a TC >= configured limit for debounce_count consecutive ticks
     - temp_override: any TC >= TEMP_OVERRIDE_C
+    - soft_start_overcurrent: while the program is in Soft start, measured current above
+      run_settings.soft_start_cap_a (when soft_start_cap_enabled), ADR 0006
+    - run_overcurrent: after handoff, measured current above run_settings.run_cap_a
+      (when run_cap_enabled), ADR 0006
     - pressure_high: any enabled gauge > PRESSURE_INTERLOCK_TORR
     - pressure_stale: any enabled gauge with no valid reading for > STALE_ALLOWANCE_S
     - control_tc_stale: while a closed-loop block runs, control TC invalid for > STALE_ALLOWANCE_S
@@ -175,6 +182,40 @@ def evaluate_safety(
                         ),
                     )
                 )
+
+    # 2b. Current caps (ADR 0006): Soft-start cap before handoff, Run cap after
+    prog = snapshot.program
+    if run_settings is not None and prog.running:
+        in_soft_start = prog.phase == "soft_start"
+        if in_soft_start:
+            cap_enabled = run_settings.soft_start_cap_enabled
+            cap_a = run_settings.soft_start_cap_a
+            kind = "soft_start_overcurrent"
+            label = "Soft-start overcurrent"
+            cause = "check for a shorted lead or a voltage step on a cold filament"
+        else:
+            cap_enabled = run_settings.run_cap_enabled
+            cap_a = run_settings.run_cap_a
+            kind = "run_overcurrent"
+            label = "Run overcurrent"
+            cause = "check filament and leads"
+        if cap_enabled and snapshot.ps_amps > cap_a:
+            ctrl_tc = prog.control_tc or control_tc
+            ctrl_c = snapshot.tc_c.get(ctrl_tc)
+            ctrl_text = f"{ctrl_c:.1f} °C" if ctrl_c is not None else "no reading"
+            trips.append(
+                Trip(
+                    kind=kind,
+                    reason=(
+                        f"{label}: measured {snapshot.ps_amps:.1f} A > cap {cap_a:.1f} A "
+                        f"(phase {prog.phase}, commanded {snapshot.commanded_volts:.3f} V, "
+                        f"control TC {ctrl_tc} {ctrl_text}); {cause}"
+                    ),
+                    sensor="PS_Current",
+                    value=snapshot.ps_amps,
+                    limit=cap_a,
+                )
+            )
 
     # 3. Pressure trips & Permissive calculation (ADR 0004)
     permissive_ok = True
@@ -342,7 +383,10 @@ class SafetyEvaluator:
         self._control_tc = tc_name
 
     def evaluate(
-        self, snapshot: Snapshot, state: Optional[SafetyState] = None
+        self,
+        snapshot: Snapshot,
+        state: Optional[SafetyState] = None,
+        run_settings: Optional[RunSettings] = None,
     ) -> EvaluationResult:
         target_state = state if state is not None else self._state
         return evaluate_safety(
@@ -352,6 +396,7 @@ class SafetyEvaluator:
             warning_threshold=self._warning_threshold,
             debounce_count=self._debounce_count,
             control_tc=self._control_tc,
+            run_settings=run_settings,
         )
 
 

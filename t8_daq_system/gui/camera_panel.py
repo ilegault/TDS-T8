@@ -400,13 +400,13 @@ class CameraPanel(ttk.Frame):
 
             actual_w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            print(f"[Camera] Opened index={self._camera_index} @ {actual_w}x{actual_h}")
+            logger.info("Camera opened index=%s @ %sx%s", self._camera_index, actual_w, actual_h)
 
         except Exception as exc:
             self._video_label.config(
                 text=f'Camera error:\n{exc}', foreground='red'
             )
-            print(f"[Camera] Init error: {exc}")
+            logger.error("Camera init error: %s", exc)
 
     def _capture_loop(self):
         """
@@ -470,7 +470,7 @@ class CameraPanel(ttk.Frame):
             self._video_label.image = tk_img   # MUST hold reference to prevent GC
 
         except Exception as exc:
-            print(f"[Camera] Feed update error: {exc}")
+            logger.error("Camera feed update error: %s", exc)
 
         self._schedule_feed_update()
 
@@ -499,11 +499,11 @@ class CameraPanel(ttk.Frame):
         try:
             cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
             self._set_status(f'Snapshot saved: snapshot_{ts}.jpg', 'green')
-            print(f"[Camera] Snapshot saved: {path}")
+            logger.info("Camera snapshot saved: %s", path)
             flash_style = self._STYLE_SNAP_OK
         except Exception as exc:
             self._set_status(f'Snapshot failed: {exc}', 'red')
-            print(f"[Camera] Snapshot error: {exc}")
+            logger.error("Camera snapshot error: %s", exc)
             flash_style = self._STYLE_SNAP_ERR
 
         # Show flash colour, then restore normal state after the flash duration
@@ -556,7 +556,7 @@ class CameraPanel(ttk.Frame):
             target=self._timelapse_loop, daemon=True, name='TimelapseTimer'
         )
         self._timelapse_thread.start()
-        print(f"[Camera] Timelapse started: {self._timelapse_folder}")
+        logger.info("Camera timelapse started: %s", self._timelapse_folder)
 
     def _timelapse_loop(self):
         """
@@ -592,7 +592,7 @@ class CameraPanel(ttk.Frame):
         try:
             cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         except Exception as exc:
-            print(f"[Camera] Timelapse frame error: {exc}")
+            logger.error("Camera timelapse frame error: %s", exc)
 
     def _stop_timelapse(self):
         """Stop recording and launch MP4 export in a background thread."""
@@ -674,7 +674,7 @@ class CameraPanel(ttk.Frame):
                                  f'Failed to create timelapse:\n{error}')
         else:
             self._set_status(f'MP4 saved: {out_name}', 'green')
-            print(f"[Camera] Timelapse exported: {out_path}")
+            logger.info("Camera timelapse exported: %s", out_path)
             export_fps = max(1, self._timelapse_export_fps)
             duration_s = n_frames / export_fps
             messagebox.showinfo(
@@ -758,4 +758,4 @@ class CameraPanel(ttk.Frame):
             self._cap.release()
             self._cap = None
 
-        print("[Camera] Stopped and released.")
+        logger.info("Camera stopped and released")

@@ -28,7 +28,7 @@ from typing import Sequence
 
 from t8_daq_system.data.data_logger import DataLogger
 from t8_daq_system.rig.snapshot import Snapshot
-from t8_daq_system.settings.safety_limits import COLD_CURRENT_LIMIT_A
+from t8_daq_system.settings.safety_limits import PS_CURRENT_CEILING_A
 from t8_daq_system.utils.helpers import convert_pressure, convert_temperature
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def build_row(snapshot: Snapshot, t_unit: str, p_unit: str) -> dict:
     row["PS_Voltage"] = snapshot.ps_volts
     row["PS_Current"] = snapshot.ps_amps
     row["PS_Voltage_Setpoint"] = snapshot.commanded_volts
-    row["PS_CC_Limit"] = COLD_CURRENT_LIMIT_A
+    row["PS_CC_Limit"] = PS_CURRENT_CEILING_A
 
     # Block index (1-based) and scheduler diagnostics
     prog = snapshot.program

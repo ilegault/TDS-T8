@@ -18,7 +18,8 @@ ADR 0003 establishes that HeaterOutput is the single arbiter of heater commands:
    tripping condition persists.
 5. An Operator request during a running Program stops the Program first.
 6. A nudge never enables output (FIX-3).
-7. Cold-tungsten current guard clamps voltage rise when ps_amps > 180 A.
+7. Current caps (ADR 0006) arrive as trips from the Safety Evaluator; reset is
+   refused while measured current is still above the tripped cap.
 8. Output voltage is clamped to [0.0, DAC0_MAX_V].
 """
 from __future__ import annotations
@@ -38,7 +39,6 @@ from t8_daq_system.rig.commands import (
 )
 from t8_daq_system.rig.snapshot import Snapshot
 from t8_daq_system.settings.safety_limits import (
-    COLD_CURRENT_LIMIT_A,
     DAC0_MAX_V,
     PRESSURE_INTERLOCK_TORR,
     STALE_ALLOWANCE_S,
@@ -186,7 +186,11 @@ class HeaterOutput:
             self._active_trip_reason = first_trip.reason
             self._active_trip_sensor = first_trip.sensor
             self._active_trip_value = first_trip.value
-            self._active_trip_limit = self._extract_limit_from_reason(first_trip.reason)
+            self._active_trip_limit = (
+                first_trip.limit
+                if first_trip.limit is not None
+                else self._extract_limit_from_reason(first_trip.reason)
+            )
             self._last_commanded_volts = 0.0
             self._last_output_enabled = False
 
@@ -319,27 +323,7 @@ class HeaterOutput:
                 refusal_reason = f"Output disabled: {snapshot.permissive_reason or 'permissive lost'}"
 
         # ---------------------------------------------------------------------
-        # 5. Cold-Tungsten Current Guard (Rule 5)
-        # ---------------------------------------------------------------------
-        previous_command = (
-            snapshot.commanded_volts
-            if self._last_commanded_volts is None
-            else self._last_commanded_volts
-        )
-        if snapshot.ps_amps > COLD_CURRENT_LIMIT_A:
-            if current_volts > previous_command:
-                logger.warning(
-                    "Cold-tungsten guard active: ps_amps=%.1f A > %.1f A. "
-                    "Clamping requested %.3f V to previous %.3f V.",
-                    snapshot.ps_amps,
-                    COLD_CURRENT_LIMIT_A,
-                    current_volts,
-                    previous_command,
-                )
-                current_volts = previous_command
-
-        # ---------------------------------------------------------------------
-        # 6. DAC0 Voltage Clamp & CV-Only (Rule 6)
+        # 5. DAC0 Voltage Clamp & CV-Only (Rule 6)
         # ---------------------------------------------------------------------
         current_volts = max(0.0, min(current_volts, DAC0_MAX_V))
         if not current_enabled:
@@ -401,6 +385,15 @@ class HeaterOutput:
                         f"Reset refused: thermocouple {self._active_trip_sensor} is "
                         f"{current_val:.1f} °C >= {self._active_trip_limit:.1f} °C"
                     )
+            return None
+
+        # 2b. current caps: measured current must be back at or below the tripped cap
+        if kind in ("soft_start_overcurrent", "run_overcurrent"):
+            if self._active_trip_limit is not None and snapshot.ps_amps > self._active_trip_limit:
+                return (
+                    f"Reset refused: supply current is {snapshot.ps_amps:.1f} A "
+                    f"> cap {self._active_trip_limit:.1f} A"
+                )
             return None
 
         # 3. pressure_high: needs pressure <= PRESSURE_INTERLOCK_TORR

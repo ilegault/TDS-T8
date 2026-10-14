@@ -1,6 +1,6 @@
 # 28: Replace print with logging in the GUI; forbid print
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -21,10 +21,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] The no-print rule from ticket 27 is widened to all of `t8_daq_system/` and passes.
-- [ ] Unit test (Tk mocked): invoking the Run handler logs an INFO record containing `Run` and the number of blocks; invoking Reset trip logs a record containing `Reset trip`.
-- [ ] Unit test: saving Settings logs one INFO record per changed key containing the old and new value.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] The no-print rule from ticket 27 is widened to all of `t8_daq_system/` and passes.
+- [x] Unit test (Tk mocked): invoking the Run handler logs an INFO record containing `Run` and the number of blocks; invoking Reset trip logs a record containing `Reset trip`.
+- [x] Unit test: saving Settings logs one INFO record per changed key containing the old and new value.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -35,3 +35,6 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13 — Replaced every `print` under `gui/` and `main.py` with `logging` (errors → ERROR, config/slow-GUI warnings → WARNING, lifecycle → INFO, debug dumps → DEBUG). Operator commands in `gui/main_window.py` (Run, Stop, Nudge, Reset trip, Practice toggle) log one INFO line each. Settings saved: `AppSettings.save()` logs one INFO line per changed key (old → new), diffed against the values last loaded/saved.
+Tests: `test_no_print_calls_outside_gui` (now whole package; criterion 1), `TestOperatorCommandsAreLogged` in `test_gui_speaks_in_commands.py` (criterion 2), `test_save_logs_one_info_record_per_changed_key` in `test_registry_single_source.py` (criterion 3). No bench verification needed.

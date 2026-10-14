@@ -162,6 +162,11 @@ class ProgramRun:
     # ------------------------------------------------------------------
 
     @property
+    def settings(self) -> RunSettings | None:
+        """The RunSettings frozen at the last start(), or None before any run."""
+        return self._settings
+
+    @property
     def running(self) -> bool:
         """True while a program is executing."""
         return self._running

@@ -57,6 +57,7 @@ class SimulatedRig(RigAdapter):
         self._stalled_gauges: set[str] = set()
         self._fail_next_write: bool = False
         self._current_limit_pinned: bool = True
+        self._forced_amps: float | None = None
 
     # --- RigAdapter protocol operations ---
 
@@ -122,6 +123,9 @@ class SimulatedRig(RigAdapter):
             ps_amps = 0.0
             shutoff_readback = False
 
+        if self._forced_amps is not None:
+            ps_amps = self._forced_amps
+
         return RawReadings(
             tc_c=tc_c,
             tc_raw_v=tc_raw_v,
@@ -166,6 +170,14 @@ class SimulatedRig(RigAdapter):
     def restore_gauge(self, name: str) -> None:
         """Restore stalled gauge to valid state."""
         self._stalled_gauges.discard(name)
+
+    def force_current(self, amps: float) -> None:
+        """Make read() report this ps_amps (e.g. a shorted lead) until release_current()."""
+        self._forced_amps = float(amps)
+
+    def release_current(self) -> None:
+        """Return ps_amps to the physical simulation."""
+        self._forced_amps = None
 
     def fail_next_write(self) -> None:
         """Inject a single write failure (raises AdapterError on next write operation)."""
