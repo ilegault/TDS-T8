@@ -16,7 +16,8 @@ _BASE = RunSettings(
     soft_start_handoff_current_a=35.0,
     soft_start_cap_enabled=True,
     soft_start_cap_a=40.0,
-    run_cap_enabled=True,
+    # Block/transition tests ramp the cold sim through >120 A; the cap tests enable it.
+    run_cap_enabled=False,
     run_cap_a=120.0,
 )
 
