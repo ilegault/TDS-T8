@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 import pytest
 
+from tests.run_settings_helper import make_run_settings
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import (
     StableHoldBlock,
@@ -133,7 +134,7 @@ def run_program_on_rig(fixture: SimpleNamespace, blocks: list, max_ticks: int = 
     rig.run_tick()
 
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     block_indices = []
     completed = False
@@ -314,7 +315,7 @@ def test_no_power_dropout_between_blocks():
     rig.run_tick()
 
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     ticks = []  # (block_index, commanded_volts)
 

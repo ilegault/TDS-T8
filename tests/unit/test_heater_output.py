@@ -19,6 +19,7 @@ from typing import Mapping
 
 import pytest
 
+from tests.run_settings_helper import make_run_settings
 from t8_daq_system.control.heater_output import (
     HeaterOutput,
     ProgramHeaterRequest,
@@ -300,7 +301,7 @@ class TestRule3OutputEnablingAndNudge:
         ho = HeaterOutput()
         snap = _make_snapshot(permissive_ok=True)
 
-        cmd = ho.resolve([StartProgram()], snap)
+        cmd = ho.resolve([StartProgram(settings=make_run_settings())], snap)
         assert cmd.output_enabled
 
     def test_output_refused_when_permissive_not_ok(self):
@@ -312,7 +313,7 @@ class TestRule3OutputEnablingAndNudge:
         assert not cmd1.output_enabled
         assert cmd1.refusal_reason is not None
 
-        cmd2 = ho.resolve([StartProgram()], snap)
+        cmd2 = ho.resolve([StartProgram(settings=make_run_settings())], snap)
         assert not cmd2.output_enabled
 
     def test_nudge_never_enables_output_when_off(self):
@@ -550,7 +551,7 @@ class TestHeaterOutputProperties:
                     SetVoltage(rng.uniform(-2.0, 10.0)),
                     Nudge(rng.choice(["up", "down"])),
                     ProgramHeaterRequest(rng.uniform(-1.0, 8.0)),
-                    StartProgram(),
+                    StartProgram(settings=make_run_settings()),
                     StopProgram(),
                     ResetTrip(),
                     Trip(kind="temp_override", reason="test override", sensor="TC_1", value=tc_temp),

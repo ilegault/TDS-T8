@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.run_settings_helper import make_run_settings
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import TempRampBlock
 from t8_daq_system.control.program_run import ProgramRun
@@ -86,7 +87,7 @@ def test_practice_run_uses_same_pipeline_as_hardware_path():
     rig.submit_command(LoadProgram(program=blocks))
     _advance(rig, clock, 1)
 
-    rig.submit_command(StartProgram())
+    rig.submit_command(StartProgram(settings=make_run_settings()))
     _advance(rig, clock, 4)
 
     snap = rig.latest()

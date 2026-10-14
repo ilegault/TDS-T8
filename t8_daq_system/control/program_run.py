@@ -44,6 +44,7 @@ from t8_daq_system.control.feedforward_map import FeedforwardMap
 from t8_daq_system.control.heater_output import ProgramHeaterRequest
 from t8_daq_system.control.safety_monitor import Trip
 from t8_daq_system.control.temp_ramp_pid import PIDController, PIDRunLogger
+from t8_daq_system.rig.commands import RunSettings
 from t8_daq_system.rig.snapshot import ProgramStatus, Snapshot
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,8 @@ class ProgramRun:
 
     Driven by:
       load(blocks)          — called when LoadProgram is drained
-      start(snap, now_s)    — called when StartProgram is drained
+      start(snap, now_s, settings) — called when StartProgram is drained; the
+                              RunSettings are frozen for the whole run
       stop()                — called on StopProgram or when HeaterOutput stops program
       confirm_continue()    — called when ConfirmContinue is drained
       step(snap, now_s)     — called by Rig on every control tick while running;
@@ -71,7 +73,9 @@ class ProgramRun:
         self._running: bool = False
         self._block_index: int = 0
 
-        self._pid = PIDController()
+        # Built in start() from the run's RunSettings; there is no default gain.
+        self._pid: PIDController | None = None
+        self._settings: RunSettings | None = None
         self._ff_map = FeedforwardMap()
         self._ff_map.load()
         self._pid_logger = PIDRunLogger()
@@ -101,6 +105,16 @@ class ProgramRun:
         # The Rig reads these after each step() and relays them to RunRecord.
         self._pending_events: list[tuple[str, str]] = []
 
+    @property
+    def ff_map(self) -> FeedforwardMap:
+        """The Feedforward map (read by the GUI for preview and log ingest)."""
+        return self._ff_map
+
+    @property
+    def last_run_record(self) -> dict[str, Any] | None:
+        """The most recently completed TempRamp run record, or None."""
+        return self._last_run_record
+
     def get_pid_logger(self) -> PIDRunLogger:
         """Return the PIDRunLogger instance."""
         return self._pid_logger
@@ -127,12 +141,21 @@ class ProgramRun:
         """Load a block sequence.  Safe to call at any time; takes effect on next start()."""
         self._blocks = list(blocks)
 
-    def start(self, snapshot: Snapshot, now_s: float, *, commanded_volts: float = 0.0) -> None:
+    def start(
+        self,
+        snapshot: Snapshot,
+        now_s: float,
+        settings: RunSettings,
+        *,
+        commanded_volts: float = 0.0,
+    ) -> None:
         """
         Begin execution from block 0.
 
         commanded_volts is the last voltage sent to the adapter — used to seed
         bumpless PID transfer at the first closed-loop block.
+        settings are the RunSettings frozen at Run; the PID is built from them
+        and they are used unchanged until the run ends.
         """
         if not self._blocks:
             logger.warning("ProgramRun.start() called with no blocks loaded")
@@ -145,6 +168,13 @@ class ProgramRun:
         self._block_index = 0
         self._just_started_phase = 2
         self._last_step_volts = commanded_volts
+        self._settings = settings
+        self._pid = PIDController(
+            settings.kp,
+            settings.ki,
+            settings.kd,
+            integral_windup_limit=settings.windup_limit,
+        )
         self._pid.reset()
         self._sched = SchedValues()
         self._setpoint_k = 0.0
@@ -269,6 +299,11 @@ class ProgramRun:
             ff_voltage=self._sched.ff_voltage,
             pid_correction=self._sched.pid_correction,
             control_tc=control_tc,
+            gains_in_use=(
+                (self._settings.kp, self._settings.ki, self._settings.kd)
+                if self._settings is not None
+                else (0.0, 0.0, 0.0)
+            ),
         )
 
     # ------------------------------------------------------------------

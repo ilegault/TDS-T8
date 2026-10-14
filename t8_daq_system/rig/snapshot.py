@@ -54,6 +54,7 @@ class ProgramStatus:
     ff_voltage: float = 0.0
     pid_correction: float = 0.0
     control_tc: str = "TC_1"
+    gains_in_use: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)

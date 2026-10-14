@@ -39,11 +39,12 @@ class PIDController:
     """
 
     # FF-1 START — reconcile gain source of truth
-    def __init__(self, kp=0.02, ki=0.0013, kd=0.005,
+    def __init__(self, kp, ki, kd,
                  output_min=0.0, output_max=6.0,
                  integral_windup_limit=30.0):
         """
-        Base gains are the authoritative values in AppSettings; this default is a fallback only.
+        Gains are required: a silent default gain is the layering bug ADR 0007 removes.
+        The run's gains come from the RunSettings frozen at Run.
 
         Args:
             kp: Proportional gain (very small — power supply is high-current).

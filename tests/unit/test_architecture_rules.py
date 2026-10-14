@@ -334,3 +334,15 @@ def test_no_silent_exceptions():
     )
 
 
+def test_gui_never_reaches_into_rig_program_run():
+    """
+    Rule: no file under t8_daq_system/gui/ contains the text `_program_run`.
+    The GUI sends commands (StartProgram carries RunSettings); it never reaches
+    into the Rig's private ProgramRun.
+    """
+    violations = []
+    for py_file in _iter_python_files(PACKAGE_ROOT / "gui"):
+        for lineno, line in enumerate(py_file.read_text(encoding="utf-8").splitlines(), 1):
+            if "_program_run" in line:
+                violations.append(f"{py_file.relative_to(REPO_ROOT)}:{lineno}")
+    assert not violations, f"GUI touches _program_run: {violations}"

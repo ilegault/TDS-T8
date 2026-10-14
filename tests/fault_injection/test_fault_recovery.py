@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import Any
 import pytest
 
+from tests.run_settings_helper import make_run_settings
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import TempRampBlock, VoltageRampBlock
 from t8_daq_system.control.program_run import ProgramRun
@@ -126,7 +127,7 @@ def test_so_latched_executor_stops_gracefully():
         TempRampBlock(rate_k_per_min=60.0, end_temp_k=1000.0, tc_name="TC_1"),
     ]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     # Run a few ticks into the program
     for _ in range(5):
@@ -156,7 +157,7 @@ def test_so_latched_dac_not_nonzero_after_fault():
 
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=2000.0, tc_name="TC_1")]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     for _ in range(4):
         clock.advance(0.5)
@@ -185,7 +186,7 @@ def test_ovp_trip_sets_interlock():
 
     blocks = [TempRampBlock(rate_k_per_min=600.0, end_temp_k=1000.0, tc_name="TC_1")]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     for _ in range(4):
         clock.advance(0.5)
@@ -217,7 +218,7 @@ def test_comms_timeout_executor_survives():
         VoltageRampBlock(start_voltage=0.0, end_voltage=3.0, duration_sec=10),
     ]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     for _ in range(3):
         clock.advance(0.5)
@@ -245,7 +246,7 @@ def test_output_off_mid_run_executor_stops():
         VoltageRampBlock(start_voltage=0.0, end_voltage=3.0, duration_sec=10),
     ]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     for _ in range(4):
         clock.advance(0.5)
@@ -298,7 +299,7 @@ def test_regression_nudge_during_run_does_not_assert_fio1():
 
     blocks = [VoltageRampBlock(start_voltage=0.0, end_voltage=3.0, duration_sec=2)]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     for _ in range(10):
         rig.submit(Nudge(direction="up"))
@@ -321,7 +322,7 @@ def test_regression_gui_state_matches_ps_after_so_latch():
 
     blocks = [TempRampBlock(rate_k_per_min=600.0, end_temp_k=1000.0, tc_name="TC_1")]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     for _ in range(3):
         clock.advance(0.5)

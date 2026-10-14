@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 import pytest
 
+from tests.run_settings_helper import make_run_settings
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import (
     StableHoldBlock,
@@ -159,7 +160,7 @@ def _run_with_invariants(blocks: list, temp_k: float = 300.0, max_ticks: int = 1
     rig.run_tick()
 
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram())
+    rig.submit(StartProgram(settings=make_run_settings()))
 
     ran = False
     for _ in range(max_ticks):

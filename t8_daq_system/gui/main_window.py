@@ -43,6 +43,7 @@ from t8_daq_system.rig.commands import (
     LoadProgram,
     Nudge,
     ResetTrip,
+    RunSettings,
     SelectAdapter,
     SetOutput,
     SetVoltage,
@@ -119,6 +120,28 @@ gui_profiler = GUIProfiler()
 # Safe Mode limits for the Voltage/Current Power Programmer (not TempRamp)
 _PROGRAMMER_SAFE_MODE_MAX_VOLTS = 1.0   # V
 _PROGRAMMER_SAFE_MODE_MAX_AMPS  = 10.0  # A
+
+
+def run_settings_from_app_settings(settings) -> RunSettings:
+    """
+    Capture every run-shaping value from AppSettings into one frozen RunSettings.
+
+    Called once when the operator presses Run. Fields AppSettings does not have
+    yet use the spec's defaults as literals here; ticket 24 replaces them.
+    """
+    return RunSettings(
+        kp=settings.pid_kp,
+        ki=settings.pid_ki,
+        kd=settings.pid_kd,
+        windup_limit=settings.pid_windup_limit,
+        soft_start_threshold_c=200.0,
+        soft_start_ramp_v_per_s=0.02,
+        soft_start_handoff_current_a=35.0,
+        soft_start_cap_enabled=True,
+        soft_start_cap_a=40.0,
+        run_cap_enabled=True,
+        run_cap_a=120.0,
+    )
 
 
 def build_csv_header(config: dict, has_ps_controller: bool = True) -> list:
@@ -640,12 +663,12 @@ class MainWindow:
             self._hardware_init_attempted = True
 
             # FF-8 START — seed feedforward map from historical CSVs in background
-            prog_run = getattr(self.rig, '_program_run', None)
-            if prog_run and hasattr(prog_run, '_ff_map'):
+            prog_run = getattr(self.rig, 'program_run', None)
+            if prog_run and hasattr(prog_run, 'ff_map'):
                 import threading as _threading
                 def _ff_ingest_thread():
                     try:
-                        prog_run._ff_map.scan_log_folder(self.log_folder)
+                        prog_run.ff_map.scan_log_folder(self.log_folder)
                     except Exception as _exc:
                         print(f"[FF-ingest] Background scan error (non-fatal): {_exc}")
                 _threading.Thread(target=_ff_ingest_thread, daemon=True,
@@ -1146,7 +1169,7 @@ class MainWindow:
             tc_names=sorted(self._tc_names),
             get_unit_fn=lambda: getattr(self, 't_unit_var', None) and self.t_unit_var.get() or 'K',
             get_tc_temp_k_fn=self._get_latest_tc_reading_k,
-            ff_map=getattr(getattr(self.rig, '_program_run', None), '_ff_map', None),  # FF-10
+            ff_map=getattr(getattr(self.rig, 'program_run', None), 'ff_map', None),  # FF-10
         )
         
         # Restore saved blocks from before the programmer was last closed
@@ -1482,10 +1505,10 @@ class MainWindow:
 
     def _show_pid_run_summary(self):
         """Show a post-run PID performance summary and offer to update settings gains."""
-        prog_run = getattr(self.rig, '_program_run', None)
+        prog_run = getattr(self.rig, 'program_run', None)
         if prog_run is None:
             return
-        record = getattr(prog_run, '_last_run_record', None)
+        record = getattr(prog_run, 'last_run_record', None)
         if record is None:
             return
 
@@ -1604,17 +1627,10 @@ class MainWindow:
 
         # Submit LoadProgram and StartProgram commands to Rig
         if hasattr(self, 'rig') and self.rig is not None:
-            prog_run = getattr(self.rig, '_program_run', None)
-            if prog_run is not None:
-                prog_run._pid.update_gains(
-                    self._app_settings.pid_kp,
-                    self._app_settings.pid_ki,
-                    self._app_settings.pid_kd,
-                    output_max=self._app_settings.pid_output_max,
-                    windup_limit=self._app_settings.pid_windup_limit,
-                )
             self.rig.submit(LoadProgram(program=blocks))
-            self.rig.submit(StartProgram())
+            self.rig.submit(StartProgram(
+                settings=run_settings_from_app_settings(self._app_settings)
+            ))
 
         self._programmer_ramp_running = True
         self.run_ramp_btn.config(text="Stop Program")
@@ -2804,7 +2820,7 @@ class MainWindow:
 
     def get_pid_logger(self):
         """Return the active PIDRunLogger from Rig/ProgramRun."""
-        prog_run = getattr(self.rig, '_program_run', None) if hasattr(self, 'rig') and self.rig else None
+        prog_run = getattr(self.rig, 'program_run', None) if hasattr(self, 'rig') and self.rig else None
         if prog_run is not None:
             return prog_run.get_pid_logger()
         from t8_daq_system.control.temp_ramp_pid import PIDRunLogger

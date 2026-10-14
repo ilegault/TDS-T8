@@ -204,6 +204,14 @@ class Rig:
         """Submit a command to the Rig command queue."""
         self._command_queue.put(cmd)
 
+    @property
+    def program_run(self):
+        """The ProgramRun, for read-only access (feedforward map, PID logger, last run record).
+
+        The GUI must not call lifecycle methods on it; it sends commands instead.
+        """
+        return self._program_run
+
     def submit(self, cmd: Any) -> None:
         """Convenience alias for submit_command."""
         self.submit_command(cmd)
@@ -449,12 +457,16 @@ class Rig:
             # ProgramRun lifecycle: start/stop from drained commands
             if self._program_run is not None:
                 has_stop = any(isinstance(c, StopProgram) for c in drained_heater_cmds)
-                has_start = any(isinstance(c, StartProgram) for c in drained_heater_cmds)
+                start_cmds = [c for c in drained_heater_cmds if isinstance(c, StartProgram)]
+                has_start = bool(start_cmds)
                 if has_stop:
                     self._program_run.stop()
                 if has_start and not self._program_run.running:
                     self._program_run.start(
-                        snap_for_heater, now, commanded_volts=self._commanded_volts
+                        snap_for_heater,
+                        now,
+                        start_cmds[-1].settings,
+                        commanded_volts=self._commanded_volts,
                     )
 
             # ProgramRun step: get voltage request or program_error trip

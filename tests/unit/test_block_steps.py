@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 import pytest
 
+from tests.run_settings_helper import make_run_settings
 from t8_daq_system.control.block_steps import (
     SchedValues,
     StepContext,
@@ -53,7 +54,7 @@ def test_step_voltage_ramp_series():
     Ramp 0.0 V to 3.0 V over 3.0 s.
     """
     block = VoltageRampBlock(start_voltage=0.0, end_voltage=3.0, duration_sec=3.0)
-    pid = PIDController()
+    pid = PIDController(0.02, 0.0013, 0.005)
     ctx = StepContext(pid=pid, start_temp_k=300.0)
 
     # At elapsed = 0.0s -> 0.0V, not finished
@@ -84,7 +85,7 @@ def test_step_voltage_ramp_series():
 def test_step_voltage_ramp_zero_duration_and_pid_active():
     """Test step_voltage_ramp with duration_sec <= 0 and with pid_active=True."""
     block = VoltageRampBlock(start_voltage=1.0, end_voltage=2.0, duration_sec=0.0, pid_active=True)
-    pid = PIDController()
+    pid = PIDController(0.02, 0.0013, 0.005)
     ctx = StepContext(pid=pid, start_temp_k=300.0)
 
     res = step_voltage_ramp(block, temp_k=300.0, elapsed_s=0.0, now_s=10.0, ctx=ctx)
@@ -129,7 +130,7 @@ def test_step_temp_ramp_cooldown_and_fix2_suppression():
     FIX-2 ensures that if setpoint <= end_temp_k on tick 1, finished is suppressed for 2.0s.
     """
     block = TempRampBlock(rate_k_per_min=-60.0, end_temp_k=300.0, tc_name="TC_1")
-    pid = PIDController()
+    pid = PIDController(0.02, 0.0013, 0.005)
     # Starting right at 300.0 K
     ctx = StepContext(pid=pid, start_temp_k=300.0, rate_k_per_min=-60.0)
 
@@ -150,7 +151,7 @@ def test_step_temp_ramp_cooldown_and_fix2_suppression():
 def test_step_temp_ramp_feedforward_integration():
     """Verify FeedforwardMap voltage is included in StepResult.sched and volts."""
     block = TempRampBlock(rate_k_per_min=60.0, end_temp_k=350.0, tc_name="TC_1")
-    pid = PIDController()
+    pid = PIDController(0.02, 0.0013, 0.005)
     ff_map = FeedforwardMap()
     # Ingest a simple steady-state curve into ff_map
     ff_map._ss_curve = [[20.0, 1.0], [50.0, 2.0], [100.0, 3.0]]  # 1.0V at 20C (293.15K)
@@ -229,7 +230,7 @@ def test_step_exceptions_propagate():
         step_stable_hold(block_h, temp_k=320.0, elapsed_s=0.5, now_s=10.5, ctx=faulty_ctx)
 
     # Passing None for temp_k without mock raises TypeError
-    ctx = StepContext(pid=PIDController(), start_temp_k=300.0)
+    ctx = StepContext(pid=PIDController(0.02, 0.0013, 0.005), start_temp_k=300.0)
     with pytest.raises(TypeError):
         step_temp_ramp(block_t, temp_k=None, elapsed_s=0.5, now_s=10.5, ctx=ctx)
 
@@ -262,7 +263,7 @@ def test_step_raising_propagates_through_program_run(monkeypatch):
         permissive_reason=None,
         adapter="simulated",
     )
-    pr.start(snap, now_s=100.0)
+    pr.start(snap, now_s=100.0, settings=make_run_settings())
 
     def _faulty_step(*args, **kwargs):
         raise ValueError("simulated step mathematical fault")
