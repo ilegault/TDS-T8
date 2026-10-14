@@ -281,3 +281,29 @@ def test_step_raising_propagates_through_program_run(monkeypatch):
     assert "simulated step mathematical fault" in trip.reason
 
 
+
+
+def test_step_temp_ramp_negative_correction_goes_below_feedforward():
+    """Ticket 21: after a Feedforward-aware seed, a measured temperature above
+    setpoint pulls the total voltage below the Feedforward value."""
+    block = TempRampBlock(rate_k_per_min=60.0, end_temp_k=350.0, tc_name="TC_1")
+    pid = PIDController(0.02, 0.0013, 0.005)
+    ff_map = FeedforwardMap()
+    ff_map._ss_curve = [[-100.0, 1.5], [2000.0, 1.5]]
+    ctx = StepContext(pid=pid, ff_map=ff_map, start_temp_k=293.15, rate_k_per_min=60.0)
+
+    # Hold 1.0 V across the boundary while the Feedforward alone would say 1.5 V.
+    pid.reset_bumpless(1.0, 10.0, ff_volts=1.5)
+    res = step_temp_ramp(block, temp_k=303.15, elapsed_s=0.5, now_s=10.5, ctx=ctx)
+
+    assert res.sched.ff_voltage == pytest.approx(1.5)
+    assert res.sched.pid_correction < 0.0
+    assert res.volts < res.sched.ff_voltage
+
+
+def test_reset_bumpless_seed_equals_ff_plus_pid_output():
+    """Ticket 21: ff_volts + first PID output == seed_output, even when ff > seed."""
+    pid = PIDController(0.02, 0.0013, 0.005)
+    pid.reset_bumpless(1.0, 10.0, ff_volts=1.5)
+    out = pid.compute(300.0, 300.0, 10.5)
+    assert 1.5 + out == pytest.approx(1.0, abs=1e-4)

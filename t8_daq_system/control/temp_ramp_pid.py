@@ -40,7 +40,7 @@ class PIDController:
 
     # FF-1 START — reconcile gain source of truth
     def __init__(self, kp, ki, kd,
-                 output_min=0.0, output_max=6.0,
+                 output_min=-6.0, output_max=6.0,
                  integral_windup_limit=30.0):
         """
         Gains are required: a silent default gain is the layering bug ADR 0007 removes.
@@ -50,8 +50,8 @@ class PIDController:
             kp: Proportional gain (very small — power supply is high-current).
             ki: Integral gain.
             kd: Derivative gain (0.005 — best oscillation result, 2026-06-30 run).
-            output_min: Minimum clamped output (fraction of full power).
-            output_max: Maximum clamped output (fraction of full power).
+            output_min: Minimum clamped correction (volts; negative so it can cancel Feedforward).
+            output_max: Maximum clamped correction (volts).
             integral_windup_limit: Clamp integral accumulator to ±this (K·s).
         """
         # FF-1 END
@@ -91,7 +91,8 @@ class PIDController:
         self._last_i_term = 0.0
         self._last_d_term = 0.0
 
-    def reset_bumpless(self, seed_output: float, current_time: float = None):
+    def reset_bumpless(self, seed_output: float, current_time: float = None,
+                       ff_volts: float = 0.0):
         """
         Re-initialise for a new block WITHOUT dropping the output to zero.
 
@@ -111,8 +112,13 @@ class PIDController:
             current_time: Monotonic timestamp to prime the loop timer with.
                           Priming it (instead of leaving it None) is what
                           stops compute()'s first call from returning 0.0.
+            ff_volts:     Feedforward voltage the caller will add to the PID
+                          output (0.0 when there is none). The PID is seeded
+                          with ``seed_output - ff_volts`` so that
+                          ``ff_volts + PID output == seed_output`` (ADR 0006
+                          point 5); that correction may be negative.
         """
-        seed = max(self._output_min, min(seed_output, self._output_max))
+        seed = max(self._output_min, min(seed_output - ff_volts, self._output_max))
 
         # Seed the integrator so the I-term alone reproduces the held output,
         # respecting the same windup clamp compute() enforces.

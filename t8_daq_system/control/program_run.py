@@ -330,8 +330,14 @@ class ProgramRun:
         start_temp_k = self._read_temp_k(block, snapshot)
 
         # Bumpless PID transfer for closed-loop blocks
+        # The seed is net of Feedforward so FF + PID continues the last voltage.
         if block.block_type in ("temp_ramp", "stable_hold"):
-            self._pid.reset_bumpless(self._last_step_volts, now_s)
+            ff_volts = 0.0
+            if block.block_type == "temp_ramp":
+                ff_volts = self._ff_map.voltage_for(
+                    self._block_rate_k_per_min, start_temp_k - 273.15
+                )
+            self._pid.reset_bumpless(self._last_step_volts, now_s, ff_volts)
 
         # Reset TempRamp run log
         if block.block_type == "temp_ramp":

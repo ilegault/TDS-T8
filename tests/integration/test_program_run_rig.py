@@ -442,19 +442,21 @@ def test_program_run_voltage_ramp_matches_characterisation():
 def test_program_run_temp_ramp_matches_characterisation():
     """
     ProgramRun produces the same per-tick voltage sequence as ProgramExecutor
-    for TempRampBlock(60 K/min, 303 K, constant 300 K feedback):
-    [0.300325, 0.310975, 0.321950, 0.333250, 0.344875].
+    for TempRampBlock(60 K/min, 303 K, constant 300 K feedback), except that
+    300 K (26.85 degC) is below the Feedforward map's lowest point, so ADR 0006
+    point 6 makes Feedforward 0 V instead of 0.29 V:
+    [0.010325, 0.020975, 0.031950, 0.043250, 0.054875].
     """
     block = TempRampBlock(rate_k_per_min=60.0, end_temp_k=303.0, tc_name="TC_1")
     snap = make_snapshot(tc_c={"TC_1": 26.85})
     voltages = _run_program_run([block], lambda _: snap, n_ticks=10)
 
     expected = [
-        0.300325000,
-        0.310975000,
-        0.321950000,
-        0.333250000,
-        0.344875000,
+        0.010325000,
+        0.020975000,
+        0.031950000,
+        0.043250000,
+        0.054875000,
     ]
     assert len(voltages) == len(expected), f"Expected {len(expected)} ticks, got {len(voltages)}: {voltages}"
     for actual, exp in zip(voltages, expected):
@@ -505,9 +507,9 @@ def test_program_run_two_block_boundary_matches_characterisation():
 
     expected = [
         0.500000000,
-        1.290000000,
-        1.290000000,
-        1.290000000,
+        1.000000000,
+        1.000000000,
+        1.000000000,
     ]
     assert len(voltages) == len(expected), f"Expected {len(expected)} ticks, got {len(voltages)}: {voltages}"
     for actual, exp in zip(voltages, expected):
