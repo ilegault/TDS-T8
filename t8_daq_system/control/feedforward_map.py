@@ -116,9 +116,14 @@ class FeedforwardMap:
         Falls back to rate-indexed interpolation only when the backbone is empty
         (first startup before any data has been ingested).
 
+        Returns 0.0 for any temperature below the backbone's first point (ADR 0006).
         Output always clamped to [0.0, 6.0].
         """
         if self._ss_curve:
+            # ADR 0006 point 6: below the lowest data point the answer is 0 V.
+            # Returning the lowest point's voltage handed a cold filament 0.29 V.
+            if temp_c < self._ss_curve[0][0]:
+                return 0.0
             v_ss = _interp_points(self._ss_curve, temp_c)
             # dV_dynamic: additive correction for fast-rate thermal deficit.
             # Currently 0; fit from (fast-ramp voltage − V_ss) residuals once

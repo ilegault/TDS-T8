@@ -1,6 +1,6 @@
 # 21: Bumpless handoff includes Feedforward
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test (Rig + SimulatedRig + ManualClock, as in `tests/integration/test_block_transitions.py`): program VoltageRamp to 1.0 V then TempRamp; the first TempRamp commanded voltage equals the last VoltageRamp voltage within 0.0001 V — run once with a Feedforward map whose value at the handoff temperature is above 1.0 V and once with it below.
-- [ ] The same assertion holds for StableHold → TempRamp and TempRamp → StableHold boundaries.
-- [ ] Unit test: a Feedforward map whose first point is (50 °C, 0.29 V) returns 0.0 at 20 °C and 0.29 at 50 °C.
-- [ ] Unit test: with measured temperature above setpoint after seeding, `step_temp_ramp` returns a total voltage below the Feedforward value (the correction went negative).
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Integration test (Rig + SimulatedRig + ManualClock, as in `tests/integration/test_block_transitions.py`): program VoltageRamp to 1.0 V then TempRamp; the first TempRamp commanded voltage equals the last VoltageRamp voltage within 0.0001 V — run once with a Feedforward map whose value at the handoff temperature is above 1.0 V and once with it below.
+- [x] The same assertion holds for StableHold → TempRamp and TempRamp → StableHold boundaries.
+- [x] Unit test: a Feedforward map whose first point is (50 °C, 0.29 V) returns 0.0 at 20 °C and 0.29 at 50 °C.
+- [x] Unit test: with measured temperature above setpoint after seeding, `step_temp_ramp` returns a total voltage below the Feedforward value (the correction went negative).
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -39,3 +39,12 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: `PIDController.reset_bumpless(seed, t, ff_volts)` seeds `seed - ff_volts`; PID bounds are now -6..+6 V
+(total still clamped 0..6 V in the block steps); `ProgramRun._setup_block` passes `FF(rate, T_now)` for TempRamp, 0.0 for
+StableHold; `FeedforwardMap.voltage_for` returns 0.0 below the backbone's first point.
+Tests: `tests/integration/test_handoff_includes_feedforward.py` (V->T, H->T, T->H, FF above/below),
+`tests/unit/test_feedforward_map.py`, and two new tests in `tests/unit/test_block_steps.py`.
+Two characterisation tests in `tests/integration/test_program_run_rig.py` were rewritten in place (same names): their
+expected values encoded the 0.29 V cold FF and the FF jump at the boundary, which this ticket removes.
+No bench verification needed.
