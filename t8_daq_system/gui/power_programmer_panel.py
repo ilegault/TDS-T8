@@ -10,6 +10,12 @@ Block types:
 In TempRamp mode each block specifies a ramp rate (K/min); a PID controller
 drives the actual power supply to achieve that temperature rise rate.
 
+Every run begins with a Soft start (ADR 0006).  It is not a block and is not
+saved in profiles; the table shows it as a locked first row that the delete and
+move handlers refuse to touch, and two labels show the gains and the two current
+caps the run will use (from AppSettings when idle, from the Snapshot while
+running).
+
 Computes a time-series preview from the block list.
 Provides Save/Load of profiles as JSON files.
 Fires a callback with the computed preview data when the profile is confirmed.
@@ -49,6 +55,9 @@ class PowerProgrammerPanel:
     MAX_CURRENT = 180.0
     MAX_DURATION = 86400
 
+    # Treeview item id of the locked Soft-start row (always the first row)
+    SOFT_START_IID = "soft_start"
+
     def __init__(self, parent_frame, settings, on_profile_confirmed_callback,
                  on_panel_closed_callback):
         """
@@ -76,6 +85,8 @@ class PowerProgrammerPanel:
         self._table_frame = None  # kept as ref so _rebuild_table_columns can destroy/recreate
         self._tree = None
         self._tree_vsb = None
+        self._gains_text = ""
+        self._caps_text = ""
 
         self._build_gui()
 
@@ -232,6 +243,15 @@ class PowerProgrammerPanel:
         )
         self._ready_label.pack(side=tk.LEFT)
 
+        # ── Row 6: Gains and current caps the run will use ────────────────
+        run_frame = ttk.Frame(self._parent)
+        run_frame.pack(fill=tk.X, padx=4, pady=(0, 4))
+        self._gains_label = ttk.Label(run_frame, text="")
+        self._gains_label.pack(side=tk.LEFT)
+        self._caps_label = ttk.Label(run_frame, text="")
+        self._caps_label.pack(side=tk.LEFT, padx=(12, 0))
+        self.refresh_run_labels(None)
+
     def _build_table_for_mode(self):
         """Build (or rebuild) the Treeview columns for the current mode."""
         # Destroy existing tree and scrollbar widgets inside table_frame
@@ -255,7 +275,9 @@ class PowerProgrammerPanel:
         )
         for col, width in zip(columns, col_widths):
             self._tree.heading(col, text=col)
-            self._tree.column(col, width=width, anchor='center', stretch=False)
+            self._tree.column(
+                col, width=260 if col == 'Type' else width, anchor='center', stretch=False
+            )
 
         vsb = ttk.Scrollbar(self._table_frame, orient='vertical',
                             command=self._tree.yview)
@@ -416,7 +438,9 @@ class PowerProgrammerPanel:
         if not sel:
             messagebox.showwarning("No Selection", "Select a block to delete.")
             return
-        idx = self._tree.index(sel[0])
+        if sel[0] == self.SOFT_START_IID:
+            return  # Soft start is locked
+        idx = self._tree.index(sel[0]) - 1  # row 0 is the Soft-start row
         del self._blocks[idx]
         self._refresh_table()
         self._refresh_status()
@@ -427,7 +451,9 @@ class PowerProgrammerPanel:
         if not sel:
             messagebox.showwarning("No Selection", "Select a block to move.")
             return
-        idx = self._tree.index(sel[0])
+        if sel[0] == self.SOFT_START_IID:
+            return  # Soft start is locked
+        idx = self._tree.index(sel[0]) - 1  # row 0 is the Soft-start row
         if idx == 0:
             return
         self._blocks[idx - 1], self._blocks[idx] = (
@@ -436,8 +462,8 @@ class PowerProgrammerPanel:
         self._refresh_table()
         # Re-select moved item
         children = self._tree.get_children()
-        if idx - 1 < len(children):
-            self._tree.selection_set(children[idx - 1])
+        if idx < len(children):  # block idx - 1 sits at row idx (Soft-start row first)
+            self._tree.selection_set(children[idx])
         self._refresh_status()
 
     def _move_down(self):
@@ -446,7 +472,9 @@ class PowerProgrammerPanel:
         if not sel:
             messagebox.showwarning("No Selection", "Select a block to move.")
             return
-        idx = self._tree.index(sel[0])
+        if sel[0] == self.SOFT_START_IID:
+            return  # Soft start is locked
+        idx = self._tree.index(sel[0]) - 1  # row 0 is the Soft-start row
         if idx >= len(self._blocks) - 1:
             return
         self._blocks[idx], self._blocks[idx + 1] = (
@@ -455,8 +483,8 @@ class PowerProgrammerPanel:
         self._refresh_table()
         # Re-select moved item
         children = self._tree.get_children()
-        if idx + 1 < len(children):
-            self._tree.selection_set(children[idx + 1])
+        if idx + 2 < len(children):  # block idx + 1 sits at row idx + 2
+            self._tree.selection_set(children[idx + 2])
         self._refresh_status()
 
     # ──────────────────────────────────────────────────────────────────────
@@ -467,6 +495,11 @@ class PowerProgrammerPanel:
         """Clear and re-populate the Treeview from self._blocks."""
         for item in self._tree.get_children():
             self._tree.delete(item)
+
+        self._tree.insert(
+            '', 'end', iid=self.SOFT_START_IID,
+            values=("", self._soft_start_row_text()),
+        )
 
         if self._mode == "TempRamp":
             if getattr(self, '_entry_mode', 'Rate') == "TimeTarget":
@@ -511,6 +544,45 @@ class PowerProgrammerPanel:
                     block.get("current_a", 0.0)
                 )
                 self._tree.insert('', 'end', values=row)
+
+    def _soft_start_row_text(self) -> str:
+        """Text of the locked first row, from the thresholds a run would use now."""
+        s = self._settings
+        return (
+            f"Soft start → PID at {s.soft_start_threshold_c:g} °C "
+            f"or {s.soft_start_handoff_current_a:g} A"
+        )
+
+    @staticmethod
+    def _cap_text(name: str, enabled: bool, amps: float) -> str:
+        return f"{name}: {amps:g} A" if enabled else f"{name}: OFF"
+
+    def refresh_run_labels(self, snapshot) -> None:
+        """
+        Show the gains and caps the run uses: from AppSettings when idle, from the
+        Snapshot's gains_in_use while a program is running.  The caps always come
+        from AppSettings, the same values RunSettings freezes at Run.
+        """
+        s = self._settings
+        if snapshot is not None and snapshot.program is not None and snapshot.program.running:
+            kp, ki, kd = snapshot.program.gains_in_use
+        else:
+            kp, ki, kd = s.pid_kp, s.pid_ki, s.pid_kd
+        self._gains_text = f"Gains in use: {kp:g} / {ki:g} / {kd:g}"
+        self._caps_text = "  ".join((
+            self._cap_text("Soft-start cap", s.soft_start_cap_enabled, s.soft_start_cap_a),
+            self._cap_text("Run cap", s.run_cap_enabled, s.run_cap_a),
+        ))
+        self._gains_label.config(text=self._gains_text)
+        self._caps_label.config(text=self._caps_text)
+
+    def get_gains_text(self) -> str:
+        """Return the text shown in the gains label."""
+        return self._gains_text
+
+    def get_caps_text(self) -> str:
+        """Return the text shown in the current-caps label."""
+        return self._caps_text
 
     def _refresh_status(self):
         """Update the duration label and ready indicator."""
@@ -563,7 +635,9 @@ class PowerProgrammerPanel:
         if col_index == 0:
             return  # '#' column is read-only
 
-        row_index = self._tree.index(row_id)
+        if row_id == self.SOFT_START_IID:
+            return  # Soft start is locked
+        row_index = self._tree.index(row_id) - 1  # row 0 is the Soft-start row
         block = self._blocks[row_index]
 
         # Get cell bounding box for popup placement

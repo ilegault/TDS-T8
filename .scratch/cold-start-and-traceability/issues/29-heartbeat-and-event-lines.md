@@ -1,6 +1,6 @@
 # 29: Heartbeat and event lines sized for 8-hour runs
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -24,11 +24,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test: an 8-hour TempRamp + Hold program on SimulatedRig with `ManualClock` writes fewer than 2 000 lines at INFO or above to the session log in `tmp_path`.
-- [ ] Same test: the number of lines containing ` HB ` is within ±2 of `8*3600/30`.
-- [ ] Integration test: a forced `soft_start_overcurrent` trip writes an ERROR line containing the trip's reason sentence.
-- [ ] Integration test: `run_cap_enabled=False` writes a WARNING line containing `Run current cap is OFF` at run start.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Integration test: an 8-hour TempRamp + Hold program on SimulatedRig with `ManualClock` writes fewer than 2 000 lines at INFO or above to the session log in `tmp_path`.
+- [x] Same test: the number of lines containing ` HB ` is within ±2 of `8*3600/30`.
+- [x] Integration test: a forced `soft_start_overcurrent` trip writes an ERROR line containing the trip's reason sentence.
+- [x] Integration test: `run_cap_enabled=False` writes a WARNING line containing `Run current cap is OFF` at run start.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -39,3 +39,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: `RunRecord` (writer thread) now writes an INFO line per event, an ERROR line per `TRIP` event with its full reason, and an `HB` line every `heartbeat_interval_s` of Snapshot time (wired from `AppSettings.heartbeat_interval_s` in `main_window`). `ProgramRun.start` emits `PROGRAM_START` and logs the WARNING `Soft-start current cap is OFF` / `Run current cap is OFF`. All criteria covered by `tests/integration/test_heartbeat_and_event_lines.py`. No bench verification needed.
