@@ -1558,7 +1558,7 @@ class MainWindow:
         self.status_var.set("QMS triggered — ramp continuing")
 
     def _show_pid_run_summary(self):
-        """Show a post-run PID performance summary and offer to update settings gains."""
+        """Show the engine's run metrics and reasons; Apply opens Settings prefilled (no save)."""
         prog_run = getattr(self.rig, 'program_run', None)
         if prog_run is None:
             return
@@ -1590,14 +1590,15 @@ class MainWindow:
             f"Analysis:\n{note_str}\n\n"
             f"Suggested for next run:\n"
             f"  Kp={suggest_kp}  Ki={suggest_ki}  Kd={suggest_kd}\n\n"
-            f"Apply suggested gains to Settings?"
+            f"Open Settings with the suggested gains?"
         )
 
         if messagebox.askyesno("PID Run Summary", msg):
-            self._app_settings.pid_kp = suggest_kp
-            self._app_settings.pid_ki = suggest_ki
-            self._app_settings.pid_kd = suggest_kd
-            self._app_settings.save()
+            # Nothing is written here: the operator reviews the prefilled gains
+            # and presses Save in the Settings dialog (ADR 0007).
+            SettingsDialog(self.root, self._app_settings,
+                           on_save_callback=self._apply_settings_to_gui,
+                           prefill_gains=(suggest_kp, suggest_ki, suggest_kd))
 
     def _on_program_status(self, status):
         idx = status['block_index']
