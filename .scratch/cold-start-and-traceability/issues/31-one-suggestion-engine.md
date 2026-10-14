@@ -1,6 +1,6 @@
 # 31: One Suggestion engine
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test: a run log oscillating ±1 K around setpoint gives an oscillation count of 0; ±5 K gives more than 0.
-- [ ] Unit test: metrics with 20 % rate-tracking error and no overshoot → suggested `ki` greater than the gains-in-use `ki`, with a reason containing `rate`.
-- [ ] Unit test: metrics with 8 K overshoot → suggested `kp` less than the gains-in-use `kp`.
-- [ ] Integration test: a completed TempRamp on SimulatedRig leaves the `tmp_path` history file absent or empty; the same program through a fake live adapter writes one record containing `run_id` and `adapter`.
-- [ ] A rule in `test_architecture_rules.py`: no call `PIDRunLogger()` without arguments exists under `t8_daq_system/` or `tests/`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test: a run log oscillating ±1 K around setpoint gives an oscillation count of 0; ±5 K gives more than 0.
+- [x] Unit test: metrics with 20 % rate-tracking error and no overshoot → suggested `ki` greater than the gains-in-use `ki`, with a reason containing `rate`.
+- [x] Unit test: metrics with 8 K overshoot → suggested `kp` less than the gains-in-use `kp`.
+- [x] Integration test: a completed TempRamp on SimulatedRig leaves the `tmp_path` history file absent or empty; the same program through a fake live adapter writes one record containing `run_id` and `adapter`.
+- [x] A rule in `test_architecture_rules.py`: no call `PIDRunLogger()` without arguments exists under `t8_daq_system/` or `tests/`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -41,3 +41,6 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+Summary (2026-10-13): new pure `control/suggestion_engine.py` (`run_metrics`, `suggest`, `Suggestion`) is the only suggestion source. `PIDRunLogger` requires `log_file`; `_generate_suggestions` and the popup's own maths are gone. `ProgramRun(pid_log_file, run_id=, build_id=)` saves only non-Simulated runs, with `run_id`, `build_id`, `adapter`, suggested gains and reasons. Oscillations 1 K vs 5 K, rate-error→Ki, overshoot→Kp: `tests/unit/test_suggestion_engine.py`. Simulated vs live history: `tests/integration/test_run_history.py`. No-arg `PIDRunLogger()` rule: `tests/unit/test_architecture_rules.py`. Tests build ProgramRun via `make_program_run()` (autouse conftest fixture points it at `tmp_path`).
+Note: MainWindow did not construct a ProgramRun for its Rig at all; it now does, with the history file in the log folder and `build_id="dev"` (same literal as main.py) until the Build ID ticket lands. Bench: none.

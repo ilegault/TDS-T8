@@ -43,6 +43,7 @@ from t8_daq_system.control.block_steps import (
 from t8_daq_system.control.feedforward_map import FeedforwardMap
 from t8_daq_system.control.heater_output import ProgramHeaterRequest
 from t8_daq_system.control.safety_monitor import Trip
+from t8_daq_system.control.suggestion_engine import run_metrics, suggest
 from t8_daq_system.control.temp_ramp_pid import PIDController, PIDRunLogger
 from t8_daq_system.rig.commands import RunSettings
 from t8_daq_system.rig.snapshot import ProgramStatus, Snapshot
@@ -56,7 +57,8 @@ class ProgramRun:
 
     Owns: block list and index, block-start time and temperature,
     per-block gain resolution, bumpless PID transfer, the FIX-2 two-second
-    completion guard, run history saving, and QMS confirmation pause.
+    completion guard, run history saving (live runs only, scored by the one
+    Suggestion engine), and QMS confirmation pause.
 
     Driven by:
       load(blocks)          — called when LoadProgram is drained
@@ -68,7 +70,16 @@ class ProgramRun:
                               returns ProgramHeaterRequest, Trip, or None
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        pid_log_file: str,
+        *,
+        run_id: str = "unknown",
+        build_id: str = "unknown",
+    ) -> None:
+        self._run_id = run_id
+        self._build_id = build_id
+        self._adapter_name: str = "unknown"
         self._blocks: list[Any] = []
         self._running: bool = False
         self._block_index: int = 0
@@ -78,7 +89,7 @@ class ProgramRun:
         self._settings: RunSettings | None = None
         self._ff_map = FeedforwardMap()
         self._ff_map.load()
-        self._pid_logger = PIDRunLogger()
+        self._pid_logger = PIDRunLogger(pid_log_file)
 
         # Two-tick warm-up state (see module docstring)
         self._just_started_phase: int = 0  # 2 -> 1 -> 0
@@ -165,6 +176,7 @@ class ProgramRun:
             return
 
         self._running = True
+        self._adapter_name = snapshot.adapter
         self._block_index = 0
         self._just_started_phase = 2
         self._last_step_volts = commanded_volts
@@ -371,14 +383,7 @@ class ProgramRun:
     def _on_block_finished(self, block: Any, elapsed_s: float, temp_k: float) -> None:
         """Handle block completion: save history, check QMS gate, advance index."""
         if block.block_type == "temp_ramp" and elapsed_s > 0 and self._ctx is not None:
-            achieved_rate = (temp_k - self._ctx.start_temp_k) / (elapsed_s / 60.0)
-            overshoot_k = max(
-                (e[2] - e[1] for e in self._run_log),
-                default=0.0,
-            )
-            self._save_run_to_history(
-                block.rate_k_per_min, achieved_rate, overshoot_k, elapsed_s
-            )
+            self._save_run_to_history(block.rate_k_per_min, elapsed_s)
 
         next_idx = self._block_index + 1
 
@@ -427,49 +432,41 @@ class ProgramRun:
                 return tc
         return "TC_1"
 
-    def _save_run_to_history(
-        self,
-        target_rate: float,
-        achieved_rate: float,
-        overshoot_k: float,
-        elapsed_span: float,
-    ) -> None:
-        """Compute settling/oscillation metrics and save to PIDRunLogger + FeedforwardMap."""
-        SETTLE_BAND_K = 2.0
-        SETTLE_MIN_TICKS = 10
-        settling_time_sec = None
-        consecutive = 0
-        for entry in self._run_log:
-            t, sp, actual, _ = entry
-            if abs(actual - sp) <= SETTLE_BAND_K:
-                consecutive += 1
-                if consecutive >= SETTLE_MIN_TICKS and settling_time_sec is None:
-                    settling_time_sec = t
-            else:
-                consecutive = 0
+    def _save_run_to_history(self, target_rate: float, elapsed_span: float) -> None:
+        """Score the run with the Suggestion engine; save it unless it is Simulated.
 
-        errors = [e[2] - e[1] for e in self._run_log]
-        oscillation_count = sum(
-            1 for i in range(1, len(errors)) if errors[i - 1] * errors[i] < 0
-        )
-
-        record = {
-            "timestamp": datetime.datetime.now().isoformat(),
-            "target_rate_k_per_min": target_rate,
-            "achieved_mean_rate_k_per_min": achieved_rate,
-            "overshoot_k": overshoot_k,
-            "settling_time_sec": settling_time_sec,
-            "oscillation_count": oscillation_count,
-            "duration_sec": elapsed_span,
-            "kp_used": self._pid._kp,
-            "ki_used": self._pid._ki,
-            "kd_used": self._pid._kd,
-        }
-        self._last_run_record = record
-        try:
-            self._pid_logger.save_run(record)
-        except Exception as exc:
-            logger.warning("ProgramRun: failed to save PID run record: %s", exc)
+        Runs on the Simulated rig feed neither the Run history nor the post-run
+        suggestion (ADR 0007 point 7); the Feedforward map still learns from them.
+        """
+        if self._adapter_name != "simulated":
+            metrics = run_metrics(self._run_log, target_rate)
+            gains = (self._pid._kp, self._pid._ki, self._pid._kd)
+            suggestion = suggest(metrics, gains)
+            record = {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "run_id": self._run_id,
+                "build_id": self._build_id,
+                "adapter": self._adapter_name,
+                "target_rate_k_per_min": target_rate,
+                "achieved_mean_rate_k_per_min": metrics["achieved_mean_rate_k_per_min"],
+                "rate_error_pct": metrics["rate_error_pct"],
+                "overshoot_k": metrics["overshoot_k"],
+                "settling_time_sec": metrics["settling_time_sec"],
+                "oscillation_count": metrics["oscillation_count"],
+                "duration_sec": elapsed_span,
+                "kp_used": gains[0],
+                "ki_used": gains[1],
+                "kd_used": gains[2],
+                "suggested_kp": suggestion.kp,
+                "suggested_ki": suggestion.ki,
+                "suggested_kd": suggestion.kd,
+                "suggestions": list(suggestion.reasons),
+            }
+            self._last_run_record = record
+            try:
+                self._pid_logger.save_run(record)
+            except OSError as exc:
+                logger.warning("ProgramRun: failed to save PID run record: %s", exc)
 
         try:
             self._ff_map.append_run(self._run_log, target_rate)

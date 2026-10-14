@@ -8,7 +8,8 @@ No GUI / tkinter imports — pure control/logic module.
 import json
 import logging
 import os
-import sys
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -237,117 +238,39 @@ class PIDRunLogger:
     """
     Persists completed TempRamp run records to logs/pid_runs.json.
 
-    Each record captures performance metrics, the gains used, and auto-generated
-    tuning suggestions — giving a clean review of every ramp after the fact.
-    The log is kept at a fixed path inside the logs/ folder so the GUI can
-    display it without any extra configuration.
+    Each record captures performance metrics, the gains used, the Suggestion from
+    the one Suggestion engine, and run_id / build_id / adapter for traceability.
+    The caller supplies the path (there is no default: a default path let tests
+    write the real history file, ADR 0007 point 7).
     """
 
     LOG_FILENAME = "pid_runs.json"
     MAX_RUNS = 100  # keep the last N runs
 
-    @staticmethod
-    def _default_log_file() -> str:
-        """Resolve logs/pid_runs.json relative to the exe (frozen) or project root (dev)."""
-        if getattr(sys, 'frozen', False):
-            appdata = os.environ.get('APPDATA', os.path.dirname(sys.executable))
-            logs_dir = os.path.join(appdata, 'T8_DAQ_System', 'logs')
-        else:
-            # Two levels up from this file: t8_daq_system/control/ → project root
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            logs_dir = os.path.join(project_root, 'logs')
-        return os.path.join(logs_dir, PIDRunLogger.LOG_FILENAME)
-
-    def __init__(self, log_file: str = None):
-        self.log_file = log_file or self._default_log_file()
+    def __init__(self, log_file: str):
+        self.log_file = log_file
         self._runs = []
         self._load()
 
     # ── Private ────────────────────────────────────────────────────────────────
 
     def _load(self):
-        """Load existing run log from disk; silently fall back to empty list."""
+        """Load existing run log from disk; an unreadable file starts a fresh list."""
         try:
             if os.path.exists(self.log_file):
                 with open(self.log_file, 'r') as f:
                     data = json.load(f)
                 if isinstance(data, list):
                     self._runs = data
-        except Exception:
+        except (OSError, ValueError) as exc:
+            logger.warning("PIDRunLogger: could not read %s: %s", self.log_file, exc)
             self._runs = []
-
-    def _generate_suggestions(self, record: dict) -> list:
-        """Auto-generate tuning suggestions based on this run's metrics."""
-        suggestions = []
-        overshoot = record.get('overshoot_k', 0.0)
-        oscillations = record.get('oscillation_count', 0)
-        settling = record.get('settling_time_sec')
-        target_rate = record.get('target_rate_k_per_min', 0.0)
-        achieved_rate = record.get('achieved_mean_rate_k_per_min', 0.0)
-
-        # Rate tracking accuracy
-        if target_rate and target_rate > 0:
-            rate_error_pct = abs(achieved_rate - target_rate) / target_rate * 100
-            if rate_error_pct > 25:
-                suggestions.append(
-                    f"Rate tracking error {rate_error_pct:.0f}% — increase Ki to improve "
-                    "steady-state following of the ramp setpoint."
-                )
-            elif rate_error_pct > 10:
-                suggestions.append(
-                    f"Minor rate tracking error ({rate_error_pct:.0f}%) — a small Ki increase "
-                    "may tighten this up."
-                )
-
-        # Overshoot
-        if overshoot > 10:
-            suggestions.append(
-                f"Large overshoot ({overshoot:.1f} K) — reduce Kp or increase Kd to damp "
-                "the response."
-            )
-        elif overshoot > 5:
-            suggestions.append(
-                f"Moderate overshoot ({overshoot:.1f} K) — slight Kp reduction or small Kd "
-                "increase should help."
-            )
-
-        # Oscillations
-        if oscillations > 8:
-            suggestions.append(
-                f"High oscillation count ({oscillations}) — reduce Ki or increase Kd to "
-                "damp ringing."
-            )
-        elif oscillations > 4:
-            suggestions.append(
-                f"Some oscillations ({oscillations}) — a small Kd increase may smooth the "
-                "response without sacrificing speed."
-            )
-
-        # Settling
-        if settling is None:
-            suggestions.append(
-                "Temperature never settled within ±2 K — gains may need significant "
-                "re-tuning or the ramp rate exceeds what the heater can follow."
-            )
-        elif settling > 120:
-            suggestions.append(
-                f"Slow settling ({settling:.0f} s) — increase Ki to reduce steady-state error "
-                "and speed up convergence."
-            )
-
-        if not suggestions:
-            suggestions.append(
-                "Performance looks good — rate tracking, overshoot, and settling all within "
-                "acceptable bounds. Current gains appear well-tuned for this ramp rate."
-            )
-
-        return suggestions
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def save_run(self, run_record: dict):
         """
-        Append a completed run record (with auto-suggestions) and write to disk.
+        Append a completed run record and write to disk.
 
         Expected keys in run_record:
             timestamp (str, ISO)
@@ -360,11 +283,9 @@ class PIDRunLogger:
             kp_used (float)
             ki_used (float)
             kd_used (float)
+            suggestions (list[str]), run_id, build_id, adapter (str)
         """
-        record = dict(run_record)
-        record['suggestions'] = self._generate_suggestions(record)
-
-        self._runs.append(record)
+        self._runs.append(dict(run_record))
         if len(self._runs) > self.MAX_RUNS:
             self._runs = self._runs[-self.MAX_RUNS:]
 
@@ -376,8 +297,8 @@ class PIDRunLogger:
         try:
             with open(self.log_file, 'w') as f:
                 json.dump(self._runs, f, indent=2)
-        except Exception:
-            logger.exception("PIDRunLogger: could not write log %s", self.log_file)
+        except OSError as exc:
+            logger.warning("PIDRunLogger: could not write %s: %s", self.log_file, exc)
 
     def get_all_runs(self) -> list:
         """Return a copy of all stored run records, newest last."""

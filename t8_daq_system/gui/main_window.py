@@ -18,7 +18,9 @@ import os
 import sys
 
 from t8_daq_system.utils.startup_profiler import profiler
+from t8_daq_system.control.program_run import ProgramRun
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
+from t8_daq_system.control.temp_ramp_pid import PIDRunLogger
 from t8_daq_system.data.data_buffer import DataBuffer
 from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
 from t8_daq_system.gui.live_plot import LivePlot
@@ -213,6 +215,18 @@ class MainWindow:
         self._last_labjack_read_failed = False
         self._pressure_interlock_fired = False
 
+        # Set up log folder path
+        if getattr(sys, 'frozen', False):
+            # If the application is run as a bundle, use the directory of the executable
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            # If run as a script, use the parent of t8_daq_system
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        # Use registry-persisted log folder if set, otherwise default to base_dir/logs
+        _custom_log = settings.log_folder if isinstance(settings.log_folder, str) and settings.log_folder else ""
+        self.log_folder = _custom_log if _custom_log else os.path.join(base_dir, 'logs')
+
         profiler.section("Rig and Adapter Initialization")
         self.connection = None
         if rig is not None:
@@ -237,6 +251,11 @@ class MainWindow:
                 hardware_adapter=self._hardware_adapter,
                 tc_names=tc_names,
                 gauge_names=gauge_names,
+                program_run=ProgramRun(
+                    os.path.join(self.log_folder, PIDRunLogger.LOG_FILENAME),
+                    run_id=run_id or "unknown",
+                    build_id="dev",  # real Build ID arrives with the build-id ticket
+                ),
             )
             self.rig.start()
 
@@ -270,17 +289,6 @@ class MainWindow:
         profiler.checkpoint("DataBuffer created")
 
         profiler.checkpoint("Setting up log folder paths...")
-        # Set up log folder path
-        if getattr(sys, 'frozen', False):
-            # If the application is run as a bundle, use the directory of the executable
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            # If run as a script, use the parent of t8_daq_system
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-        # Use registry-persisted log folder if set, otherwise default to base_dir/logs
-        _custom_log = settings.log_folder if isinstance(settings.log_folder, str) and settings.log_folder else ""
-        self.log_folder = _custom_log if _custom_log else os.path.join(base_dir, 'logs')
         self.profiles_folder = os.path.join(base_dir, 'config', 'profiles')
 
         if not os.path.exists(self.profiles_folder):
@@ -1515,22 +1523,14 @@ class MainWindow:
         overshoot = record.get('overshoot_k', 0.0)
         oscillations = record.get('oscillation_count', 0)
         settling = record.get('settling_time_sec')
-        kp_used = record.get('kp_used', self._app_settings.pid_kp)
-        ki_used = record.get('ki_used', self._app_settings.pid_ki)
-        kd_used = record.get('kd_used', self._app_settings.pid_kd)
-
-        # Build suggestion: if overshoot > 5K or oscillations > 4, recommend reducing gains
-        suggest_kp, suggest_ki, suggest_kd = kp_used, ki_used, kd_used
-        notes = []
-        if overshoot > 5.0:
-            suggest_kp = round(kp_used * 0.7, 5)
-            suggest_ki = round(ki_used * 0.6, 5)
-            notes.append(f"Overshoot was {overshoot:.1f} K — reducing Kp and Ki")
-        if oscillations > 4:
-            suggest_kd = round(kd_used * 1.3, 5)
-            notes.append(f"{oscillations} oscillations detected — increasing Kd")
-        if not notes:
-            notes.append("Run looked stable — gains unchanged")
+        kp_used = record['kp_used']
+        ki_used = record['ki_used']
+        kd_used = record['kd_used']
+        # The one Suggestion engine already scored this run (ProgramRun).
+        suggest_kp = round(record['suggested_kp'], 5)
+        suggest_ki = round(record['suggested_ki'], 5)
+        suggest_kd = round(record['suggested_kd'], 5)
+        notes = record['suggestions']
 
         settling_str = f"{settling:.0f} s" if settling is not None else "did not settle"
         note_str = "\n".join(notes)
@@ -2824,8 +2824,7 @@ class MainWindow:
         prog_run = getattr(self.rig, 'program_run', None) if hasattr(self, 'rig') and self.rig else None
         if prog_run is not None:
             return prog_run.get_pid_logger()
-        from t8_daq_system.control.temp_ramp_pid import PIDRunLogger
-        return PIDRunLogger()
+        return PIDRunLogger(os.path.join(self.log_folder, PIDRunLogger.LOG_FILENAME))
 
     def _open_pid_log_viewer(self):
         """Open a scrollable dialog showing all logged PID ramp runs with suggestions."""
