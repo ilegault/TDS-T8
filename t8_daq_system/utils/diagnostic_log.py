@@ -13,6 +13,9 @@ next lines dump every setting with where it came from (registry or default), so 
 silent default is visible.  Uncaught exceptions on any thread are logged with a
 traceback rather than lost with a hidden console.
 
+The operator can also open a live console window (Settings, "Show console window")
+without a special build; ``attach_console`` allocates it and mirrors the log to it.
+
 No GUI imports: this module is pure so it can run before any window exists.
 """
 from __future__ import annotations
@@ -79,3 +82,32 @@ def start_session(log_dir, keep: int, build_id: str, run_id: str, adapter: str,
 
     _rotate(console_dir, keep)
     return path
+
+
+def _open_conout():
+    """Open the Windows console output device for writing (a seam for tests)."""
+    return open("CONOUT$", "w", encoding="utf-8", buffering=1)
+
+
+def attach_console(enabled: bool, platform: str = sys.platform, kernel32=None) -> bool:
+    """
+    Show a console window mirroring the Diagnostic log; return whether one was attached.
+
+    Only acts when ``enabled`` on ``win32`` and the process has no console yet.
+    ``kernel32`` is injectable so tests never touch Windows.
+    """
+    if not enabled or platform != "win32":
+        return False
+    if kernel32 is None:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+    if kernel32.GetConsoleWindow() != 0:
+        return False
+    kernel32.AllocConsole()
+    sys.stdout = _open_conout()
+    sys.stderr = sys.stdout
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logging.getLogger().addHandler(handler)
+    logger.info("Console window attached")
+    return True
