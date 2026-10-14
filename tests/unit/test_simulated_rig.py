@@ -158,3 +158,26 @@ def test_fault_injection_disconnect_and_reconnect():
     assert rig.is_connected() is True
     readings = rig.read()
     assert readings.tc_c["TC_1"] is not None
+
+
+def test_cold_specimen_at_small_voltage_draws_large_current():
+    """Cold-start event: 0.29 V on a ~20 C specimen draws > 40 A (ticket 20)."""
+    clock = ManualClock()
+    rig = SimulatedRig(clock=clock, tc_names=["TC_1"])
+    rig.set_output(True)
+    rig.write_voltage(0.29)
+    readings = rig.read()
+    assert readings.ps_amps > 40.0
+
+
+def test_cold_resistance_matches_march_2026_logs():
+    """R(300 K) is 4-6 mOhm (March 2026 logs: 0.0093 V -> 2.17 A at 27 C)."""
+    assert 0.004 <= TungstenSim()._resistance(300.0) <= 0.006
+
+
+def test_current_at_6v_steady_state_is_within_rated_range():
+    """At 6.0 V steady state the supply delivers 120-180 A."""
+    sim = TungstenSim()
+    sim.steady_state_temp(6.0)
+    current = 6.0 / sim._resistance(sim.get_state()['temperature_k'])
+    assert 120.0 <= current <= 180.0
