@@ -1,6 +1,6 @@
 # 35: AGENTS.md catches up with this effort
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
