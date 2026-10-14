@@ -424,7 +424,14 @@ class Rig:
         # ---------------------------------------------------------
         from t8_daq_system.control.safety_monitor import Trip
 
-        eval_result = self._safety_evaluator.evaluate(snap_interim)
+        active_settings = (
+            self._program_run.settings
+            if self._program_run is not None and self._program_run.running
+            else None
+        )
+        eval_result = self._safety_evaluator.evaluate(
+            snap_interim, run_settings=active_settings
+        )
         trips = list(eval_result.trips)
 
         if not self._adapter_connected or read_failed:
