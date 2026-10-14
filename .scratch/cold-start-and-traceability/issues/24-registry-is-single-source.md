@@ -1,6 +1,6 @@
 # 24: Registry is the single source of settings
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
