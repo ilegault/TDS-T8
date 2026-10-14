@@ -1,6 +1,6 @@
 # 26: Diagnostic log foundation
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
