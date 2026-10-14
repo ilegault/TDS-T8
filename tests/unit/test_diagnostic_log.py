@@ -119,3 +119,67 @@ def test_run_record_csv_metadata_carries_run_id(tmp_path):
 def test_module_has_no_gui_imports():
     src = open(diagnostic_log.__file__, encoding="utf-8").read()
     assert "tkinter" not in src and "gui" not in src
+
+
+class FakeKernel32:
+    """Stands in for ctypes.windll.kernel32; counts calls, never touches Windows."""
+
+    def __init__(self, console_window=0):
+        self.console_window = console_window
+        self.alloc_calls = 0
+        self.window_calls = 0
+
+    def GetConsoleWindow(self):
+        self.window_calls += 1
+        return self.console_window
+
+    def AllocConsole(self):
+        self.alloc_calls += 1
+        return 1
+
+
+@pytest.fixture
+def fake_conout(monkeypatch):
+    """Replace the CONOUT$ reopen with an in-memory stream; restore sys.stdout/stderr."""
+    import io
+    import sys
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(sys, "stderr", sys.stderr)
+    stream = io.StringIO()
+    monkeypatch.setattr(diagnostic_log, "_open_conout", lambda: stream)
+    return stream
+
+
+def test_attach_console_allocates_when_enabled_on_windows_without_console(fake_conout):
+    fake = FakeKernel32(console_window=0)
+    assert diagnostic_log.attach_console(True, "win32", fake) is True
+    assert fake.alloc_calls == 1
+
+
+def test_attach_console_does_nothing_off_windows():
+    fake = FakeKernel32()
+    assert diagnostic_log.attach_console(True, "linux", fake) is False
+    assert fake.alloc_calls == 0
+    assert fake.window_calls == 0
+
+
+def test_attach_console_disabled_returns_false():
+    fake = FakeKernel32()
+    assert diagnostic_log.attach_console(False, "win32", fake) is False
+    assert fake.alloc_calls == 0
+
+
+def test_attach_console_skips_when_console_already_present():
+    fake = FakeKernel32(console_window=1234)
+    assert diagnostic_log.attach_console(True, "win32", fake) is False
+    assert fake.alloc_calls == 0
+
+
+def test_record_reaches_session_file_and_console_handler(tmp_path, fake_conout):
+    path = start_session(tmp_path, keep=30, build_id="dev", run_id="20261013_101500",
+                         adapter="simulated")
+    assert diagnostic_log.attach_console(True, "win32", FakeKernel32()) is True
+    logging.getLogger("console.test").info("hello console")
+    _flush()
+    assert "hello console" in path.read_text(encoding="utf-8")
+    assert "hello console" in fake_conout.getvalue()

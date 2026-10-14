@@ -864,6 +864,11 @@ class SettingsDialog(tk.Toplevel):
                         text="Reset graphs when starting a new log",
                         variable=self._reset_graph_on_start_logging_var).pack(anchor='w', padx=5, pady=5)
 
+        self._show_console_var = tk.BooleanVar()
+        ttk.Checkbutton(logging_behaviour_frame,
+                        text="Show console window (takes effect on restart)",
+                        variable=self._show_console_var).pack(anchor='w', padx=5, pady=5)
+
     def _create_option_row(self, parent, label, var_name, values, row):
         """Helper to create a label + combobox row."""
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky='w', padx=5, pady=5)
@@ -1021,6 +1026,7 @@ class SettingsDialog(tk.Toplevel):
         self._ps_current_monitor_pin_var.set(s.ps_current_monitor_pin)
         self._skip_preflight_check_var.set(s.skip_preflight_check)
         self._reset_graph_on_start_logging_var.set(s.reset_graph_on_start_logging)
+        self._show_console_var.set(s.show_console)
         self._ps_enabled_var.set(s.ps_enabled)
         self._xgs_enabled_var.set(s.xgs_enabled)
         self._pp_profiles_folder_var.set(s.pp_profiles_folder)
@@ -1111,6 +1117,7 @@ class SettingsDialog(tk.Toplevel):
             s.ps_current_monitor_pin = self._ps_current_monitor_pin_var.get().strip()
             s.skip_preflight_check = self._skip_preflight_check_var.get()
             s.reset_graph_on_start_logging = self._reset_graph_on_start_logging_var.get()
+            s.show_console = self._show_console_var.get()
             s.ps_enabled = self._ps_enabled_var.get()
             s.xgs_enabled = self._xgs_enabled_var.get()
             s.pp_profiles_folder = self._pp_profiles_folder_var.get().strip()
