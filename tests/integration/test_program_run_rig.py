@@ -204,7 +204,8 @@ def test_three_block_program_completes():
     tick(ns)
 
     blocks = [
-        VoltageRampBlock(start_voltage=0.0, end_voltage=1.0, duration_sec=1.0),
+        # 0.1 V: the cold specimen is ~5 mOhm (ticket 20), so 1 V would heat it far past the 303 K hold.
+        VoltageRampBlock(start_voltage=0.0, end_voltage=0.1, duration_sec=1.0),
         TempRampBlock(rate_k_per_min=60.0, end_temp_k=303.0, tc_name="TC_1"),
         StableHoldBlock(target_temp_k=303.0, tolerance_k=50.0, hold_duration_sec=0.5),
     ]
