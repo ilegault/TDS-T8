@@ -369,3 +369,72 @@ class TestLivePlotSliderMode(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestTrueValueAxes(unittest.TestCase):
+    """Ticket 34: tick labels are real values; PS plot never over-zooms.
+
+    conftest replaces matplotlib with mocks, so setUp swaps the real library
+    (Agg canvas) in for these tests and restores the mocks afterwards.  Only the
+    Tk canvas stays faked.
+    """
+
+    def setUp(self):
+        import importlib
+        import sys
+        names = [n for n in sys.modules
+                 if n == 'matplotlib' or n.startswith('matplotlib.')
+                 or n == 't8_daq_system.gui.live_plot']
+        saved = {n: sys.modules.pop(n) for n in names}
+
+        def restore():
+            for n in [n for n in sys.modules
+                      if n == 'matplotlib' or n.startswith('matplotlib.')
+                      or n == 't8_daq_system.gui.live_plot']:
+                del sys.modules[n]
+            sys.modules.update(saved)
+        self.addCleanup(restore)
+
+        sys.modules['matplotlib.backends.backend_tkagg'] = MagicMock()
+        import matplotlib
+        matplotlib.use('Agg')
+        self.live_plot = importlib.import_module('t8_daq_system.gui.live_plot')
+
+    def _make_plot(self, plot_type):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        with patch.object(self.live_plot, 'FigureCanvasTkAgg'):
+            plot = self.live_plot.LivePlot(MagicMock(), MagicMock(), plot_type=plot_type)
+        FigureCanvasAgg(plot.fig)
+        return plot
+
+    def _noisy_ps_plot(self):
+        import random
+        rng = random.Random(1)
+        plot = self._make_plot('ps')
+        now = datetime.now()
+        stamps = [now - timedelta(seconds=60 - i) for i in range(60)]
+        volts = [1.4998 + rng.uniform(-0.0001, 0.0001) for _ in stamps]
+        amps = [40.0 + rng.uniform(-0.01, 0.01) for _ in stamps]
+        plot._render(stamps, {'PS_Voltage': volts, 'PS_Current': amps},
+                     window_seconds=120)
+        plot.fig.canvas.draw()
+        return plot
+
+    def test_voltage_ticks_are_true_values_without_offset(self):
+        plot = self._noisy_ps_plot()
+        self.assertEqual(plot.ax.yaxis.get_major_formatter().get_offset(), '')
+        labels = [t.get_text() for t in plot.ax.get_yticklabels() if t.get_text()]
+        self.assertTrue(labels)
+        for text in labels:
+            self.assertTrue(1.47 <= float(text.replace('−', '-')) <= 1.53, text)
+
+    def test_ps_axes_never_zoom_tighter_than_minimum_span(self):
+        plot = self._noisy_ps_plot()
+        lo, hi = plot.ax.get_ylim()
+        self.assertGreaterEqual(hi - lo, 0.05 - 1e-9)
+        lo2, hi2 = plot.ax2.get_ylim()
+        self.assertGreaterEqual(hi2 - lo2, 1.0 - 1e-9)
+
+    def test_pressure_axis_stays_log(self):
+        plot = self._make_plot('pressure')
+        self.assertEqual(plot.ax.get_yscale(), 'log')

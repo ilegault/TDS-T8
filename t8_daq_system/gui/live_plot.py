@@ -20,6 +20,7 @@ import logging
 import tkinter as tk
 from tkinter import ttk
 from matplotlib.figure import Figure
+from matplotlib.ticker import ScalarFormatter
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
@@ -27,6 +28,27 @@ from t8_daq_system.utils.helpers import convert_pressure, convert_temperature
 
 logger = logging.getLogger(__name__)
 
+# Narrowest span the PS plot will zoom to, so meter noise cannot fill the screen.
+PS_MIN_VOLT_SPAN = 0.05   # V
+PS_MIN_AMP_SPAN = 1.0     # A
+
+
+def use_true_value_ticks(ax):
+    """Make every y tick label the real value: no '+1.499' offset, no 1e-3 sci notation.
+
+    Linear axes only; never call this on a log-scale pressure axis.
+    """
+    formatter = ScalarFormatter(useOffset=False)
+    formatter.set_scientific(False)
+    ax.yaxis.set_major_formatter(formatter)
+
+
+def _widen_to_min_span(lo, hi, min_span):
+    """Return (lo, hi) widened about its centre to at least ``min_span`` wide."""
+    if hi - lo >= min_span:
+        return lo, hi
+    centre = (lo + hi) / 2.0
+    return centre - min_span / 2.0, centre + min_span / 2.0
 
 
 class LivePlot:
@@ -124,6 +146,7 @@ class LivePlot:
             self.ax.set_ylabel(f'Temperature ({self._temp_unit})')
             self.fig.subplots_adjust(left=0.12, right=0.95, top=0.95, bottom=0.18)
 
+        self._apply_true_value_ticks()
         self.ax.set_xlabel('Time')
         self.ax.grid(True, alpha=0.3)
         self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
@@ -295,6 +318,13 @@ class LivePlot:
 
         self.canvas.draw_idle()
 
+    def _apply_true_value_ticks(self):
+        """True-value tick labels on every linear axis (log pressure axis untouched)."""
+        if self.plot_type != 'pressure':
+            use_true_value_ticks(self.ax)
+        if self.ax2 is not None:
+            use_true_value_ticks(self.ax2)
+
     # Setpoint/limit lines excluded from autoscale on the PS plot
     _PS_AUTOSCALE_EXCLUDE = {'PS_Voltage_Setpoint', 'PS_CC_Limit'}
 
@@ -333,14 +363,20 @@ class LivePlot:
                 self.ax.set_ylim(lo * 0.9, hi * 1.1)
             else:
                 margin = (hi - lo) * 0.05 if hi != lo else 1.0
-                self.ax.set_ylim(lo - margin, hi + margin)
+                lo, hi = lo - margin, hi + margin
+                if self.plot_type == 'ps':
+                    lo, hi = _widen_to_min_span(lo, hi, PS_MIN_VOLT_SPAN)
+                self.ax.set_ylim(lo, hi)
 
         if self.ax2 is not None:
             bounds_ax2 = _get_bounds(self.ax2)
             if bounds_ax2 is not None:
                 lo2, hi2 = bounds_ax2
                 margin2 = (hi2 - lo2) * 0.05 if hi2 != lo2 else 1.0
-                self.ax2.set_ylim(lo2 - margin2, hi2 + margin2)
+                lo2, hi2 = lo2 - margin2, hi2 + margin2
+                if self.plot_type == 'ps':
+                    lo2, hi2 = _widen_to_min_span(lo2, hi2, PS_MIN_AMP_SPAN)
+                self.ax2.set_ylim(lo2, hi2)
 
     def update(self, sensor_names, data_units=None):
         """
@@ -480,6 +516,7 @@ class LivePlot:
                 self.ax.tick_params(axis='y', labelcolor=self.ps_colors['PS_Voltage'])
                 self.fig.subplots_adjust(left=0.12, right=0.85, top=0.95, bottom=0.18)
 
+        self._apply_true_value_ticks()  # ax.clear() resets the formatter
         self.canvas.draw_idle()
 
     def save_figure(self, filepath, dpi=150):
@@ -917,7 +954,7 @@ class LivePlot:
             _measured_ax  = {('ps', 'PS_Voltage')}
             _measured_ax2 = {('ps', 'PS_Current')}
 
-            def _ylim_from_keys(ax, keys):
+            def _ylim_from_keys(ax, keys, min_span):
                 y_all = []
                 for key in keys:
                     line = self.lines.get(key)
@@ -929,11 +966,11 @@ class LivePlot:
                     return
                 lo, hi = min(y_all), max(y_all)
                 margin = (hi - lo) * 0.1 if hi != lo else max(abs(hi) * 0.1, 0.1)
-                ax.set_ylim(lo - margin, hi + margin)
+                ax.set_ylim(*_widen_to_min_span(lo - margin, hi + margin, min_span))
 
-            _ylim_from_keys(self.ax, _measured_ax)
+            _ylim_from_keys(self.ax, _measured_ax, PS_MIN_VOLT_SPAN)
             if self.ax2 is not None:
-                _ylim_from_keys(self.ax2, _measured_ax2)
+                _ylim_from_keys(self.ax2, _measured_ax2, PS_MIN_AMP_SPAN)
             # Still update x-axis autoscale
             self.ax.autoscale_view(scaley=False)
         else:
