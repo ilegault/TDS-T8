@@ -17,6 +17,7 @@ import time
 import os
 import sys
 
+from t8_daq_system.build_info import get_build_id
 from t8_daq_system.utils.startup_profiler import profiler
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
 from t8_daq_system.data.data_buffer import DataBuffer
@@ -167,6 +168,14 @@ class MainWindow:
     # Available sampling rates in milliseconds
     SAMPLE_RATES = [100, 200, 500, 1000, 2000]
 
+    @staticmethod
+    def _window_title(practice=False):
+        """Window title; always ends with the Build ID so the operator can read it out."""
+        base = "T8 DAQ System with Power Supply Control"
+        if practice:
+            base = "[PRACTICE MODE] " + base
+        return f"{base} \u2014 {get_build_id()}"
+
     def __init__(self, settings=None, rig=None, run_id=None):
         profiler.section("MainWindow.__init__ START")
         profiler.checkpoint("Entering __init__ method")
@@ -199,7 +208,7 @@ class MainWindow:
         self.root = tk.Tk()
         profiler.checkpoint("tk.Tk() root window created")
 
-        self.root.title("T8 DAQ System with Power Supply Control")
+        self.root.title(self._window_title())
         self.root.geometry("1200x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         profiler.checkpoint("Root window properties set")
@@ -1082,7 +1091,7 @@ class MainWindow:
             self._auto_start_acquisition()
 
             # ── Feature C: Window title ───────────────────────────────────
-            self.root.title('[PRACTICE MODE] T8 DAQ System with Power Supply Control')
+            self.root.title(self._window_title(practice=True))
 
             # ── Feature C: Practice button style ─────────────────────────
             style = ttk.Style()
@@ -1116,7 +1125,7 @@ class MainWindow:
                     break
 
             # ── Feature C: Revert window title ────────────────────────────
-            self.root.title('T8 DAQ System with Power Supply Control')
+            self.root.title(self._window_title())
 
             # ── Feature C: Revert practice button style ───────────────────
             self.practice_btn.configure(style='TButton')
@@ -2206,6 +2215,7 @@ class MainWindow:
                 sample_rate_ms=int(self.sample_rate_var.get().replace('ms', '')),
                 notes=notes or "",
                 run_id=self._run_id,
+                build_id=get_build_id(),
             )
 
             header = build_csv_header(self.config, has_ps_controller=bool(self.ps_controller))

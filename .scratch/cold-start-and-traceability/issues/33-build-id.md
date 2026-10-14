@@ -1,6 +1,6 @@
 # 33: Build ID on every artifact
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test: `build_id('7656f09', date(2026, 10, 5), False) == '2026-10-05_7656f09'`, and with `dirty=True` the result ends with `-dirty`.
-- [ ] Unit test: `main([])` with a faked `run` reporting a dirty tree exits non-zero with a message containing `uncommitted`; `main(['--allow-dirty'])` reaches the faked PyInstaller call.
-- [ ] Unit test: `build_info_text` output contains the id, the branch and every file name passed.
-- [ ] Unit test: with no `_build_info` module importable, `get_build_id() == 'dev'`, and the main window title (Tk mocked) ends with `dev`.
-- [ ] Unit test: a CSV written by the Run record to `tmp_path` has a metadata line containing `build_id`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test: `build_id('7656f09', date(2026, 10, 5), False) == '2026-10-05_7656f09'`, and with `dirty=True` the result ends with `-dirty`.
+- [x] Unit test: `main([])` with a faked `run` reporting a dirty tree exits non-zero with a message containing `uncommitted`; `main(['--allow-dirty'])` reaches the faked PyInstaller call.
+- [x] Unit test: `build_info_text` output contains the id, the branch and every file name passed.
+- [x] Unit test: with no `_build_info` module importable, `get_build_id() == 'dev'`, and the main window title (Tk mocked) ends with `dev`.
+- [x] Unit test: a CSV written by the Run record to `tmp_path` has a metadata line containing `build_id`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -41,3 +41,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: Added `scripts/build.py` (pure `build_id`/`build_info_text`, injectable `run`), `build.bat`, `t8_daq_system/build_info.py` (`get_build_id`, `dev` fallback), window titles end with the Build ID, `main.py` passes it to `start_session`, CSV metadata carries `build_id`, `.gitignore` entry. All criteria covered by `tests/unit/test_build_id.py`. Bench: run `build.bat` once on the rig PC (note `tds.spec` is not in the repo; the script calls `pyinstaller tds.spec` as specified).
