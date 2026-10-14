@@ -1,6 +1,6 @@
 # 25: Soft start and caps are visible to the operator
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -25,11 +25,11 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test: `compute_preview(...)` with settings returns a soft-start end time greater than 0, and its voltages before that time rise no faster than the ramp rate.
-- [ ] Unit test (Tk mocked, as in `tests/unit/test_gui_reads_rig.py`): the block table's first row text starts with `Soft start`; calling the delete handler with that row selected leaves the block list unchanged.
-- [ ] Unit test: feeding a Snapshot with `phase='soft_start'` to the GUI's snapshot handler sets status text starting with `SOFT START`.
-- [ ] Unit test: with `run_cap_enabled=False` the Power Programmer cap label text contains `Run cap: OFF`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test: `compute_preview(...)` with settings returns a soft-start end time greater than 0, and its voltages before that time rise no faster than the ramp rate.
+- [x] Unit test (Tk mocked, as in `tests/unit/test_gui_reads_rig.py`): the block table's first row text starts with `Soft start`; calling the delete handler with that row selected leaves the block list unchanged.
+- [x] Unit test: feeding a Snapshot with `phase='soft_start'` to the GUI's snapshot handler sets status text starting with `SOFT START`.
+- [x] Unit test: with `run_cap_enabled=False` the Power Programmer cap label text contains `Run cap: OFF`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -40,3 +40,9 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13 - Done. All tests in `tests/unit/test_soft_start_visible.py`.
+- `compute_preview` takes `soft_start=` (a RunSettings) and returns a fifth value, the Soft-start end time; criterion 1 tests (`TestComputePreviewSoftStart`). `ProgramPanel` passes the settings and `ProgrammerPreviewPlot.update_unified_preview` shades the span.
+- `PowerProgrammerPanel`: locked first row, handlers refuse it, block indexes shifted by one (`TestLockedSoftStartRow`, criterion 2); gains and cap labels (`TestCapAndGainsLabels`, criterion 4).
+- `MainWindow.render_snapshot`: SOFT START status, then the handoff reason for 30 s (`TestStatusLine`, criterion 3).
+- Notes for the developer: the Soft-start span in the preview is an estimate (threshold assumed reached at 1 V, `SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD`); the live phase ends on measured TC or current. `PowerProgrammerPanel` is no longer instantiated by `MainWindow` (the live editor is `ProgramPanel`), so the locked row and the gains / cap labels are not on screen in the running app until `ProgramPanel` gets the same treatment. Bench check: see the status line during a real cold start.
