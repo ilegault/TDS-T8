@@ -1,8 +1,34 @@
+import logging
 import sys
 import unittest
+from contextlib import contextmanager
 import pytest
 
 from t8_daq_system.hardware.keysight_analog_controller import KeysightAnalogController
+
+
+_KEYSIGHT_LOGGER = "t8_daq_system.hardware.keysight_analog_controller"
+
+
+@contextmanager
+def _captured_log(level=logging.INFO):
+    """Collect the controller's log messages (it logs; it no longer prints)."""
+    messages = []
+
+    class _H(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    lg = logging.getLogger(_KEYSIGHT_LOGGER)
+    handler = _H(level=level)
+    old_level = lg.level
+    lg.addHandler(handler)
+    lg.setLevel(level)
+    try:
+        yield messages
+    finally:
+        lg.removeHandler(handler)
+        lg.setLevel(old_level)
 
 pytestmark = pytest.mark.unit
 
@@ -206,51 +232,39 @@ class TestKeysightAnalogController(unittest.TestCase):
         mock_ljm.eReadName.side_effect = None
 
     def test_get_voltage_safety_warning_above_range(self):
-        """A raw AIN reading that maps above 6.5V should trigger a warning print."""
-        import io
-        from contextlib import redirect_stdout
+        """A raw AIN reading that maps above 6.5V should log a warning."""
         # 5.5V / 5.0 * 6.0 = 6.6V — above 6.5V threshold
         mock_ljm.eReadName.return_value = 5.5
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with _captured_log() as log_messages:
             result = self.controller.get_voltage()
-        output = buf.getvalue()
+        output = " ".join(log_messages)
         self.assertIn("WARNING", output)
         self.assertAlmostEqual(result, 6.6, places=5)
 
     def test_get_current_safety_warning_above_range(self):
-        """A raw AIN reading that maps above 185A should trigger a warning print."""
-        import io
-        from contextlib import redirect_stdout
+        """A raw AIN reading that maps above 185A should log a warning."""
         # 5.2V / 5.0 * 180.0 = 187.2A — above 185A threshold
         mock_ljm.eReadName.return_value = 5.2
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with _captured_log() as log_messages:
             result = self.controller.get_current()
-        output = buf.getvalue()
+        output = " ".join(log_messages)
         self.assertIn("WARNING", output)
         self.assertAlmostEqual(result, 187.2, places=4)
 
     def test_get_voltage_no_warning_in_range(self):
         """Normal reading (2.5V → 3.0V) must not trigger a WARNING."""
-        import io
-        from contextlib import redirect_stdout
         mock_ljm.eReadName.return_value = 2.5
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with _captured_log() as log_messages:
             result = self.controller.get_voltage()
-        self.assertNotIn("WARNING", buf.getvalue())
+        self.assertNotIn("WARNING", " ".join(log_messages))
         self.assertAlmostEqual(result, 3.0)
 
     def test_get_current_no_warning_in_range(self):
         """Normal reading (2.5V → 90A) must not trigger a WARNING."""
-        import io
-        from contextlib import redirect_stdout
         mock_ljm.eReadName.return_value = 2.5
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with _captured_log() as log_messages:
             result = self.controller.get_current()
-        self.assertNotIn("WARNING", buf.getvalue())
+        self.assertNotIn("WARNING", " ".join(log_messages))
         self.assertAlmostEqual(result, 90.0)
 
     # ── test_keysight_scaling ─────────────────────────────────────────────────
@@ -262,12 +276,9 @@ class TestKeysightAnalogController(unittest.TestCase):
 
     def test_keysight_scaling_prints_expected_voltage_values(self):
         """test_keysight_scaling() output must contain canonical voltage check values."""
-        import io
-        from contextlib import redirect_stdout
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with _captured_log() as log_messages:
             self.controller.test_keysight_scaling()
-        output = buf.getvalue()
+        output = " ".join(log_messages)
         # 2.5V AIN → 3.000V at 50% scale
         self.assertIn("3.000V", output)
         # 5.0V AIN → 6.000V at full scale
@@ -275,12 +286,9 @@ class TestKeysightAnalogController(unittest.TestCase):
 
     def test_keysight_scaling_prints_expected_current_values(self):
         """test_keysight_scaling() output must contain canonical current check values."""
-        import io
-        from contextlib import redirect_stdout
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with _captured_log() as log_messages:
             self.controller.test_keysight_scaling()
-        output = buf.getvalue()
+        output = " ".join(log_messages)
         # 2.5V AIN → 90.00A at 50% scale
         self.assertIn("90.00A", output)
         # 5.0V AIN → 180.00A at full scale

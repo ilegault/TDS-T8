@@ -4,7 +4,11 @@ PURPOSE: Read thermocouple temperatures from T8
 KEY CONCEPT: T8 has "Extended Features" (EF) that do the math automatically
 """
 
+import logging
+
 from labjack import ljm
+
+logger = logging.getLogger(__name__)
 
 DEBUG_TC = False   # Set False to silence TC debug output
 
@@ -36,7 +40,7 @@ class ThermocoupleReader:
         This tells the T8 "this channel has a Type K thermocouple"
         """
         if DEBUG_TC:
-            print(f"[TC DEBUG] Configuring {len([t for t in self.thermocouples if t['enabled']])} enabled TC channels")
+            logger.debug(f"[TC DEBUG] Configuring {len([t for t in self.thermocouples if t['enabled']])} enabled TC channels")
 
         for tc in self.thermocouples:
             if not tc['enabled']:
@@ -66,11 +70,11 @@ class ThermocoupleReader:
 
                 if DEBUG_TC:
                     neg_ch = ljm.eReadName(self.handle, f"AIN{channel}_NEGATIVE_CH")
-                    print(f"[TC DEBUG] Configured {tc['name']}: AIN{channel}, type={tc_type} "
+                    logger.debug(f"[TC DEBUG] Configured {tc['name']}: AIN{channel}, type={tc_type} "
                           f"(EF_INDEX={self.TC_TYPES[tc_type]}), RANGE=0.1V, "
                           f"NEGATIVE_CH={int(neg_ch)}")
             except ljm.LJMError as e:
-                print(f"Error configuring thermocouple {tc['name']} on AIN{channel}: {e}")
+                logger.exception(f"Error configuring thermocouple {tc['name']} on AIN{channel}: {e}")
                 raise e
 
     def read_all(self):
@@ -92,7 +96,7 @@ class ThermocoupleReader:
             # Single LJM call to read all thermocouple channels at once
             results = ljm.eReadNames(self.handle, len(read_names), read_names)
         except ljm.LJMError as e:
-            print(f"Batch thermocouple read error: {e}")
+            logger.exception(f"Batch thermocouple read error: {e}")
             # Fall back to individual reads
             return self._read_all_sequential()
 
@@ -109,11 +113,11 @@ class ThermocoupleReader:
             self._debug_read_count += 1
             # Print every 10th read to avoid flooding the log
             if self._debug_read_count % 10 == 1:
-                print(f"[TC DEBUG] Read #{self._debug_read_count} — "
+                logger.debug(f"[TC DEBUG] Read #{self._debug_read_count} — "
                       f"{len(enabled_tcs)} channels, registers: {read_names}")
                 for name, val in readings.items():
                     status = f"{val:.3f} °C" if val is not None else "NONE (-9999 / open circuit)"
-                    print(f"  {name}: {status}")
+                    logger.debug(f"  {name}: {status}")
 
         return readings
 
@@ -146,7 +150,7 @@ class ThermocoupleReader:
         try:
             results = ljm.eReadNames(self.handle, len(raw_names), raw_names)
         except ljm.LJMError as e:
-            print(f"Batch raw voltage read error: {e}")
+            logger.exception(f"Batch raw voltage read error: {e}")
             return {f"{tc['name']}_rawV": None for tc in enabled_tcs}
 
         raw_voltages = {}
@@ -180,7 +184,7 @@ class ThermocoupleReader:
                 else:
                     readings[tc['name']] = round(temp, 3)
             except ljm.LJMError as e:
-                print(f"Error reading {tc['name']}: {e}")
+                logger.exception(f"Error reading {tc['name']}: {e}")
                 readings[tc['name']] = None
 
         return readings
@@ -205,7 +209,7 @@ class ThermocoupleReader:
                     
                     return round(temp, 3)
                 except ljm.LJMError as e:
-                    print(f"Error reading {channel_name}: {e}")
+                    logger.exception(f"Error reading {channel_name}: {e}")
                     return None
         return None
 
