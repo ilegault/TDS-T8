@@ -30,8 +30,8 @@ TEMP_OVERRIDE_RESET_C: float = 2150.0
 # Keysight N5700 DAC0 voltage maximum clamp (CV-only limit)
 DAC0_MAX_V: float = 6.0
 
-# Cold-tungsten current guard limit in Amperes
-COLD_CURRENT_LIMIT_A: float = 180.0
+# Keysight N5700 rated current ceiling in Amperes (DAC1 pinned here, CV-only)
+PS_CURRENT_CEILING_A: float = 180.0
 
 # Interval between hardware reconnection attempts in seconds
 RECONNECT_INTERVAL_S: float = 30.0

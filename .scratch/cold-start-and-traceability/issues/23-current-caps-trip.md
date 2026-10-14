@@ -1,6 +1,6 @@
 # 23: Current caps trip the heater
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -26,12 +26,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test: `soft_start_cap_a=40`, a SimulatedRig forced to report 45 A during Soft start → in that same Snapshot the heater output is off, commanded voltage is 0, trip kind is `soft_start_overcurrent`, and the reason contains `45` and `40`.
-- [ ] Integration test: after handoff with `run_cap_a=120`, forced 125 A → trip kind `run_overcurrent`.
-- [ ] With `soft_start_cap_enabled=False`, forced 45 A during Soft start → no trip.
-- [ ] `ResetTrip` while the forced current is still 45 A is refused; after the current drops below the cap it is accepted.
-- [ ] A rule in `test_architecture_rules.py` asserts no file under `t8_daq_system/` contains `COLD_CURRENT_LIMIT_A`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Integration test: `soft_start_cap_a=40`, a SimulatedRig forced to report 45 A during Soft start → in that same Snapshot the heater output is off, commanded voltage is 0, trip kind is `soft_start_overcurrent`, and the reason contains `45` and `40`.
+- [x] Integration test: after handoff with `run_cap_a=120`, forced 125 A → trip kind `run_overcurrent`.
+- [x] With `soft_start_cap_enabled=False`, forced 45 A during Soft start → no trip.
+- [x] `ResetTrip` while the forced current is still 45 A is refused; after the current drops below the cap it is accepted.
+- [x] A rule in `test_architecture_rules.py` asserts no file under `t8_daq_system/` contains `COLD_CURRENT_LIMIT_A`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -42,3 +42,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: `evaluate_safety` takes `run_settings` (passed by the Rig from `ProgramRun.settings` while a run is active) and raises `soft_start_overcurrent` / `run_overcurrent` trips (`Trip` gains `limit`). `HeaterOutput` refuses reset while `ps_amps` is above the tripped cap; its cold-current clamp is gone, and `COLD_CURRENT_LIMIT_A` is replaced by `PS_CURRENT_CEILING_A` (the `PS_CC_Limit` CSV column still reports 180 A). `SimulatedRig.force_current` / `release_current` added. Tests: `tests/integration/test_current_caps_trip.py` (criteria 1-4), `test_architecture_rules.py` (criterion 5), old guard tests in `test_heater_output.py` rewritten in place. The shared `make_run_settings` helper now defaults `run_cap_enabled=False` because block-transition tests ramp the cold sim past 120 A; cap tests enable it. No bench verification needed.

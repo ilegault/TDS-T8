@@ -24,7 +24,7 @@ from t8_daq_system.control.heater_output import (
     HeaterOutput,
     ProgramHeaterRequest,
 )
-from t8_daq_system.control.safety_monitor import Trip
+from t8_daq_system.control.safety_monitor import Trip, evaluate_safety
 from t8_daq_system.rig.commands import (
     Nudge,
     ResetTrip,
@@ -40,7 +40,6 @@ from t8_daq_system.rig.snapshot import (
     SourceStatus,
 )
 from t8_daq_system.settings.safety_limits import (
-    COLD_CURRENT_LIMIT_A,
     DAC0_MAX_V,
     TEMP_OVERRIDE_RESET_C,
 )
@@ -415,32 +414,42 @@ class TestRule4OperatorOutranksProgram:
 
 
 class TestRule5ColdTungstenGuard:
+    """Rule 5 is now the Run current cap: over-cap current is a latched trip (ADR 0006)."""
+
+    @staticmethod
+    def _run_snapshot(amps: float) -> Snapshot:
+        return _make_snapshot(
+            permissive_ok=True,
+            ps_amps=amps,
+            program=ProgramStatus(running=True, phase="block"),
+        )
+
     def test_cold_tungsten_guard_refuses_voltage_rise_when_current_high(self):
-        """Rule 5: if ps_amps > COLD_CURRENT_LIMIT_A, volts may not rise above previous command."""
+        """Rule 5: current above the Run cap trips; the requested rise is never applied."""
         ho = HeaterOutput()
         snap1 = _make_snapshot(permissive_ok=True, ps_amps=100.0)
         ho.resolve([SetOutput(True), SetVoltage(1.5)], snap1)
 
-        # Current exceeds 180 A (e.g. 185 A)
-        snap_hot = _make_snapshot(permissive_ok=True, ps_amps=COLD_CURRENT_LIMIT_A + 5.0)
-        # Attempt to rise from 1.5 V to 2.5 V
-        cmd = ho.resolve([SetVoltage(2.5)], snap_hot)
+        snap_hot = self._run_snapshot(125.0)
+        trips = evaluate_safety(snap_hot, run_settings=make_run_settings(run_cap_enabled=True, run_cap_a=120.0))
+        cmd = ho.resolve(list(trips) + [SetVoltage(2.5)], snap_hot)
 
-        # Clamped to previous command (1.5 V)
-        assert cmd.volts == 1.5
+        assert cmd.trip_kind == "run_overcurrent"
+        assert cmd.output_enabled is False
+        assert cmd.volts == 0.0
 
     def test_cold_tungsten_guard_allows_voltage_reduction_when_current_high(self):
-        """Rule 5: if ps_amps > COLD_CURRENT_LIMIT_A, decreasing voltage is permitted."""
+        """Rule 5: an over-cap trip cuts to 0 V, the ultimate reduction, and latches."""
         ho = HeaterOutput()
         snap1 = _make_snapshot(permissive_ok=True, ps_amps=100.0)
         ho.resolve([SetOutput(True), SetVoltage(2.0)], snap1)
 
-        # Current exceeds 180 A
-        snap_hot = _make_snapshot(permissive_ok=True, ps_amps=COLD_CURRENT_LIMIT_A + 5.0)
-        # Lower voltage from 2.0 V to 1.2 V
-        cmd = ho.resolve([SetVoltage(1.2)], snap_hot)
+        snap_hot = self._run_snapshot(125.0)
+        trips = evaluate_safety(snap_hot, run_settings=make_run_settings(run_cap_enabled=True, run_cap_a=120.0))
+        cmd = ho.resolve(list(trips) + [SetVoltage(1.2)], snap_hot)
 
-        assert cmd.volts == 1.2
+        assert cmd.volts == 0.0
+        assert ho.is_latched
 
     def test_cold_tungsten_guard_allows_rise_when_current_normal(self):
         """Rule 5: if ps_amps <= COLD_CURRENT_LIMIT_A, voltage rise is permitted."""
