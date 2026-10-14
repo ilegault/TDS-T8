@@ -1,6 +1,6 @@
 # 22: Soft start phase
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Integration test (Rig + SimulatedRig + ManualClock), TempRamp program on a cold specimen: while `snapshot.program.phase == 'soft_start'`, each commanded voltage exceeds the previous by at most `ramp × 0.5 + 1e-9` V.
-- [ ] Same run: it hands off with `handoff_reason` starting `"handoff current"` or `"threshold"`.
-- [ ] A run started with the specimen above threshold has `phase == 'block'` on its first Snapshot and `handoff_reason` starting `"skipped"`.
-- [ ] The Run record CSV written to `tmp_path` in that test contains exactly one event row whose detail contains the handoff reason.
-- [ ] The first block's first commanded voltage equals the last Soft-start voltage within 0.0001 V.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Integration test (Rig + SimulatedRig + ManualClock), TempRamp program on a cold specimen: while `snapshot.program.phase == 'soft_start'`, each commanded voltage exceeds the previous by at most `ramp × 0.5 + 1e-9` V.
+- [x] Same run: it hands off with `handoff_reason` starting `"handoff current"` or `"threshold"`.
+- [x] A run started with the specimen above threshold has `phase == 'block'` on its first Snapshot and `handoff_reason` starting `"skipped"`.
+- [x] The Run record CSV written to `tmp_path` in that test contains exactly one event row whose detail contains the handoff reason.
+- [x] The first block's first commanded voltage equals the last Soft-start voltage within 0.0001 V.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -41,3 +41,5 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+Summary (2026-10-13): `step_soft_start` (pure) in `block_steps.py`; `ProgramRun` enters Soft start unless the control TC is at/above the threshold, holds the voltage at handoff and starts block 0 via the bumpless warm-up; `ProgramStatus.phase`/`handoff_reason`; `SOFT_START_HANDOFF` event on handoff or skip. `DataLogger` now reads/writes UTF-8 (the reason contains °C and ≥, which cp1252 cannot encode). Tests: `tests/integration/test_soft_start_phase.py` (criteria 1-5), `tests/unit/test_soft_start_step.py`. `tests/run_settings_helper.py` default threshold is now -273 °C so block-focused tests skip Soft start; soft-start tests override it.

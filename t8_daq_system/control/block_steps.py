@@ -126,6 +126,37 @@ def step_voltage_ramp(
     return StepResult(volts=v_out, finished=finished, sched=SchedValues(), setpoint_k=0.0)
 
 
+def step_soft_start(
+    settings: Any,
+    temp_c: float,
+    amps: float,
+    elapsed_s: float,
+    start_voltage: float,
+) -> tuple[StepResult, str | None]:
+    """
+    Pure step function for the Soft start phase (ADR 0006 points 1-2).
+
+    Ramps the voltage open-loop from start_voltage at settings.soft_start_ramp_v_per_s,
+    with no Feedforward and no PID. Returns the StepResult (finished=True on handoff)
+    and the handoff reason, or None while still ramping. The first of the control-TC
+    threshold and the handoff current ends it; the threshold is reported first when
+    both are met on the same step.
+    """
+    v_out = start_voltage + settings.soft_start_ramp_v_per_s * elapsed_s
+    v_out = max(0.0, min(v_out, 6.0))
+
+    reason: str | None = None
+    if temp_c >= settings.soft_start_threshold_c:
+        reason = f"threshold {settings.soft_start_threshold_c:.1f} °C reached"
+    elif amps >= settings.soft_start_handoff_current_a:
+        reason = (
+            f"handoff current {settings.soft_start_handoff_current_a:.1f} A "
+            f"reached at {temp_c:.1f} °C"
+        )
+
+    return StepResult(volts=v_out, finished=reason is not None), reason
+
+
 def step_stable_hold(
     block: Any,
     temp_k: float,

@@ -27,6 +27,18 @@ two-phase just-started mechanism:
 
 This produces identical per-tick voltage literals to the old executor (AC 5,
 ticket rig-architecture-10).
+
+SOFT START (ADR 0006)
+---------------------
+Every run begins in the "soft_start" phase unless the control TC is already at or
+above RunSettings.soft_start_threshold_c at start().  Soft start is not a block and
+is not saved in profiles.  It ramps the commanded voltage open-loop with no
+Feedforward (block_steps.step_soft_start) until the control TC reaches the
+threshold or the measured current reaches the handoff current.  Handoff (or a skip)
+publishes the reason in ProgramStatus.handoff_reason and emits a SOFT_START_HANDOFF
+event.  On handoff the commanded voltage is held and block 0 starts through the
+normal two-tick warm-up, whose bumpless transfer seeds the PID so the first block
+output equals the last Soft-start voltage.
 """
 from __future__ import annotations
 
@@ -82,6 +94,12 @@ class ProgramRun:
 
         # Two-tick warm-up state (see module docstring)
         self._just_started_phase: int = 0  # 2 -> 1 -> 0
+
+        # Soft start (ADR 0006): "soft_start" until handoff, then "block"
+        self._phase: str = "block"
+        self._handoff_reason: str = ""
+        self._soft_start_began_s: float = 0.0
+        self._soft_start_from_volts: float = 0.0
 
         self._block_start_time_s: float = 0.0
         self._ctx: StepContext | None = None
@@ -183,6 +201,19 @@ class ProgramRun:
         self._confirmation_ready = False
         self._run_log = []
 
+        # Soft start unless the specimen is already at or above the threshold.
+        self._soft_start_began_s = now_s
+        self._soft_start_from_volts = commanded_volts
+        self._handoff_reason = ""
+        control_tc_c = self._read_temp_k(self._blocks[0], snapshot) - 273.15
+        if control_tc_c >= settings.soft_start_threshold_c:
+            self._phase = "block"
+            self._handoff_reason = f"skipped: control TC {control_tc_c:.1f} °C ≥ threshold"
+            self._pending_events.append(("SOFT_START_HANDOFF", self._handoff_reason))
+            logger.info("ProgramRun: soft start %s", self._handoff_reason)
+        else:
+            self._phase = "soft_start"
+
     def stop(self) -> None:
         """Stop execution immediately (called on StopProgram or trip)."""
         self._running = False
@@ -232,6 +263,9 @@ class ProgramRun:
                 self._just_started_phase = 2
             else:
                 return None
+
+        if self._phase == "soft_start":
+            return self._step_soft_start(snapshot, now_s)
 
         block = self._blocks[self._block_index]
 
@@ -303,6 +337,8 @@ class ProgramRun:
             ff_voltage=self._sched.ff_voltage,
             pid_correction=self._sched.pid_correction,
             control_tc=control_tc,
+            phase=self._phase,
+            handoff_reason=self._handoff_reason,
             gains_in_use=(
                 (self._settings.kp, self._settings.ki, self._settings.kd)
                 if self._settings is not None
@@ -313,6 +349,31 @@ class ProgramRun:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _step_soft_start(
+        self, snapshot: Snapshot, now_s: float
+    ) -> ProgramHeaterRequest | None:
+        """One Soft-start tick: ramp open-loop, or hand off to block 0 holding the voltage."""
+        elapsed_s = now_s - self._soft_start_began_s
+        self._elapsed_s = elapsed_s
+        temp_c = self._read_temp_k(self._blocks[0], snapshot) - 273.15
+        res, reason = _block_steps.step_soft_start(
+            self._settings, temp_c, snapshot.ps_amps, elapsed_s, self._soft_start_from_volts
+        )
+        if reason is None:
+            self._last_step_volts = res.volts
+            self._sched = res.sched
+            return ProgramHeaterRequest(volts=res.volts)
+
+        # Handoff: keep the last Soft-start voltage on the output; block 0 begins
+        # after its warm-up ticks, seeded from that voltage (bumpless transfer).
+        self._phase = "block"
+        self._handoff_reason = reason
+        self._elapsed_s = 0.0
+        self._just_started_phase = 2
+        self._pending_events.append(("SOFT_START_HANDOFF", reason))
+        logger.info("ProgramRun: soft start handoff: %s", reason)
+        return None
 
     def _setup_block(self, block: Any, snapshot: Snapshot, now_s: float) -> StepContext:
         """Resolve per-block gain/rate, build StepContext, apply bumpless PID."""
