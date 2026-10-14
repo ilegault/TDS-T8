@@ -260,7 +260,7 @@ class MainWindow:
                 program_run=ProgramRun(
                     os.path.join(self.log_folder, PIDRunLogger.LOG_FILENAME),
                     run_id=run_id or "unknown",
-                    build_id="dev",  # real Build ID arrives with the build-id ticket
+                    build_id=get_build_id(),
                 ),
             )
             self.rig.start()

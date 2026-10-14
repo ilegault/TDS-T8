@@ -17,7 +17,6 @@ import pytest
 
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import StableHoldBlock, TempRampBlock
-from t8_daq_system.control.program_run import ProgramRun
 from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.data.data_logger import DataLogger
 from t8_daq_system.data.run_record import RunRecord, build_header
@@ -25,7 +24,7 @@ from t8_daq_system.rig.clock import ManualClock
 from t8_daq_system.rig.commands import LoadProgram, StartProgram
 from t8_daq_system.rig.rig import Rig
 from t8_daq_system.rig.simulated import SimulatedRig
-from tests.run_settings_helper import make_run_settings
+from tests.run_settings_helper import make_program_run, make_run_settings
 
 pytestmark = pytest.mark.integration
 
@@ -69,7 +68,7 @@ def _make_fixture(tmp_path: Path):
         sample_rate_ms=500.0,
         heater_output=HeaterOutput(),
         safety_evaluator=SafetyEvaluator(),
-        program_run=ProgramRun(),
+        program_run=make_program_run(),
         tc_names=TC_NAMES,
         gauge_names=GAUGE_NAMES,
     )

@@ -356,21 +356,31 @@ def test_no_print_calls_outside_gui():
     """
     violations = []
 
-    for package in _NO_PRINT_PACKAGES:
-        base = PACKAGE_ROOT / package
-        if not base.exists():
-            continue
-        for py_file in _iter_python_files(base):
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            for node in ast.walk(tree):
-                if (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id == "print"
-                ):
-                    violations.append(f"{py_file.relative_to(REPO_ROOT)}:{node.lineno}")
+    for py_file in _iter_python_files(PACKAGE_ROOT):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                violations.append(f"{py_file.relative_to(REPO_ROOT)}:{node.lineno}")
 
-    assert not violations, "print() calls found outside gui/:\n" + "\n".join(violations)
+    assert not violations, "print() calls found in t8_daq_system/:\n" + "\n".join(violations)
+
+
+def test_old_cold_tungsten_current_guard_is_gone():
+    """
+    Rule: no file under t8_daq_system/ contains `COLD_CURRENT_LIMIT_A`.
+    ADR 0006 replaced the voltage-rise clamp with the Soft-start and Run current
+    caps, which trip the heater instead of silently holding the voltage.
+    """
+    violations = []
+    for py_file in _iter_python_files(PACKAGE_ROOT):
+        text = py_file.read_text(encoding="utf-8")
+        if "COLD_CURRENT_LIMIT_A" in text:
+            violations.append(str(py_file.relative_to(REPO_ROOT)))
+    assert not violations, f"COLD_CURRENT_LIMIT_A still referenced: {violations}"
 
 
 def test_pid_run_logger_is_never_constructed_without_a_path():
