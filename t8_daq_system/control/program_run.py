@@ -142,9 +142,15 @@ class ProgramRun:
         blocks: list[Any],
         start_temp_k: float = 293.15,
         start_voltage: float = 0.0,
-    ) -> tuple[list[float], list[float], list[float], list[float]]:
+        soft_start: Any = None,
+    ) -> tuple[list[float], list[float], list[float], list[float], float]:
         """Compute expected voltage/temperature profile for given blocks."""
-        return compute_preview(blocks, start_temp_k=start_temp_k, start_voltage=start_voltage)
+        return compute_preview(
+            blocks,
+            start_temp_k=start_temp_k,
+            start_voltage=start_voltage,
+            soft_start=soft_start,
+        )
 
     # ------------------------------------------------------------------
     # Public lifecycle API
@@ -548,25 +554,63 @@ class ProgramRun:
             logger.warning("ProgramRun: feedforward map append_run failed: %s", exc)
 
 
+# Rough cold-filament estimate used only to draw the Soft-start span: the control
+# TC is assumed to reach the soft-start threshold at this commanded voltage,
+# rising linearly with voltage from the starting temperature.  The live Soft start
+# ends on the measured TC or current (block_steps.step_soft_start), not on this.
+SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD = 1.0
+
+
 def compute_preview(
     blocks: list[Any],
     start_temp_k: float = 293.15,
     start_voltage: float = 0.0,
-) -> tuple[list[float], list[float], list[float], list[float]]:
+    soft_start: Any = None,
+) -> tuple[list[float], list[float], list[float], list[float], float]:
     """
     Compute the expected voltage and temperature profile for the given blocks.
 
+    soft_start is any object with soft_start_threshold_c and soft_start_ramp_v_per_s
+    (a RunSettings).  When given and the start temperature is below the threshold,
+    a Soft-start segment is prepended: voltage ramps from start_voltage at the
+    configured rate until the estimated temperature reaches the threshold.  Block
+    times are shifted by the segment's length.  With soft_start=None, or when Soft
+    start would be skipped, the segment is empty.
+
     Returns:
-        (times, voltages, temps_k, block_boundaries)
+        (times, voltages, temps_k, block_boundaries, soft_start_end_s)
+        block_boundaries[i] is the start time of block i; soft_start_end_s is 0.0
+        when there is no Soft-start segment.
     """
     times = [0.0]
     voltages = [start_voltage]
     temps_k = [start_temp_k]
-    boundaries = [0.0]
 
     current_time = 0.0
     current_v = start_voltage
     current_t = start_temp_k
+    soft_end_s = 0.0
+
+    if soft_start is not None:
+        threshold_k = soft_start.soft_start_threshold_c + 273.15
+        rate = soft_start.soft_start_ramp_v_per_s
+        v_span = SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD - start_voltage
+        if rate > 0 and start_temp_k < threshold_k and v_span > 0:
+            soft_end_s = v_span / rate
+            whole = int(soft_end_s)
+            for i in range(1, whole + 1):
+                times.append(float(i))
+                voltages.append(start_voltage + rate * i)
+                temps_k.append(start_temp_k + (threshold_k - start_temp_k) * (i / soft_end_s))
+            if soft_end_s > whole:
+                times.append(soft_end_s)
+                voltages.append(SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD)
+                temps_k.append(threshold_k)
+            current_time = soft_end_s
+            current_v = SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD
+            current_t = threshold_k
+
+    boundaries = [current_time]
 
     for block in blocks:
         if block.block_type == "voltage_ramp":
@@ -616,4 +660,4 @@ def compute_preview(
 
         boundaries.append(current_time)
 
-    return times, voltages, temps_k, boundaries
+    return times, voltages, temps_k, boundaries, soft_end_s

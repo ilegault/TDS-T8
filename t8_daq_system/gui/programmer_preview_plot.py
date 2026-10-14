@@ -188,9 +188,13 @@ class ProgrammerPreviewPlot:
         self.canvas.draw_idle()
 
     def update_unified_preview(self, times, voltages, temps_k, blocks, boundaries,
-                               display_unit='K', ff_voltages=None, zones_info=None):
+                               display_unit='K', ff_voltages=None, zones_info=None,
+                               soft_start_end_s=0.0):
         """
         Render the unified temperature-over-time preview.
+
+        If soft_start_end_s > 0 the span from 0 to that time is shaded and labelled
+        as the Soft start that precedes block 0 (ADR 0006).
 
         If any block is a voltage_ramp the right y-axis shows the voltage profile.
         If ff_voltages is provided (list of predicted FF voltages, same length as times)
@@ -279,6 +283,15 @@ class ProgrammerPreviewPlot:
         # FF-10 END
 
         right_margin = 0.88 if has_right_axis else 0.95
+
+        # ── Soft-start span ────────────────────────────────────────────────
+        if soft_start_end_s > 0:
+            self._ax_v.axvspan(0, soft_start_end_s / 60.0, alpha=0.12, color='gray',
+                               label='Soft start')
+            self._ax_v.text(soft_start_end_s / 120.0, 0.03, 'Soft start',
+                            transform=self._ax_v.get_xaxis_transform(),
+                            ha='center', va='bottom', fontsize=7, color='gray',
+                            style='italic')
 
         # ── Block boundary lines ───────────────────────────────────────────
         for b_time in boundaries[1:]:
