@@ -17,7 +17,7 @@ import pytest
 
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import TempRampBlock
-from t8_daq_system.control.program_run import ProgramRun
+from tests.run_settings_helper import make_program_run
 from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.rig.clock import ManualClock
 from t8_daq_system.rig.commands import LoadProgram, StartProgram
@@ -57,7 +57,7 @@ def _run_60s(level: int) -> list[logging.LogRecord]:
             sample_rate_ms=500.0,
             heater_output=HeaterOutput(),
             safety_evaluator=SafetyEvaluator(),
-            program_run=ProgramRun(),
+            program_run=make_program_run(),
             tc_names=TC_NAMES,
             gauge_names=GAUGE_NAMES,
         )

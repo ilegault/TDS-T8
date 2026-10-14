@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.run_settings_helper import make_run_settings
+from tests.run_settings_helper import make_run_settings, make_program_run
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import VoltageRampBlock
 from t8_daq_system.control.program_run import ProgramRun
@@ -42,7 +42,7 @@ def _make_fixture(tmp_path: Path) -> tuple[Rig, RunRecord, DataLogger, ManualClo
     sim = SimulatedRig(clock=clock, tc_names=TC_NAMES, gauge_names=GAUGE_NAMES)
     sim.connect()
 
-    program_run = ProgramRun()
+    program_run = make_program_run()
     heater_output = HeaterOutput()
     safety_eval = SafetyEvaluator()
 

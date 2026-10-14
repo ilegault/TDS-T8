@@ -119,7 +119,7 @@ class TestGuiReadsRig:
     def test_executor_control_temperature_equals_snapshot_value(self):
         """Criterion 2: Program control temperature for a tick equals the Snapshot's value."""
         from t8_daq_system.control.program_block import TempRampBlock
-        from t8_daq_system.control.program_run import ProgramRun
+        from tests.run_settings_helper import make_program_run
 
         target_temp_c = 345.6
         snapshot = Snapshot(
@@ -142,7 +142,7 @@ class TestGuiReadsRig:
             adapter="simulated",
         )
 
-        program_run = ProgramRun()
+        program_run = make_program_run()
         block = TempRampBlock(rate_k_per_min=60.0, end_temp_k=1000.0, tc_name="TC_1")
         measured_k = program_run._read_temp_k(block, snapshot)
 

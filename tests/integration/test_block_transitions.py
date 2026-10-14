@@ -15,14 +15,13 @@ from types import SimpleNamespace
 from typing import Any
 import pytest
 
-from tests.run_settings_helper import make_run_settings
+from tests.run_settings_helper import make_run_settings, make_program_run
 from t8_daq_system.control.heater_output import HeaterOutput
 from t8_daq_system.control.program_block import (
     StableHoldBlock,
     TempRampBlock,
     VoltageRampBlock,
 )
-from t8_daq_system.control.program_run import ProgramRun
 from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.rig.adapter import RawReadings, RigAdapter
 from t8_daq_system.rig.clock import ManualClock
@@ -95,7 +94,7 @@ def make_rig_fixture(*, start_time: float = 100.0, initial_temp_k: float = 300.0
     )
     sim._sim.reset(initial_temp_k)
     spy = CallSpyAdapter(sim)
-    program_run = ProgramRun()
+    program_run = make_program_run()
     heater_output = HeaterOutput()
     safety_evaluator = SafetyEvaluator()
     rig = Rig(

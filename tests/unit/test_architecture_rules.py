@@ -381,3 +381,23 @@ def test_old_cold_tungsten_current_guard_is_gone():
         if "COLD_CURRENT_LIMIT_A" in text:
             violations.append(str(py_file.relative_to(REPO_ROOT)))
     assert not violations, f"COLD_CURRENT_LIMIT_A still referenced: {violations}"
+
+
+def test_pid_run_logger_is_never_constructed_without_a_path():
+    """
+    Rule (ADR 0007 point 7): no call `PIDRunLogger()` without arguments exists under
+    t8_daq_system/ or tests/.  A default path let pytest write the real history file.
+    """
+    violations = []
+    for base in (PACKAGE_ROOT, REPO_ROOT / "tests"):
+        for py_file in _iter_python_files(base):
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and getattr(node.func, "id", getattr(node.func, "attr", None)) == "PIDRunLogger"
+                    and not node.args
+                    and not node.keywords
+                ):
+                    violations.append(f"{py_file.relative_to(REPO_ROOT)}:{node.lineno}")
+    assert not violations, f"PIDRunLogger() without a path: {violations}"

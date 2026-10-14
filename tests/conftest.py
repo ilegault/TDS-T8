@@ -12,6 +12,8 @@ Usage:
 """
 
 import sys
+
+import pytest
 from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
@@ -64,3 +66,13 @@ if "matplotlib" not in sys.modules:
     sys.modules["matplotlib.dates"] = MagicMock()
     sys.modules["matplotlib.ticker"] = MagicMock()
 
+
+
+@pytest.fixture(autouse=True)
+def _pid_run_history_under_tmp_path(tmp_path):
+    """Point tests.run_settings_helper.make_program_run at this test's tmp_path."""
+    from tests import run_settings_helper
+
+    run_settings_helper.set_pid_log_file(str(tmp_path / "pid_runs.json"))
+    yield
+    run_settings_helper.set_pid_log_file(None)

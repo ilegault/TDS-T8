@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 import pytest
 
-from tests.run_settings_helper import make_run_settings
+from tests.run_settings_helper import make_run_settings, make_program_run
 from t8_daq_system.control.block_steps import (
     SchedValues,
     StepContext,
@@ -237,10 +237,9 @@ def test_step_exceptions_propagate():
 
 def test_step_raising_propagates_through_program_run(monkeypatch):
     """Verify that an exception raised by a block step turns into a program_error trip in ProgramRun."""
-    from t8_daq_system.control.program_run import ProgramRun
     from t8_daq_system.rig.snapshot import Snapshot, SourceStatus, HeaterStatus, ProgramStatus
 
-    pr = ProgramRun()
+    pr = make_program_run()
     block = TempRampBlock(rate_k_per_min=60.0, end_temp_k=303.0, tc_name="TC_1")
     pr.load([block])
 

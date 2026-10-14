@@ -20,14 +20,13 @@ from typing import Any
 
 import pytest
 
-from tests.run_settings_helper import make_run_settings
+from tests.run_settings_helper import make_run_settings, make_program_run
 from t8_daq_system.control.heater_output import HeaterOutput, ProgramHeaterRequest
 from t8_daq_system.control.program_block import (
     StableHoldBlock,
     TempRampBlock,
     VoltageRampBlock,
 )
-from t8_daq_system.control.program_run import ProgramRun
 from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.rig.adapter import RawReadings, RigAdapter
 from t8_daq_system.rig.clock import ManualClock
@@ -118,7 +117,7 @@ def make_rig_fixture(*, start_time: float = 100.0) -> SimpleNamespace:
         gauge_names=["FRG702_Chamber"],
     )
     spy = CallSpyAdapter(sim)
-    program_run = ProgramRun()
+    program_run = make_program_run()
     heater_output = HeaterOutput()
     safety_evaluator = SafetyEvaluator()
     rig = Rig(
@@ -403,7 +402,7 @@ def _run_program_run(blocks, snap_fn, n_ticks=20):
     snap_fn(tick_idx) -> Snapshot. Called once per tick (0-indexed).
     Returns list of volts from ProgramHeaterRequest results.
     """
-    pr = ProgramRun()
+    pr = make_program_run()
     pr.load(blocks)
     snap0 = snap_fn(0)
     pr.start(snap0, 0.0, make_run_settings(), commanded_volts=0.0)
