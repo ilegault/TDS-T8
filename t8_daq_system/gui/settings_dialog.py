@@ -11,6 +11,8 @@ import logging
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 
+from t8_daq_system.settings.app_settings import _DEFAULTS
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,17 +115,32 @@ class SettingsDialog(tk.Toplevel):
         self._pid_ki_var = tk.StringVar()
         self._pid_kd_var = tk.StringVar()
         self._pid_windup_var = tk.StringVar()
-        self._pid_output_max_var = tk.StringVar()
 
         self._create_entry_row(pid_frame, "Proportional Gain (Kp):", None, width=12, row=0, var=self._pid_kp_var)
         self._create_entry_row(pid_frame, "Integral Gain (Ki):", None, width=12, row=1, var=self._pid_ki_var)
         self._create_entry_row(pid_frame, "Derivative Gain (Kd):", None, width=12, row=2, var=self._pid_kd_var)
         self._create_entry_row(pid_frame, "Windup Limit (K·s):", None, width=12, row=3, var=self._pid_windup_var)
-        self._create_entry_row(pid_frame, "Max Output (V frac):", None, width=12, row=4, var=self._pid_output_max_var)
+        ttk.Button(pid_frame, text="Reset PID to defaults",
+                   command=self._reset_pid_to_defaults).grid(
+            row=4, column=0, columnspan=2, sticky='w', padx=5, pady=(5, 0))
 
-        ttk.Label(pid_frame, text="Note: History may override these if 3+ matching runs exist.",
-                  font=('Arial', 8), foreground='gray').grid(
-            row=5, column=0, columnspan=2, sticky='w', padx=5, pady=(2, 0))
+        # Soft start & current caps (ADR 0006 / 0007)
+        cap_frame = ttk.LabelFrame(tab, text="Soft start & current caps", padding=10)
+        cap_frame.pack(fill=tk.X, pady=5)
+
+        self._create_entry_row(cap_frame, "Soft-start threshold (°C):", "soft_start_threshold_c", width=12, row=0)
+        self._create_entry_row(cap_frame, "Soft-start ramp (V/s):", "soft_start_ramp_v_per_s", width=12, row=1)
+        self._create_entry_row(cap_frame, "Handoff current (A):", "soft_start_handoff_current_a", width=12, row=2)
+        self._create_entry_row(cap_frame, "Soft-start current cap (A):", "soft_start_cap_a", width=12, row=3)
+        self._create_bool_row(cap_frame, "Enforce soft-start current cap", "soft_start_cap_enabled", row=4)
+        self._create_entry_row(cap_frame, "Run current cap (A):", "run_cap_a", width=12, row=5)
+        self._create_bool_row(cap_frame, "Enforce run current cap", "run_cap_enabled", row=6)
+
+    def _reset_pid_to_defaults(self):
+        """Put the _DEFAULTS gains in the three gain fields; the operator still presses Save."""
+        self._pid_kp_var.set(str(_DEFAULTS["pid_kp"][1]))
+        self._pid_ki_var.set(str(_DEFAULTS["pid_ki"][1]))
+        self._pid_kd_var.set(str(_DEFAULTS["pid_kd"][1]))
 
     def _build_qms_trigger_tab(self, notebook):
         """Tab for QMS Auto-Click configuration."""
@@ -752,7 +769,6 @@ class SettingsDialog(tk.Toplevel):
         limit_frame = ttk.Frame(frame)
         limit_frame.pack(fill=tk.X)
         self._create_entry_row(limit_frame, 'Voltage Limit (V):', 'ps_voltage_limit', width=15, row=0)
-        self._create_entry_row(limit_frame, 'Current Limit (A):', 'ps_current_limit', width=15, row=1)
 
         # ── Voltage Setpoint Overlay Appearance ────────────────────────────────
         s = self._settings
@@ -931,7 +947,6 @@ class SettingsDialog(tk.Toplevel):
         self._psi_min_var.set(str(s.ps_i_range_min))
         self._psi_max_var.set(str(s.ps_i_range_max))
         self._ps_voltage_limit_var.set(str(s.ps_voltage_limit))
-        self._ps_current_limit_var.set(str(s.ps_current_limit))
 
         # ── Appearance: TC colors/styles/widths ───────────────────────────
         tc_colors  = [c.strip() for c in (s.tc_colors or '').split(',')]
@@ -1016,7 +1031,13 @@ class SettingsDialog(tk.Toplevel):
         self._pid_ki_var.set(str(s.pid_ki))
         self._pid_kd_var.set(str(s.pid_kd))
         self._pid_windup_var.set(str(s.pid_windup_limit))
-        self._pid_output_max_var.set(str(s.pid_output_max))
+        self._soft_start_threshold_c_var.set(str(s.soft_start_threshold_c))
+        self._soft_start_ramp_v_per_s_var.set(str(s.soft_start_ramp_v_per_s))
+        self._soft_start_handoff_current_a_var.set(str(s.soft_start_handoff_current_a))
+        self._soft_start_cap_a_var.set(str(s.soft_start_cap_a))
+        self._soft_start_cap_enabled_var.set(s.soft_start_cap_enabled)
+        self._run_cap_a_var.set(str(s.run_cap_a))
+        self._run_cap_enabled_var.set(s.run_cap_enabled)
 
         # QMS Auto-Click
         self._qms_auto_click_enabled_var.set(s.qms_auto_click_enabled)
@@ -1060,7 +1081,6 @@ class SettingsDialog(tk.Toplevel):
             s.ps_i_range_min = float(self._psi_min_var.get())
             s.ps_i_range_max = float(self._psi_max_var.get())
             s.ps_voltage_limit = float(self._ps_voltage_limit_var.get())
-            s.ps_current_limit = float(self._ps_current_limit_var.get())
 
             # ── Appearance settings ───────────────────────────────────────
             s.tc_names  = ','.join(v.get() for v in self._tc_name_vars)
@@ -1101,7 +1121,13 @@ class SettingsDialog(tk.Toplevel):
             s.pid_ki = float(self._pid_ki_var.get())
             s.pid_kd = float(self._pid_kd_var.get())
             s.pid_windup_limit = float(self._pid_windup_var.get())
-            s.pid_output_max = float(self._pid_output_max_var.get())
+            s.soft_start_threshold_c = float(self._soft_start_threshold_c_var.get())
+            s.soft_start_ramp_v_per_s = float(self._soft_start_ramp_v_per_s_var.get())
+            s.soft_start_handoff_current_a = float(self._soft_start_handoff_current_a_var.get())
+            s.soft_start_cap_a = float(self._soft_start_cap_a_var.get())
+            s.soft_start_cap_enabled = self._soft_start_cap_enabled_var.get()
+            s.run_cap_a = float(self._run_cap_a_var.get())
+            s.run_cap_enabled = self._run_cap_enabled_var.get()
             # QMS Auto-Click
             s.qms_auto_click_enabled = self._qms_auto_click_enabled_var.get()
             s.qms_auto_click_x = int(self._qms_click_x_var.get())

@@ -63,7 +63,6 @@ def _make_mock_settings(mock_settings_cls):
     mock_settings.pid_kp = 0.02
     mock_settings.pid_ki = 0.0013
     mock_settings.pid_kd = 0.005
-    mock_settings.pid_output_max = 6.0
     mock_settings.pid_windup_limit = 1.0
     return mock_settings
 

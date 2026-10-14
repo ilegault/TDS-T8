@@ -480,7 +480,6 @@ class PinoutDisplay(tk.Toplevel):
             ("Voltage Mon:",   s.ps_voltage_monitor_pin),
             ("Current Mon:",   s.ps_current_monitor_pin),
             ("Voltage Limit:", f"{s.ps_voltage_limit} V"),
-            ("Current Limit:", f"{s.ps_current_limit} A"),
             ("V Range (plot):", f"{s.ps_v_range_min} – {s.ps_v_range_max} V"),
             ("I Range (plot):", f"{s.ps_i_range_min} – {s.ps_i_range_max} A"),
         ]
