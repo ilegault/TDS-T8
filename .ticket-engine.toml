@@ -5,3 +5,5 @@ daily_cap = 10
 concurrency = 2
 jules_reserve = 10
 box_enabled = true
+# Folder(s) holding the code under test (the engine default is "src", which does not exist here).
+source_paths = ["t8_daq_system"]
