@@ -1,6 +1,6 @@
 # 21: Bumpless handoff includes Feedforward
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
