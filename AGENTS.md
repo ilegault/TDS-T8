@@ -98,9 +98,10 @@ Before editing any file, understand what it owns:
 ### `control/`
 | File | Owns |
 |------|------|
-| `temp_ramp_pid.py` | `PIDController` (anti-windup, derivative-on-measurement, slew-rate limiter) + `PIDRunLogger` (saves JSON run history to `logs/pid_runs.json`). **No GUI imports.** |
+| `temp_ramp_pid.py` | `PIDController` (anti-windup, derivative-on-measurement, slew-rate limiter) + `PIDRunLogger` (saves the Run history JSON). `PIDController` has no default gains and `PIDRunLogger` has no default path; both are required arguments (ADR 0007). **No GUI imports.** |
+| `suggestion_engine.py` | The one Suggestion engine (ADR 0007): pure `run_metrics`/`suggest` mapping a live run's metrics to suggested gains, each with a reason. Oscillation counting ignores error crossings inside a ±2 K noise band. Ticket 31 lands it. |
 | `heater_output.py` | `HeaterOutput` — pure arbiter of Safety > Operator > Program, holds trip latch, enforces CV-only. |
-| `program_run.py` | `ProgramRun` — stepped by the Rig loop every control tick (0.5 s). Manages block lists (Voltage Ramp, Hold, TempRamp) and soft-start phase before PID handoff. |
+| `program_run.py` | `ProgramRun` — stepped by the Rig loop every control tick (0.5 s). Manages block lists (Voltage Ramp, Hold, TempRamp) and the Soft start phase before Handoff to the first block (ADR 0006). |
 | `block_steps.py` | `StepState`, block step protocols and transition logic for `ProgramRun`. |
 | `ramp_profile.py` | `RampProfile`, `RampStep`, `StepType`, `ControlMode` data classes. |
 | `ramp_executor.py` | Executes `RampProfile` instances (voltage mode). |
@@ -145,6 +146,13 @@ Before editing any file, understand what it owns:
 | File | Owns |
 |------|------|
 | `helpers.py` | `convert_temperature()`, `convert_pressure()` — unit conversion utilities only. No hardware or GUI imports. |
+| `diagnostic_log.py` | Diagnostic log (ADR 0008): one `logging` file per session in `logs/console/`, last 30 kept, plus the Heartbeat. No `print()` in application code. |
+
+### Build and traceability
+| File | Owns |
+|------|------|
+| `t8_daq_system/build_info.py` | Reads the Build ID baked in by the build (gitignored `_build_info.py`); the Build ID reaches the window title, the first Diagnostic-log line and the CSV header. |
+| `scripts/build.py` | Versioned PyInstaller build: derives the Build ID, refuses a dirty tree without `--allow-dirty`, renames dist folder and exe, writes `BUILD_INFO.txt`. Pure helpers `build_id`, `build_info_text`. |
 
 ---
 
@@ -175,7 +183,7 @@ Files in `control/` and `utils/` must **never import from `gui/`** or `tkinter`.
 Practice mode is the `Rig` module running the `SimulatedRig` adapter (ADR 0005). No `practice_mode` branch exists in control, safety, or record code. Commanded voltage drives a physical tungsten thermal simulation (`TungstenSim`), producing realistic temperature and current. The real PID, feedforward, safety evaluator, Heater output and Run record run identically in practice as on live hardware.
 
 ### 5.6 AppSettings
-User settings persist across launches. When adding a new user-configurable field:
+User settings persist across launches. **The registry wins** (ADR 0007): `_DEFAULTS` only seeds a key the registry lacks, and no other module holds a default for a setting. `load()` records in `AppSettings.sources` whether each key came from the `registry` or a `default`; the startup dump logs that at INFO. The Settings dialog is the only editor; nothing writes the registry silently. Gains and Soft-start/cap settings are frozen per run: they travel with Start. When adding a new user-configurable field:
 1. Add the key and default to `_DEFAULTS` dict in `app_settings.py`.
 2. Add it as a property on `AppSettings`.
 3. Add registry read/write in `load()` / `save()`.
@@ -197,7 +205,7 @@ Work on these carefully — they involve the live hardware path:
 - Do not change the `output_on()` logic in `keysight_analog_controller.py` without verifying SW1-5 state first.
 
 ### 6.3 PID gains untested on real hardware
-- Default gains: Kp=1.0, Ki=0.05, Kd=0.05.
+- Default gains (ADR 0007): Kp=0.014, Ki=0.00078, Kd=0.00845 (the operator's values). Settings has a "Reset PID to defaults" button.
 - `PIDRunLogger` accumulates run history in `logs/pid_runs.json` with auto-generated tuning suggestions — use this data after real-hardware runs to inform gain adjustments.
 - Do not change default gains without a justification from real run data.
 
@@ -270,10 +278,10 @@ Timestamp,TC_1,FRG702_Chamber,PS_Voltage,PS_Current,TC_1_rawV,...
 ## 11. PyInstaller Build
 
 ```bash
-pyinstaller tds.spec --clean
+python scripts/build.py          # or build.bat
 ```
 
-Output: `dist/T8_DAQ_System/` — ship the whole folder.
+Build through `scripts/build.py`, not `pyinstaller` directly (ADR 0008). It derives the **Build ID** `YYYY-MM-DD_<git short hash>` (suffix `-dirty` for an uncommitted tree, refused unless `--allow-dirty`), runs `pyinstaller tds.spec --clean`, and names the output `dist/T8_DAQ_System_<Build ID>/` with the exe carrying the same ID and a `BUILD_INFO.txt` (ID, branch, build time, shipped files) beside it. Ship the whole folder. Quote the Build ID in any bug report.
 
 Common issues on target machines:
 - **Slow startup**: matplotlib font cache scan. Mitigated in spec file.
@@ -303,6 +311,16 @@ and the ticket that changes the code updates the section.
    mode is the Simulated rig. (ADR 0005)
 5. **CV-only** (§2) holds on every path, including shutdown.
 6. **Never swallow an exception.** `except Exception: pass` is a defect.
+7. **Soft start.** Every Program run begins in Soft start when the control TC is below
+   the soft-start threshold: an open-loop DAC0 ramp with no Feedforward. It ends at
+   Handoff (TC ≥ threshold or current ≥ handoff current) and the reason is recorded.
+   Handoff and block boundaries are bumpless, including Feedforward; Feedforward below
+   its lowest map point is 0 V. (ADR 0006)
+8. **Two current caps, each with its own toggle.** The Soft-start current cap (default
+   40 A) is active only during Soft start; the Run current cap (default 120 A) from
+   Handoff to program end. Exceeding an enabled cap is a latched trip
+   (`soft_start_overcurrent`, `run_overcurrent`). The caps are trips, not a current
+   setpoint: DAC1 stays pinned (§2). A disabled cap is logged at WARNING. (ADR 0006)
 
 ### 12.2 Fix or escalate — never mute a failing test
 

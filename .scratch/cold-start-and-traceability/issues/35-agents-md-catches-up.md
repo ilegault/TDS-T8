@@ -1,6 +1,6 @@
 # 35: AGENTS.md catches up with this effort
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -21,9 +21,9 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] AGENTS.md contains `Soft start`, `Run current cap`, `scripts/build.py` and `0.014` in the sections named above.
-- [ ] `git diff` shows no changed line between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] AGENTS.md contains `Soft start`, `Run current cap`, `scripts/build.py` and `0.014` in the sections named above.
+- [x] `git diff` shows no changed line between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -34,3 +34,6 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+Landed (2026-10-13): AGENTS.md §4 (suggestion_engine, diagnostic_log, build_info, scripts/build.py), §5.6 (registry wins, `sources`), §6.3 (ADR 0007 gains), §11 (build.py, Build ID), §12.1 items 7–8 (Soft start, both current caps). ACTIVE-PLAN block untouched. Covered by `tests/unit/test_agents_md_docs.py`.
+Notes for the developer: (1) `build.bat` contains a literal backspace character (`scripts<BS>uild.py`), so it cannot run as written; (2) `control/suggestion_engine.py` is listed per this ticket but ticket 31 had not merged when this landed. Auto-merge: no — needs developer approval.
