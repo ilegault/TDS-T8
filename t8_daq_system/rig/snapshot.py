@@ -55,6 +55,8 @@ class ProgramStatus:
     pid_correction: float = 0.0
     control_tc: str = "TC_1"
     gains_in_use: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    phase: str = "block"  # "soft_start" | "block"
+    handoff_reason: str = ""
 
 
 @dataclass(frozen=True)

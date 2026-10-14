@@ -65,7 +65,7 @@ class DataLogger:
 
         filepath = os.path.join(self.log_folder, filename)
 
-        self.file = open(filepath, 'w', newline='')
+        self.file = open(filepath, 'w', newline='', encoding='utf-8')
         self.writer = csv.writer(self.file)
         self.sensor_names = list(sensor_names)
         self.current_filepath = filepath
@@ -198,7 +198,7 @@ class DataLogger:
         sensor_names = []
         end_time = None
 
-        with open(filepath, 'r', newline='') as f:
+        with open(filepath, 'r', newline='', encoding='utf-8') as f:
             # First pass: read lines to find metadata (not using csv reader for comments)
             lines = f.readlines()
 
@@ -285,7 +285,7 @@ class DataLogger:
         }
 
         row_count = 0
-        with open(filepath, 'r', newline='') as f:
+        with open(filepath, 'r', newline='', encoding='utf-8') as f:
             lines = f.readlines()
 
         for line in lines:
