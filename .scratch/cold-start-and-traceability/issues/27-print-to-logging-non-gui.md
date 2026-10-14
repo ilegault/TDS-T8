@@ -1,6 +1,6 @@
 # 27: Replace print with logging outside the GUI
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
