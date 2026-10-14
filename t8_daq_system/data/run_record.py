@@ -16,6 +16,13 @@ state) that converts a Snapshot into a column dict.  The writer thread drains a
 queue of Snapshots and events, writes one data row per sample_rate_ms, and writes
 event rows immediately.  Shutdown is sentinel-based: stop() enqueues _STOP and
 joins the thread — no time.sleep, testable with ManualClock.
+
+The same writer thread feeds the Diagnostic log (ticket cold-start-and-traceability-29,
+ADR 0008): every event becomes one INFO line (a trip is one ERROR line with its kind and
+full reason), and every ``heartbeat_interval_s`` of Snapshot time one ``HB`` line
+summarises phase, control TC, setpoint, V, I, FF and the gains in use.  Doing this here
+keeps the Rig loop free of log formatting, and an 8-hour run at 30 s stays near a
+thousand lines.
 """
 from __future__ import annotations
 
@@ -155,6 +162,7 @@ class RunRecord:
         p_unit: str,
         sample_rate_ms: float,
         has_ps: bool = True,
+        heartbeat_interval_s: float = 30.0,
     ) -> None:
         self._logger = logger_
         self._tc_names = list(tc_names)
@@ -163,6 +171,9 @@ class RunRecord:
         self._p_unit = p_unit
         self._sample_rate_s = sample_rate_ms / 1000.0
         self._has_ps = has_ps
+        self._heartbeat_interval_s = float(heartbeat_interval_s)
+        self._heartbeat_start_t: float | None = None
+        self._last_heartbeat_t: float | None = None
 
         self._queue: queue.Queue[object] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -221,7 +232,9 @@ class RunRecord:
     def _process_item(self, item: object) -> None:
         if isinstance(item, _Event):
             self._logger.log_event(item.name, item.detail)
+            self._log_event_line(item)
         elif isinstance(item, Snapshot):
+            self._maybe_heartbeat(item)
             elapsed = item.t - self._last_written_t
             if elapsed >= self._sample_rate_s:
                 row = build_row(item, self._t_unit, self._p_unit)
@@ -230,3 +243,53 @@ class RunRecord:
                 self._last_written_t = item.t
         else:
             logger.warning("RunRecord: unknown queue item type %s", type(item))
+
+    # ── Diagnostic log lines ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _log_event_line(event: _Event) -> None:
+        """One INFO line per event; a trip is one ERROR line with kind and reason."""
+        text = f"{event.name}: {event.detail}" if event.detail else event.name
+        if event.name.startswith("TRIP "):
+            logger.error("%s", text)
+        else:
+            logger.info("%s", text)
+
+    def _maybe_heartbeat(self, snap: Snapshot) -> None:
+        """Write one HB line per heartbeat interval of Snapshot time."""
+        if self._heartbeat_start_t is None:
+            self._heartbeat_start_t = snap.t
+            self._last_heartbeat_t = snap.t
+            return
+        if snap.t - self._last_heartbeat_t < self._heartbeat_interval_s:
+            return
+        self._last_heartbeat_t += self._heartbeat_interval_s
+        prog = snap.program
+        if prog.running:
+            phase = "soft_start" if prog.phase == "soft_start" else f"block {prog.block_index + 1}"
+            tc_c = snap.tc_c.get(prog.control_tc)
+            sp_c = prog.setpoint_k - 273.15
+            kp, ki, kd = prog.gains_in_use
+        else:
+            phase = "idle"
+            tc_c = next(iter(snap.tc_c.values()), None)
+            sp_c = None
+            kp = ki = kd = None
+        logger.info(
+            "HB t=%.0f phase=%s tc=%s sp=%s V=%.3f I=%.2f FF=%.3f P=%s I=%s D=%s",
+            snap.t - self._heartbeat_start_t,
+            phase,
+            _fmt(tc_c, "%.1f"),
+            _fmt(sp_c, "%.1f"),
+            snap.ps_volts,
+            snap.ps_amps,
+            prog.ff_voltage,
+            _fmt(kp, "%g"),
+            _fmt(ki, "%g"),
+            _fmt(kd, "%g"),
+        )
+
+
+def _fmt(value: float | None, spec: str) -> str:
+    """Format a number for a log line, or ``n/a`` when there is none."""
+    return "n/a" if value is None else spec % value

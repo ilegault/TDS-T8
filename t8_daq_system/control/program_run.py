@@ -205,6 +205,11 @@ class ProgramRun:
         self._waiting_for_confirmation = False
         self._confirmation_ready = False
         self._run_log = []
+        self._pending_events.append(("PROGRAM_START", ""))
+        if not settings.soft_start_cap_enabled:
+            logger.warning("Soft-start current cap is OFF")
+        if not settings.run_cap_enabled:
+            logger.warning("Run current cap is OFF")
 
         # Soft start unless the specimen is already at or above the threshold.
         self._soft_start_began_s = now_s

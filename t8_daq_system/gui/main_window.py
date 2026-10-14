@@ -2244,6 +2244,7 @@ class MainWindow:
                 p_unit=p_unit,
                 sample_rate_ms=float(sample_rate),
                 has_ps=bool(self.ps_controller),
+                heartbeat_interval_s=float(self._app_settings.heartbeat_interval_s),
             )
             self._run_record.start()
             if hasattr(self, 'rig') and self.rig:
