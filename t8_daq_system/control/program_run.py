@@ -250,6 +250,10 @@ class ProgramRun:
         if not self._running:
             return None
 
+        logger.debug(
+            "ProgramRun step: block=%d now_s=%.1f", self._block_index, now_s
+        )
+
         # QMS confirmation pause: hold until operator releases
         if self._waiting_for_confirmation:
             if self._confirmation_ready:

@@ -83,7 +83,7 @@ class DataLogger:
         self.writer.writerow(header)
         self.file.flush()
 
-        print(f"Started logging to: {filepath}")
+        logger.info(f"Started logging to: {filepath}")
         return filepath
 
     def _write_metadata(self):
@@ -152,7 +152,7 @@ class DataLogger:
             self.file.close()
             self.file = None
             self.writer = None
-            print("Logging stopped")
+            logger.info("Logging stopped")
 
     def is_logging(self):
         """Check if currently logging."""
