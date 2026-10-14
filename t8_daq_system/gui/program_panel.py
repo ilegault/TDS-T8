@@ -187,7 +187,7 @@ class BlockEditDialog(tk.Toplevel):
 class ProgramPanel:
     def __init__(self, parent_frame, preview_plot=None, get_initial_state_fn=None,
                  on_program_change=None, tc_names=None, get_unit_fn=None,
-                 get_tc_temp_k_fn=None, ff_map=None):
+                 get_tc_temp_k_fn=None, ff_map=None, get_soft_start_settings_fn=None):
         self.parent = parent_frame
         self.preview_plot = preview_plot
         self.get_initial_state_fn = get_initial_state_fn
@@ -197,6 +197,9 @@ class ProgramPanel:
         self._tc_names = list(tc_names) if tc_names else ["TC_1"]
         self._get_unit = get_unit_fn or (lambda: 'K')
         self._ff_map = ff_map  # FF-10 — feedforward map for preview trajectory
+        # get_soft_start_settings_fn() → RunSettings-like object for the preview's
+        # Soft-start span, or None to preview the blocks alone
+        self._get_soft_start_settings = get_soft_start_settings_fn
         self._blocks = []
 
         self._build_gui()
@@ -425,8 +428,9 @@ class ProgramPanel:
                 logger.debug("Failed to read live TC temperature for preview (%s)", e)
 
 
-        times, voltages, temps_k, boundaries = compute_preview(
-            self._blocks, start_temp_k=start_t, start_voltage=start_v
+        soft_start = self._get_soft_start_settings() if self._get_soft_start_settings else None
+        times, voltages, temps_k, boundaries, soft_end_s = compute_preview(
+            self._blocks, start_temp_k=start_t, start_voltage=start_v, soft_start=soft_start
         )
 
         # FF-10 START — compute feedforward voltage trajectory
@@ -454,7 +458,7 @@ class ProgramPanel:
         unit = self._get_unit()
         self.preview_plot.update_unified_preview(times, voltages, temps_k, self._blocks, boundaries,
                                                  display_unit=unit, ff_voltages=ff_voltages,
-                                                 zones_info=None)
+                                                 zones_info=None, soft_start_end_s=soft_end_s)
 
     def _update_pid_status(self):
         """Refresh the PID-ready indicator, live TC reading, and feasibility warnings."""

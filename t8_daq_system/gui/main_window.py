@@ -17,6 +17,7 @@ import time
 import os
 import sys
 
+from t8_daq_system.build_info import get_build_id
 from t8_daq_system.utils.startup_profiler import profiler
 from t8_daq_system.control.program_run import ProgramRun
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
@@ -169,6 +170,14 @@ class MainWindow:
     # Available sampling rates in milliseconds
     SAMPLE_RATES = [100, 200, 500, 1000, 2000]
 
+    @staticmethod
+    def _window_title(practice=False):
+        """Window title; always ends with the Build ID so the operator can read it out."""
+        base = "T8 DAQ System with Power Supply Control"
+        if practice:
+            base = "[PRACTICE MODE] " + base
+        return f"{base} \u2014 {get_build_id()}"
+
     def __init__(self, settings=None, rig=None, run_id=None):
         profiler.section("MainWindow.__init__ START")
         profiler.checkpoint("Entering __init__ method")
@@ -201,7 +210,7 @@ class MainWindow:
         self.root = tk.Tk()
         profiler.checkpoint("tk.Tk() root window created")
 
-        self.root.title("T8 DAQ System with Power Supply Control")
+        self.root.title(self._window_title())
         self.root.geometry("1200x800")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         profiler.checkpoint("Root window properties set")
@@ -1090,7 +1099,7 @@ class MainWindow:
             self._auto_start_acquisition()
 
             # ── Feature C: Window title ───────────────────────────────────
-            self.root.title('[PRACTICE MODE] T8 DAQ System with Power Supply Control')
+            self.root.title(self._window_title(practice=True))
 
             # ── Feature C: Practice button style ─────────────────────────
             style = ttk.Style()
@@ -1124,7 +1133,7 @@ class MainWindow:
                     break
 
             # ── Feature C: Revert window title ────────────────────────────
-            self.root.title('T8 DAQ System with Power Supply Control')
+            self.root.title(self._window_title())
 
             # ── Feature C: Revert practice button style ───────────────────
             self.practice_btn.configure(style='TButton')
@@ -1177,6 +1186,7 @@ class MainWindow:
             get_unit_fn=lambda: getattr(self, 't_unit_var', None) and self.t_unit_var.get() or 'K',
             get_tc_temp_k_fn=self._get_latest_tc_reading_k,
             ff_map=getattr(getattr(self.rig, 'program_run', None), 'ff_map', None),  # FF-10
+            get_soft_start_settings_fn=lambda: run_settings_from_app_settings(self._app_settings),
         )
         
         # Restore saved blocks from before the programmer was last closed
@@ -1422,13 +1432,49 @@ class MainWindow:
                 if hasattr(self, '_trip_refusal_label'):
                     self._trip_refusal_label.config(text="")
 
-        # 2. Practice toggle enabled/disabled
+        # 2. Soft-start / handoff status line
+        self._render_soft_start_status(snap)
+
+        # 3. Practice toggle enabled/disabled
         prog_running = bool(snap.program and snap.program.running)
         logging_active = getattr(self, 'is_logging', False) or getattr(self, '_run_record', None) is not None
         target_state = 'disabled' if (prog_running or logging_active) else 'normal'
         self._practice_btn_state = target_state
         if hasattr(self, 'practice_btn'):
             self.practice_btn.config(state=target_state)
+
+    # Seconds the handoff reason stays on the status line after Soft start ends
+    HANDOFF_STATUS_S = 30.0
+
+    def _render_soft_start_status(self, snap: Snapshot) -> None:
+        """
+        Show "SOFT START <V> V · <T> °C → PID at <threshold> °C" while the program is
+        in its Soft-start phase, then the handoff reason for HANDOFF_STATUS_S seconds
+        of wall time (a display timer, not control).  The threshold is the one frozen at Run (ADR 0007).
+        """
+        prog = snap.program
+        if prog is None or not prog.running:
+            self._handoff_shown_reason = ""
+            return
+
+        if prog.phase == "soft_start":
+            run_settings = getattr(self, '_run_settings', None)
+            threshold_c = (run_settings or self._app_settings).soft_start_threshold_c
+            temp_c = snap.tc_c.get(prog.control_tc)
+            temp_txt = f"{temp_c:.1f}" if temp_c is not None else "---"
+            self._handoff_shown_reason = ""
+            self.status_var.set(
+                f"SOFT START {snap.commanded_volts:.2f} V · {temp_txt} °C "
+                f"→ PID at {threshold_c:g} °C"
+            )
+            return
+
+        if prog.handoff_reason:
+            if getattr(self, '_handoff_shown_reason', "") != prog.handoff_reason:
+                self._handoff_shown_reason = prog.handoff_reason
+                self._handoff_shown_at = time.monotonic()
+            if time.monotonic() - self._handoff_shown_at <= self.HANDOFF_STATUS_S:
+                self.status_var.set(f"Soft start ended: {prog.handoff_reason}")
 
     def _on_program_block_start(self, index, block):
         _log.info("Program starting block %d: %s", index + 1, block.block_type)
@@ -1629,9 +1675,8 @@ class MainWindow:
         # Submit LoadProgram and StartProgram commands to Rig
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(LoadProgram(program=blocks))
-            self.rig.submit(StartProgram(
-                settings=run_settings_from_app_settings(self._app_settings)
-            ))
+            self._run_settings = run_settings_from_app_settings(self._app_settings)
+            self.rig.submit(StartProgram(settings=self._run_settings))
 
         self._programmer_ramp_running = True
         self.run_ramp_btn.config(text="Stop Program")
@@ -2206,6 +2251,7 @@ class MainWindow:
                 sample_rate_ms=int(self.sample_rate_var.get().replace('ms', '')),
                 notes=notes or "",
                 run_id=self._run_id,
+                build_id=get_build_id(),
             )
 
             header = build_csv_header(self.config, has_ps_controller=bool(self.ps_controller))
@@ -2234,6 +2280,7 @@ class MainWindow:
                 p_unit=p_unit,
                 sample_rate_ms=float(sample_rate),
                 has_ps=bool(self.ps_controller),
+                heartbeat_interval_s=float(self._app_settings.heartbeat_interval_s),
             )
             self._run_record.start()
             if hasattr(self, 'rig') and self.rig:
