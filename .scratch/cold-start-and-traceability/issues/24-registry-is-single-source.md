@@ -1,6 +1,6 @@
 # 24: Registry is the single source of settings
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -25,12 +25,12 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test with the fake `winreg` from `tests/conftest.py`: empty registry → after `load()`, `pid_kp == 0.014` and `sources['pid_kp'] == 'default'`; registry holding `pid_kp=0.02` → `0.02` and `'registry'`.
-- [ ] Unit test: a registry containing `pid_output_max` and `ps_current_limit` loads without error, the `AppSettings` object has neither attribute, and `save()` writes neither key.
-- [ ] Unit test: after setting `settings.run_cap_a = 150`, `run_settings_from_app_settings(settings).run_cap_a == 150`.
-- [ ] Unit test (Tk mocked): building the Settings dialog creates no widget whose text contains `History may override` or `Max Output`.
-- [ ] Unit test: invoking the Reset PID handler sets the three gain variables to the `_DEFAULTS` values.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test with the fake `winreg` from `tests/conftest.py`: empty registry → after `load()`, `pid_kp == 0.014` and `sources['pid_kp'] == 'default'`; registry holding `pid_kp=0.02` → `0.02` and `'registry'`.
+- [x] Unit test: a registry containing `pid_output_max` and `ps_current_limit` loads without error, the `AppSettings` object has neither attribute, and `save()` writes neither key.
+- [x] Unit test: after setting `settings.run_cap_a = 150`, `run_settings_from_app_settings(settings).run_cap_a == 150`.
+- [x] Unit test (Tk mocked): building the Settings dialog creates no widget whose text contains `History may override` or `Max Output`.
+- [x] Unit test: invoking the Reset PID handler sets the three gain variables to the `_DEFAULTS` values.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -41,3 +41,6 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-10-13: `_DEFAULTS`/`AppSettings` gained the soft-start, cap and diagnostic keys and the new gains; the three obsolete keys are gone (ignored on load, never saved). `load()` fills `sources`. `run_settings_from_app_settings` has no literals. Settings dialog: "Max Output" and "History may override" removed, "Soft start & current caps" frame and "Reset PID to defaults" added, hardware-tab "Current Limit (A)" removed. All criteria are covered by `tests/unit/test_registry_single_source.py`.
+Side effects: `ps_current_limit` was also removed from the pinout display and from the adapter config, so `T8Adapter` now falls back to its 180 A DAC1 ceiling (CV-only unchanged). Dialog reads/writes for the new keys not in this ticket's criteria: `heartbeat_interval_s`, `show_console`, `diagnostic_log_keep` have no UI yet (later tickets). No bench verification needed.

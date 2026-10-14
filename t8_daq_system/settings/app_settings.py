@@ -6,7 +6,15 @@ All user-configurable values are persisted under:
     HKEY_CURRENT_USER\Software\T8_DAQ_System
 
 No external JSON config files are used. On first launch (or if the registry
-key has never been written) load() silently returns all defaults.
+key has never been written) load() returns all defaults.
+
+WHY THE REGISTRY WINS (ADR 0007)
+--------------------------------
+_DEFAULTS seeds only keys the registry lacks; no other module holds a default
+for a setting. load() records in ``sources`` whether each key came from the
+"registry" or a "default". Keys deleted from _DEFAULTS (ps_current_limit,
+soft_start_current_limit_a, pid_output_max) may linger in an old registry; they
+are never read and never written back.
 """
 
 import logging
@@ -54,7 +62,6 @@ _DEFAULTS = {
     "turbo_pump_stop_delay_ms": ("int", 500),
     "turbo_pump_min_restart_delay_s": ("int", 30),
     "ps_voltage_limit":   ("float", 20.0),
-    "ps_current_limit":   ("float", 50.0),
     "frg_interface":      ("str",   "XGS600"),
     "frg_pins":           ("str",   "AIN6,AIN7"),
     "ps_interface":       ("str",   "Analog"),
@@ -94,12 +101,20 @@ _DEFAULTS = {
     "pp_voltage_line_width": ("str", "2"),
     # ── Two-phase PID / Soft-Start settings ──────────────────────────────
     "soft_start_threshold_c":    ("float", 200.0),   # °C — phase switch point
-    "soft_start_current_limit_a": ("float", 180.0),  # A — Phase 1 current ceiling
-    "pid_kp":               ("float", 0.02),
-    "pid_ki":               ("float", 0.0013),
-    "pid_kd":               ("float", 0.005),
+    "soft_start_ramp_v_per_s":   ("float", 0.02),    # V/s — Soft start voltage ramp
+    "soft_start_handoff_current_a": ("float", 35.0), # A — Handoff to PID
+    "soft_start_cap_enabled":    ("bool",  True),
+    "soft_start_cap_a":          ("float", 40.0),    # A — Soft-start current cap
+    "run_cap_enabled":           ("bool",  True),
+    "run_cap_a":                 ("float", 120.0),   # A — Run current cap
+    "pid_kp":               ("float", 0.014),
+    "pid_ki":               ("float", 0.00078),
+    "pid_kd":               ("float", 0.00845),
     "pid_windup_limit":     ("float", 0.4),
-    "pid_output_max":       ("float", 6.0),
+    # ── Diagnostics ───────────────────────────────────────────────────────
+    "heartbeat_interval_s":      ("int",   30),
+    "show_console":              ("bool",  False),
+    "diagnostic_log_keep":       ("int",   30),
     # ── QMS Auto-Click settings ───────────────────────────────────────────
     "qms_auto_click_enabled": ("bool", False),
     "qms_auto_click_x":       ("int",  0),
@@ -157,7 +172,6 @@ class AppSettings:
         self.turbo_pump_stop_delay_ms: int = 500
         self.turbo_pump_min_restart_delay_s: int = 30
         self.ps_voltage_limit: float = 20.0
-        self.ps_current_limit: float = 50.0
         self.frg_interface: str      = "XGS600"
         self.frg_pins: str           = "AIN6,AIN7"
         self.ps_interface: str       = "Analog"
@@ -193,12 +207,22 @@ class AppSettings:
         self.pp_voltage_line_width: str  = "2"
         # Two-phase PID / Soft-Start
         self.soft_start_threshold_c: float = 200.0   # °C — phase switch point
-        self.soft_start_current_limit_a: float = 180.0  # A — Phase 1 current ceiling
-        self.pid_kp: float = 0.02
-        self.pid_ki: float = 0.0013
-        self.pid_kd: float = 0.005
+        self.soft_start_ramp_v_per_s: float = 0.02
+        self.soft_start_handoff_current_a: float = 35.0
+        self.soft_start_cap_enabled: bool = True
+        self.soft_start_cap_a: float = 40.0
+        self.run_cap_enabled: bool = True
+        self.run_cap_a: float = 120.0
+        self.pid_kp: float = 0.014
+        self.pid_ki: float = 0.00078
+        self.pid_kd: float = 0.00845
         self.pid_windup_limit: float = 0.4
-        self.pid_output_max: float = 6.0
+        # Diagnostics
+        self.heartbeat_interval_s: int = 30
+        self.show_console: bool = False
+        self.diagnostic_log_keep: int = 30
+        # Where each loaded key came from: "registry" or "default" (ADR 0007)
+        self.sources: dict = {k: "default" for k in _DEFAULTS}
         # QMS Auto-Click
         self.qms_auto_click_enabled: bool = False
         self.qms_auto_click_x: int = 0
@@ -222,9 +246,11 @@ class AppSettings:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REG_KEY)
         except FileNotFoundError:
             # Key doesn't exist yet — keep defaults, return self
+            logger.info("Settings registry key absent; every setting is a default")
             return self
-        except OSError:
+        except OSError as e:
             # Registry unavailable (non-Windows environment, permissions) — keep defaults
+            logger.warning("Settings registry unavailable (%s); every setting is a default", e)
             return self
 
         try:
@@ -233,9 +259,12 @@ class AppSettings:
                     raw_value, _ = winreg.QueryValueEx(key, field)
                     val = _coerce(raw_value, kind, default)
                     setattr(self, field, val)
+                    self.sources[field] = "registry"
                 except (FileNotFoundError, OSError) as e:
                     # Individual value missing — keep default
                     logger.debug("Registry value %s missing (%s); keeping default %r", field, e, default)
+                    setattr(self, field, default)
+                    self.sources[field] = "default"
         finally:
 
             winreg.CloseKey(key)

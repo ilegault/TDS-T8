@@ -126,21 +126,21 @@ def run_settings_from_app_settings(settings) -> RunSettings:
     """
     Capture every run-shaping value from AppSettings into one frozen RunSettings.
 
-    Called once when the operator presses Run. Fields AppSettings does not have
-    yet use the spec's defaults as literals here; ticket 24 replaces them.
+    Called once when the operator presses Run. Every value is read from
+    AppSettings (ADR 0007); this function holds no literals.
     """
     return RunSettings(
         kp=settings.pid_kp,
         ki=settings.pid_ki,
         kd=settings.pid_kd,
         windup_limit=settings.pid_windup_limit,
-        soft_start_threshold_c=200.0,
-        soft_start_ramp_v_per_s=0.02,
-        soft_start_handoff_current_a=35.0,
-        soft_start_cap_enabled=True,
-        soft_start_cap_a=40.0,
-        run_cap_enabled=True,
-        run_cap_a=120.0,
+        soft_start_threshold_c=settings.soft_start_threshold_c,
+        soft_start_ramp_v_per_s=settings.soft_start_ramp_v_per_s,
+        soft_start_handoff_current_a=settings.soft_start_handoff_current_a,
+        soft_start_cap_enabled=settings.soft_start_cap_enabled,
+        soft_start_cap_a=settings.soft_start_cap_a,
+        run_cap_enabled=settings.run_cap_enabled,
+        run_cap_a=settings.run_cap_a,
     )
 
 
@@ -469,7 +469,6 @@ class MainWindow:
                 "rated_max_volts": 6,
                 "rated_max_amps": 180,
                 "default_voltage_limit": s.ps_voltage_limit,
-                "default_current_limit": s.ps_current_limit,
                 "safety": {
                     "max_temperature": 2300,
                     "watchdog_sensor": "TC_1" if s.tc_count > 0 else None,
