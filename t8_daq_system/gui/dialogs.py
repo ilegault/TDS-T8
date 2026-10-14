@@ -5,10 +5,13 @@ PURPOSE: Custom dialog windows for the T8 DAQ System
 
 import tkinter as tk
 from tkinter import ttk, filedialog
+import logging
 import os
 from datetime import datetime
 
 from t8_daq_system.data.data_logger import DataLogger
+
+logger = logging.getLogger(__name__)
 
 
 class LoggingDialog(tk.Toplevel):
@@ -231,7 +234,7 @@ class LoadCSVDialog(tk.Toplevel):
                     sensor_str
                 ), tags=(filepath,))
             except Exception as e:
-                print(f"Error reading {filepath}: {e}")
+                logger.error("Error reading %s: %s", filepath, e)
 
     def _on_browse(self):
         """Handle Browse button click."""

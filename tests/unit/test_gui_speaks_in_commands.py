@@ -13,6 +13,7 @@ QMS start is gated strictly by the Snapshot's permissive_ok field.
 """
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -372,3 +373,42 @@ class TestPracticeToggle:
         app.render_snapshot(snap)
 
         assert app.get_practice_button_state() == "normal"
+
+
+class TestOperatorCommandsAreLogged:
+    """Ticket 28: each operator command logs one INFO line naming it and its parameters."""
+
+    def test_run_logs_info_with_block_count(self, gui_app, caplog):
+        app, _, _ = gui_app
+        blocks = [
+            VoltageRampBlock(start_voltage=0.0, end_voltage=2.0, duration_sec=10.0),
+            VoltageRampBlock(start_voltage=2.0, end_voltage=3.0, duration_sec=5.0),
+        ]
+        app._programmer_blocks = blocks
+
+        with caplog.at_level(logging.INFO, logger="t8_daq_system.gui.main_window"):
+            app._start_programmer_ramp()
+
+        records = [r for r in caplog.records if r.levelno == logging.INFO and "Run" in r.getMessage()]
+        assert len(records) == 1
+        assert "2 block" in records[0].getMessage()
+
+    def test_reset_trip_logs_info(self, gui_app, caplog):
+        app, _, _ = gui_app
+        with caplog.at_level(logging.INFO, logger="t8_daq_system.gui.main_window"):
+            app._on_reset_trip()
+
+        records = [r for r in caplog.records if r.levelno == logging.INFO and "Reset trip" in r.getMessage()]
+        assert len(records) == 1
+
+    def test_stop_nudge_and_practice_log_info(self, gui_app, caplog):
+        app, _, _ = gui_app
+        with caplog.at_level(logging.INFO, logger="t8_daq_system.gui.main_window"):
+            app._stop_programmer_ramp_safe()
+            app._nudge_voltage(+1)
+            app._toggle_practice_mode()
+
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert any("Stop" in m for m in messages)
+        assert any("Nudge" in m and "up" in m for m in messages)
+        assert any("Practice" in m for m in messages)

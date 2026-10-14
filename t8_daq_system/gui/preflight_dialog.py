@@ -11,6 +11,7 @@ The skip_preflight_check registry flag (AppSettings) permanently bypasses this
 dialog when True.
 """
 
+import logging
 import tkinter as tk
 from tkinter import ttk
 
@@ -37,6 +38,8 @@ _AIN_TO_J1 = {
     'AIN0': 'AIN0', 'AIN1': 'AIN1', 'AIN2': 'AIN2', 'AIN3': 'AIN3',
     'AIN4': 'AIN4', 'AIN5': 'AIN5', 'AIN6': 'AIN6', 'AIN7': 'AIN7',
 }
+
+logger = logging.getLogger(__name__)
 
 
 class PreflightDialog(tk.Toplevel):
@@ -220,6 +223,6 @@ class PreflightDialog(tk.Toplevel):
         self.destroy()
 
     def _on_skip(self):
-        print("[WARNING] Pre-flight wiring check skipped by user.")
+        logger.warning("Pre-flight wiring check skipped by user")
         self.confirmed = True
         self.destroy()
