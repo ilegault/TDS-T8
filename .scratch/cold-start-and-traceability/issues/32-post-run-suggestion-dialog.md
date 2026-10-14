@@ -1,6 +1,6 @@
 # 32: Post-run suggestion dialog uses the engine
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -23,10 +23,10 @@ Tests may fake: Tk widgets (via `tests/conftest.py`), `winreg` (the fake registr
 
 ## Acceptance criteria
 
-- [ ] Unit test (Tk mocked): with a stored Suggestion, invoking Apply opens the Settings dialog whose gain variables equal the suggested values, and `save` was not called on the real `AppSettings` (fake winreg) passed in.
-- [ ] Unit test: the dialog's message text contains every reason string from the Suggestion.
-- [ ] Unit test: `inspect.getsource(MainWindow._show_pid_run_summary)` contains none of `* 0.7`, `* 0.6`, `* 1.3`.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
+- [x] Unit test (Tk mocked): with a stored Suggestion, invoking Apply opens the Settings dialog whose gain variables equal the suggested values, and `save` was not called on the real `AppSettings` (fake winreg) passed in.
+- [x] Unit test: the dialog's message text contains every reason string from the Suggestion.
+- [x] Unit test: `inspect.getsource(MainWindow._show_pid_run_summary)` contains none of `* 0.7`, `* 0.6`, `* 1.3`.
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
 
 ## Gate
 
@@ -37,3 +37,14 @@ Run in this order, as CI does (`.github/workflows/`):
     pytest --tb=short -q
 
 ## Comments
+
+### 2026-10-14
+
+Done. `_show_pid_run_summary` shows the engine's metrics and every Suggestion reason
+(the x0.7/x0.6/x1.3 maths was already removed by 31). Apply now opens `SettingsDialog`
+with the new `prefill_gains=(kp, ki, kd)` argument, which sets the three gain
+variables via `_apply_gain_prefill`; `AppSettings.save()` is never called by the
+summary. The method runs on the Tk thread (called from `root.after`). Tests:
+`tests/unit/test_post_run_suggestion_dialog.py`. Local gate: ruff and check_tests_first
+pass; pytest 543 passed, 1 known pre-existing Linux failure
+(`test_build_id.py::test_window_title_ends_with_build_id`, winreg mock).

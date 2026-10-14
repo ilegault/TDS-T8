@@ -29,9 +29,12 @@ class SettingsDialog(tk.Toplevel):
         Live AppSettings instance shared with MainWindow.
     on_save_callback : callable, optional
         Called after a successful save so the caller can refresh the GUI.
+    prefill_gains : tuple[float, float, float], optional
+        Suggested (kp, ki, kd) shown in the gain fields instead of the stored
+        values (post-run Suggestion).  Nothing is saved until the operator saves.
     """
 
-    def __init__(self, parent, settings, on_save_callback=None):
+    def __init__(self, parent, settings, on_save_callback=None, prefill_gains=None):
         super().__init__(parent)
         self.title("Settings")
         self.geometry("625x900")
@@ -49,6 +52,8 @@ class SettingsDialog(tk.Toplevel):
 
         self._build_widgets()
         self._load_values()
+        if prefill_gains is not None:
+            self._apply_gain_prefill(prefill_gains)
 
         self.update_idletasks()
         px, py = parent.winfo_x(), parent.winfo_y()
@@ -135,6 +140,13 @@ class SettingsDialog(tk.Toplevel):
         self._create_bool_row(cap_frame, "Enforce soft-start current cap", "soft_start_cap_enabled", row=4)
         self._create_entry_row(cap_frame, "Run current cap (A):", "run_cap_a", width=12, row=5)
         self._create_bool_row(cap_frame, "Enforce run current cap", "run_cap_enabled", row=6)
+
+    def _apply_gain_prefill(self, gains):
+        """Put suggested (kp, ki, kd) in the gain fields; the operator still presses Save."""
+        kp, ki, kd = gains
+        self._pid_kp_var.set(str(kp))
+        self._pid_ki_var.set(str(ki))
+        self._pid_kd_var.set(str(kd))
 
     def _reset_pid_to_defaults(self):
         """Put the _DEFAULTS gains in the three gain fields; the operator still presses Save."""
