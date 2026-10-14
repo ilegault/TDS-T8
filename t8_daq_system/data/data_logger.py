@@ -351,7 +351,7 @@ class DataLogger:
 def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
                          tc_types=None,
                          frg702_count=0, frg702_unit="mbar",
-                         sample_rate_ms=100, notes=""):
+                         sample_rate_ms=100, notes="", run_id=None):
     """
     Helper function to create a metadata dictionary for logging.
 
@@ -364,6 +364,7 @@ def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
         frg702_unit: Pressure unit (mbar, torr, Pa)
         sample_rate_ms: Sampling rate in milliseconds
         notes: User notes about the run
+        run_id: Run ID shared with the Diagnostic log file name
 
     Returns:
         Dict with all metadata
@@ -379,4 +380,6 @@ def create_metadata_dict(tc_count=0, tc_type="K", tc_unit="C",
     }
     if tc_types is not None:
         result['tc_types'] = tc_types
+    if run_id is not None:
+        result['run_id'] = run_id
     return result
