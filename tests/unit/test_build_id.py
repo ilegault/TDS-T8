@@ -157,3 +157,25 @@ def test_csv_metadata_carries_build_id(tmp_path):
     assert "build_id" in text
     metadata, _ = DataLogger.load_csv_with_metadata(logger_.current_filepath)
     assert metadata["build_id"] == "2026-10-05_7656f09"
+
+
+def test_pyinstaller_runs_non_interactively(tmp_path):
+    """Output is captured, so a confirm-overwrite prompt can never be answered."""
+    (tmp_path / "t8_daq_system").mkdir()
+    run = FakeRun(tmp_path, "")
+    build.main([], run=run, root=tmp_path, today=date(2026, 10, 5))
+    pyi = next(c for c in run.calls if "PyInstaller" in c)
+    assert "--noconfirm" in pyi
+
+
+def test_failed_command_shows_its_output(capsys, monkeypatch):
+    import subprocess
+
+    def boom(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["x"], output="out text", stderr="err text")
+
+    monkeypatch.setattr(build.subprocess, "run", boom)
+    with pytest.raises(subprocess.CalledProcessError):
+        build.default_run(["x"])
+    err = capsys.readouterr().err
+    assert "out text" in err and "err text" in err

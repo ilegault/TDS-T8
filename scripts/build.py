@@ -46,10 +46,15 @@ def build_info_text(build_id: str, branch: str, built_at: str, files: list[str])
 
 
 def default_run(cmd: Sequence[str], cwd: Optional[Path] = None) -> str:
-    """Run ``cmd`` and return its stdout; raises CalledProcessError on failure."""
-    return subprocess.run(
-        list(cmd), cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout
+    """Run ``cmd`` and return its stdout; on failure print its output, then re-raise."""
+    try:
+        return subprocess.run(
+            list(cmd), cwd=cwd, check=True, capture_output=True, text=True
+        ).stdout
+    except subprocess.CalledProcessError as exc:
+        print(f"Command failed ({exc.returncode}): {' '.join(map(str, cmd))}", file=sys.stderr)
+        print(exc.output or "", exc.stderr or "", sep="\n", file=sys.stderr)
+        raise
 
 
 def main(
@@ -75,7 +80,9 @@ def main(
     info_module = root / "t8_daq_system" / "_build_info.py"
     info_module.write_text(f'BUILD_ID = "{bid}"\n', encoding="utf-8")
 
-    run([sys.executable, "-m", "PyInstaller", "tds.spec", "--clean"], cwd=root)
+    # --noconfirm: output is captured, so PyInstaller's "remove dist/...?" prompt
+    # can never be answered and the build would fail whenever dist/ exists.
+    run([sys.executable, "-m", "PyInstaller", "tds.spec", "--clean", "--noconfirm"], cwd=root)
 
     dist = root / "dist"
     out = dist / f"{APP_NAME}_{bid}"
