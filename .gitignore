@@ -32,6 +32,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# The project's build recipe is source, not a PyInstaller by-product.
+!tds.spec
 
 # Installer logs
 pip-log.txt
