@@ -23,9 +23,10 @@ intended shape, not the current code.
 - **Control TC** — the thermocouple a closed-loop block regulates against. Named per
   block (`tc_name`, default `TC_1`). Distinct from *monitor TCs*, which are logged
   and safety-checked but not controlled against.
-- **QMS** — the Hiden quadrupole mass spectrometer, driven through MASsoft by
-  simulated keypresses/clicks (pyautogui). The application cannot read its state; it
-  can only start or abort a scan.
+- **QMS** — the Hiden quadrupole mass spectrometer, run in MASsoft by the operator.
+  The application neither reads nor drives it: the operator starts and aborts scans,
+  and the app prompts them (QMS + Ramp gate, pressure-trip alert). It never injects
+  key presses or clicks — endpoint security deletes builds that do.
 
 ## Acquisition
 

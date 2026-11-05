@@ -150,7 +150,6 @@ class TestGuiReadsRig:
         assert measured_k == pytest.approx(expected_k, abs=1e-6)
 
     @patch('tkinter.messagebox.showerror')
-    @patch.dict('sys.modules', {'pyautogui': MagicMock()})
     @patch('t8_daq_system.gui.main_window.tk.Tk')
     @patch('t8_daq_system.gui.main_window.LivePlot')
     @patch('t8_daq_system.gui.main_window.SensorPanel')

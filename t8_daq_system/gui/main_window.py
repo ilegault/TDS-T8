@@ -548,6 +548,7 @@ class MainWindow:
             # Update timelapse settings (take effect on next timelapse start)
             self._camera_panel._timelapse_interval_s = getattr(s, 'timelapse_interval_s', 60)
             self._camera_panel._timelapse_export_fps = getattr(s, 'timelapse_export_fps', 10)
+            self._camera_panel._timelapse_video_format = s.timelapse_video_format
 
         # Refresh pinout display if open
         if hasattr(self, '_pinout_window') and self._pinout_window is not None:
@@ -1057,7 +1058,8 @@ class MainWindow:
             camera_index=camera_index,
             show_internal_buttons=False,
             timelapse_interval_s=getattr(self._app_settings, 'timelapse_interval_s', 60),
-            timelapse_export_fps=getattr(self._app_settings, 'timelapse_export_fps', 10)
+            timelapse_export_fps=getattr(self._app_settings, 'timelapse_export_fps', 10),
+            timelapse_video_format=getattr(self._app_settings, 'timelapse_video_format', 'mp4'),
         )
         self._camera_panel.grid(row=0, column=0, sticky='nsew')
         profiler.checkpoint("Camera panel created")
@@ -1356,22 +1358,20 @@ class MainWindow:
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(ResetTrip())
 
-    def _abort_massoft(self):
-        """Abort MASsoft scan on Tk thread; failure is reported and not swallowed."""
-        try:
-            import pyautogui
-            windows = pyautogui.getWindowsWithTitle("MASsoft")
-            if windows:
-                windows[0].activate()
-                time.sleep(0.1)
-                pyautogui.press('escape')
-        except Exception as err:
-            _log.error("MASsoft abort failed: %s", err)
-            messagebox.showerror(
-                "MASsoft Abort Failed",
-                f"Could not abort MASsoft scan:\n{err}"
-            )
-            self.status_var.set(f"MASsoft abort failed: {err}")
+    def _prompt_massoft_abort(self):
+        """Tell the operator to abort the MASsoft scan by hand.
+
+        The app no longer drives MASsoft with injected key presses: endpoint
+        security deletes builds that do. The heater is already off (ADR 0003);
+        only the QMS scan needs the operator.
+        """
+        _log.warning("Pressure trip: operator prompted to abort the MASsoft scan")
+        self.status_var.set("Pressure trip \u2014 abort the MASsoft scan now")
+        messagebox.showwarning(
+            "Pressure trip \u2014 abort the QMS scan",
+            "Chamber pressure tripped the heater (power is off).\n\n"
+            "Abort the MASsoft scan by hand now to protect the QMS filament."
+        )
 
     def render_snapshot(self, snap: Snapshot):
         """
@@ -1414,11 +1414,11 @@ class MainWindow:
                         self._trip_banner_frame.pack(fill=tk.X, padx=10, pady=2)
                 self._trip_banner_visible = True
 
-            # On pressure_high or pressure_stale trip, run MASsoft abort if not yet aborted for this trip
+            # On pressure_high or pressure_stale trip, prompt a MASsoft abort once per trip
             if kind in ("pressure_high", "pressure_stale"):
                 if getattr(self, '_last_aborted_trip_kind', None) != kind:
                     self._last_aborted_trip_kind = kind
-                    self._abort_massoft()
+                    self._prompt_massoft_abort()
         else:
             self._last_aborted_trip_kind = None
             self._trip_text = ""
@@ -1505,12 +1505,12 @@ class MainWindow:
                 w.destroy()
             ttk.Label(
                 frame,
-                text="Stable Hold complete — click to start QMS recording and continue to next ramp.",
+                text="Stable Hold complete — start the QMS in MASsoft, then click to continue to the next ramp.",
                 font=('Arial', 10, 'bold'), foreground='#9b59b6'
             ).pack(side=tk.LEFT, padx=8, pady=6, expand=True)
             ttk.Button(
                 frame,
-                text="\u25b6  Start QMS + Continue Ramp",
+                text="\u25b6  QMS Started — Continue Ramp",
                 command=self._on_qms_confirmation_click
             ).pack(side=tk.RIGHT, padx=8, pady=6)
             frame.pack(fill=tk.X, padx=4, pady=4)
@@ -1520,38 +1520,18 @@ class MainWindow:
         """User clicked the QMS confirmation button."""
         import datetime
 
-        # 1. Perform auto-click if enabled
-        settings = getattr(self, '_app_settings', None)
-        if settings and getattr(settings, 'qms_auto_click_enabled', False):
-            try:
-                import pyautogui
-                x = int(settings.qms_auto_click_x)
-                y = int(settings.qms_auto_click_y)
-                pyautogui.click(x, y)
-            except ImportError:
-                from tkinter import messagebox
-                messagebox.showerror(
-                    "Missing Library",
-                    "pyautogui is not installed. Run: pip install pyautogui\n"
-                    "Continuing without auto-click."
-                )
-            except Exception as e:
-                from tkinter import messagebox
-                messagebox.showwarning("Auto-Click Error",
-                                       f"Click failed: {e}\nContinuing anyway.")
-
-        # 2. Log QMS_TRIGGER event
+        # 1. Log QMS_TRIGGER event (the operator has started the QMS themselves)
         ts = datetime.datetime.now().isoformat()
         if hasattr(self, 'logger') and self.logger is not None:
             if self.logger.is_logging():
                 self.logger.log_event("QMS_TRIGGER", ts)
 
-        # 3. Hide confirmation banner
+        # 2. Hide confirmation banner
         frame = getattr(self, '_qms_confirm_frame', None)
         if frame is not None and frame.winfo_exists():
             frame.pack_forget()
 
-        # 4. Release executor / submit ConfirmContinue to Rig
+        # 3. Release executor / submit ConfirmContinue to Rig
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(ConfirmContinue())
 
@@ -2641,7 +2621,7 @@ class MainWindow:
 
         self._qms_ramp_btn = ttk.Button(
             self._qms_btn_frame,
-            text="\U0001f680  Start QMS + Begin Ramp",
+            text="\U0001f680  QMS Started — Begin Ramp",
             state='disabled',
             command=self._on_qms_ramp_start
         )
@@ -2708,7 +2688,7 @@ class MainWindow:
         """
         Simultaneous QMS + Ramp launch.
         1. Guard: Check pressure permissive (ADR 0004).
-        2. Trigger MASsoft Start via pyautogui keyboard shortcut.
+        2. The operator has started the QMS in MASsoft themselves (no key injection).
         3. Write RAMP_START event to DataLogger CSV.
         4. Signal the program executor to continue (if pausing between blocks).
         """
@@ -2719,30 +2699,6 @@ class MainWindow:
             return
 
         import datetime
-        try:
-            import pyautogui
-            import time as _time
-
-            windows = pyautogui.getWindowsWithTitle("MASsoft")
-            if not windows:
-                messagebox.showwarning(
-                    "MASsoft Not Found",
-                    "Could not find a window titled 'MASsoft'. "
-                    "Make sure MASsoft is open with your scan tree loaded, then try again."
-                )
-                return
-            win = windows[0]
-            win.activate()
-            _time.sleep(0.15)
-            pyautogui.press('f5')
-
-        except ImportError:
-            messagebox.showerror("Missing Library",
-                                 "pyautogui is not installed. Run: pip install pyautogui")
-            return
-        except Exception as e:
-            messagebox.showerror("QMS Start Error", f"Could not start MASsoft:\n{e}")
-            return
 
         # Log RAMP_START event with ISO timestamp
         ts = datetime.datetime.now().isoformat()
@@ -2771,8 +2727,7 @@ class MainWindow:
 
             # Power supply cutoff is handled by Rig / HeaterOutput (ADR 0003)
 
-            # 3. Abort MASsoft scan via pyautogui (Escape key = Abort in MASsoft toolbar)
-            self._abort_massoft()
+            # 3. The MASsoft scan is aborted by the operator (see the alert below)
 
             # 4. Log the event
             if hasattr(self, 'logger') and self.logger and self.logger.is_logging():
@@ -2789,7 +2744,7 @@ class MainWindow:
             messagebox.showerror(
                 "\u26a0\ufe0f PRESSURE INTERLOCK",
                 f"Pressure reached {pressure_torr:.2e} Torr \u2014 exceeds 1\u00d710\u207b\u2074 Torr limit.\n\n"
-                "Power supply OFF.\nMASsoft scan aborted.\nCheck vacuum system before restarting."
+                "Power supply OFF.\nAbort the MASsoft scan by hand now.\nCheck vacuum system before restarting."
             )
             self.status_var.set(f"INTERLOCK: Pressure {pressure_torr:.2e} Torr \u2014 ALL STOPPED")
 
