@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from t8_daq_system.control.program_block import VoltageRampBlock
+from t8_daq_system.control.program_block import SoftStartBlock, VoltageRampBlock
 from t8_daq_system.control.program_run import compute_preview
 from t8_daq_system.gui.main_window import MainWindow
 from t8_daq_system.gui.power_programmer_panel import PowerProgrammerPanel
@@ -79,7 +79,11 @@ def _snapshot(program: ProgramStatus) -> Snapshot:
 class TestComputePreviewSoftStart:
 
     def test_soft_start_end_time_positive_and_voltage_rises_no_faster_than_ramp(self):
-        blocks = [VoltageRampBlock(start_voltage=0.0, end_voltage=2.0, duration_sec=30.0)]
+        # Soft start is an optional block (ADR 0006, amended 2026-11-05): it is block 1.
+        blocks = [
+            SoftStartBlock(),
+            VoltageRampBlock(start_voltage=0.0, end_voltage=2.0, duration_sec=30.0),
+        ]
         settings = _run_settings()
 
         times, voltages, _temps, boundaries, soft_end_s = compute_preview(
@@ -87,7 +91,8 @@ class TestComputePreviewSoftStart:
         )
 
         assert soft_end_s > 0
-        assert boundaries[0] == pytest.approx(soft_end_s)
+        assert boundaries[0] == 0.0
+        assert boundaries[1] == pytest.approx(soft_end_s)
         before = [(t, v) for t, v in zip(times, voltages) if t <= soft_end_s]
         assert len(before) > 2
         for (t0, v0), (t1, v1) in zip(before, before[1:]):
@@ -96,11 +101,14 @@ class TestComputePreviewSoftStart:
         assert times[-1] == pytest.approx(soft_end_s + 30.0)
 
     def test_no_soft_start_segment_without_settings_or_when_already_hot(self):
-        blocks = [VoltageRampBlock(start_voltage=0.0, end_voltage=2.0, duration_sec=30.0)]
+        ramp = VoltageRampBlock(start_voltage=0.0, end_voltage=2.0, duration_sec=30.0)
+        blocks = [SoftStartBlock(), ramp]
 
         assert compute_preview(blocks)[4] == 0.0
         hot_k = 250.0 + 273.15
         assert compute_preview(blocks, start_temp_k=hot_k, soft_start=_run_settings())[4] == 0.0
+        # No Soft-start block, no segment, even cold and with settings.
+        assert compute_preview([ramp], soft_start=_run_settings())[4] == 0.0
 
 
 class TestLockedSoftStartRow:

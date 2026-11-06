@@ -311,9 +311,12 @@ and the ticket that changes the code updates the section.
    mode is the Simulated rig. (ADR 0005)
 5. **CV-only** (§2) holds on every path, including shutdown.
 6. **Never swallow an exception.** `except Exception: pass` is a defect.
-7. **Soft start.** Every Program run begins in Soft start when the control TC is below
-   the soft-start threshold: an open-loop DAC0 ramp with no Feedforward. It ends at
-   Handoff (TC ≥ threshold or current ≥ handoff current) and the reason is recorded.
+7. **Soft start.** Soft start is an optional block the operator adds as block 1; a
+   program has none by default, so PID tests can step the voltage on purpose. When
+   present and the control TC is below the soft-start threshold it is an open-loop
+   DAC0 ramp with no Feedforward. It ends at Handoff (TC ≥ threshold or current ≥
+   handoff current) and the reason is recorded. Without it the Run current cap is
+   active from the first tick.
    Handoff and block boundaries are bumpless, including Feedforward; Feedforward below
    its lowest map point is 0 V. (ADR 0006)
 8. **Two current caps, each with its own toggle.** The Soft-start current cap (default

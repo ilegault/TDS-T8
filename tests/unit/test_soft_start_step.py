@@ -51,3 +51,11 @@ def test_just_below_both_limits_keeps_ramping():
     res, reason = _step(temp_c=199.9, amps=34.9)
     assert res.finished is False
     assert reason is None
+
+
+def test_soft_start_block_round_trips_through_a_dict():
+    from t8_daq_system.control.program_block import SoftStartBlock
+
+    block = SoftStartBlock()
+    assert block.block_type == "soft_start"
+    assert SoftStartBlock.from_dict(block.to_dict()) == block
