@@ -208,3 +208,69 @@ class TestPowerSupplyPresence:
         assert window._ps_present() is True
         rig.has_power_supply.return_value = False
         assert window._ps_present() is False
+
+
+class TestPowerSupplyTilesWhenUnreachable:
+    """With no T8 (or no supply) the PS tiles say so instead of a green 0.000 V.
+
+    The Rig fills ps_volts/ps_amps with 0.0 when it cannot read the supply, and
+    SensorPanel shows any number as CONNECTED, so the GUI must hand it None.
+    """
+
+    def _idle_ps_readings(self, window, rig, snap, has_ps=True):
+        rig.latest.return_value = snap
+        rig.has_power_supply.return_value = has_ps
+        window.is_running = False
+        window.sensor_panel = MagicMock()
+        window._update_gui()
+        return window.sensor_panel.update.call_args.args[0]
+
+    def test_idle_tiles_none_when_labjack_disconnected(self, app):
+        window, rig = app
+        snap = _snapshot(ps_volts=0.0)
+        snap = snap.__class__(**{**snap.__dict__, "labjack": SourceStatus(state="disconnected")})
+
+        readings = self._idle_ps_readings(window, rig, snap)
+
+        assert readings["PS_Voltage"] is None
+        assert readings["PS_Current"] is None
+
+    def test_idle_tiles_none_when_rig_has_no_supply(self, app):
+        window, rig = app
+
+        readings = self._idle_ps_readings(window, rig, _snapshot(ps_volts=0.0), has_ps=False)
+
+        assert readings["PS_Voltage"] is None
+        assert readings["PS_Current"] is None
+
+    def test_idle_tiles_show_values_when_connected_with_supply(self, app):
+        window, rig = app
+
+        readings = self._idle_ps_readings(window, rig, _snapshot(ps_volts=1.25))
+
+        assert readings["PS_Voltage"] == pytest.approx(1.25)
+        assert readings["PS_Current"] == pytest.approx(4.0)
+
+    def test_running_buffer_gets_none_when_labjack_disconnected(self, app):
+        window, rig = app
+        rig.has_power_supply.return_value = True
+        window.data_buffer = MagicMock()
+        window.is_running = True
+        snap = _snapshot(ps_volts=0.0)
+        snap = snap.__class__(**{**snap.__dict__, "labjack": SourceStatus(state="disconnected")})
+
+        window._on_snapshot(snap)
+
+        added = window.data_buffer.add_reading.call_args.args[0]
+        assert added["PS_Voltage"] is None
+        assert added["PS_Current"] is None
+
+    def test_sensor_panel_shows_disconnected_for_none_voltage(self):
+        panel = SensorPanel(MagicMock(), [], [])
+        panel.displays["PS_Voltage"] = MagicMock()
+        panel.status_labels["PS_Voltage"] = MagicMock()
+
+        panel.update({"PS_Voltage": None})
+
+        panel.displays["PS_Voltage"].config.assert_called_with(text="--- V", foreground="gray")
+        panel.status_labels["PS_Voltage"].config.assert_called_with(text="DISCONNECTED", foreground="red")
