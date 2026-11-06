@@ -110,7 +110,7 @@ def app():
 class TestBlockBuilding:
     """Adding a block in the Power Programmer must work for every block type."""
 
-    @pytest.mark.parametrize("block_label", ["Linear Voltage Ramp", "Stable Hold", "Temp Ramp"])
+    @pytest.mark.parametrize("block_label", ["Linear Voltage Ramp", "Stable Hold", "Temp Ramp", "Soft Start"])
     def test_add_block_adds_one_block(self, app, block_label):
         window, _ = app
         window._activate_power_programmer()

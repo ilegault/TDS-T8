@@ -1,6 +1,6 @@
 # ADR 0006 — Every run begins with a Soft start; two toggleable current caps trip the heater
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-11-05: Soft start is an optional block)
 - **Date:** 2026-10-05
 - **Supersedes:** `COLD_CURRENT_LIMIT_A` (180 A "hold, don't increase" guard), the dead
   `soft_start_threshold_c` / `soft_start_current_limit_a` settings, `pid_output_max`.
@@ -62,3 +62,33 @@ soft-start settings in AppSettings were never read by any code.
   run cap; the March 2026 runs peaked at 129–180 A.
 - The Simulated rig must model cold resistance closely enough that a 0.29 V step on a
   cold specimen exceeds 40 A, so the caps are testable without hardware.
+
+## Amendment — 2026-11-05: Soft start is an optional block
+
+**Supersedes** Decision points 1 and 2 where they say "every Program run" and "not a
+block the operator adds or can delete".
+
+**Context.** The developer runs short PID tests that step the voltage on purpose to
+see the controller's transient response. A Soft start forced on every cold run makes
+those tests impossible: it always ramps the voltage gently up to the threshold first.
+
+**Decision.**
+
+1. Soft start is a `SoftStartBlock` the operator adds from Add Block ("Soft Start").
+   It always goes in as block 1, and a program holds at most one. It is deleted like
+   any other block. **A new program has none.**
+2. The block has no fields of its own. Its threshold, ramp rate and handoff current
+   stay Settings, frozen in RunSettings at Run (ADR 0007).
+3. While the block runs, points 1–2 above apply unchanged: an open-loop ramp with no
+   Feedforward, skipped at once if the control TC is already at or above the
+   threshold, ending at Handoff with a recorded reason, and a bumpless transfer into
+   the next block. The Soft-start block is block 1 in the Run record's Block_Index.
+4. **Without a Soft-start block** the first block runs from the first tick, and the
+   **Run current cap is active from that tick**. A voltage step on a cold filament is
+   then the operator's deliberate choice, and the Run cap is the backstop.
+5. The "Soft-start current cap is OFF" warning is logged only for a program that has
+   a Soft-start block.
+
+**Consequences.** A cold run with no Soft-start block can draw a large inrush current
+(the Simulated rig draws > 40 A at 0.29 V cold). That is intended for transient tests.
+For a normal TDS run the operator adds the block. Bench ticket 36 must add the block.

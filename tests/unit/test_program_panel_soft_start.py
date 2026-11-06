@@ -6,7 +6,9 @@ WHY THIS EXISTS
 Ticket 25 (ADR 0006) put a locked Soft-start row and a gains / current-caps readout
 into ``PowerProgrammerPanel``, but MainWindow builds ``ProgramPanel``, so operators
 saw neither, only the Soft-start span on the preview graph. These tests pin both on
-``ProgramPanel`` and pin MainWindow feeding it each rendered Snapshot.
+``ProgramPanel`` and pin MainWindow feeding it each rendered Snapshot. Since the
+2026-11-05 amendment to ADR 0006 the Soft-start row is an optional block: none by
+default, added from Add Block as block 1, deleted like any other.
 """
 from __future__ import annotations
 
@@ -42,9 +44,11 @@ def _panel(settings=None, with_settings=True) -> ProgramPanel:
 
 
 class TestSoftStartRow:
+    """Soft start is an optional block (ADR 0006, amended 2026-11-05): none by default."""
 
     def test_row_text_names_threshold_and_handoff_current(self):
         panel = _panel()
+        _add(panel, "Soft Start")
 
         text = panel.get_soft_start_row_text()
 
@@ -54,6 +58,7 @@ class TestSoftStartRow:
     def test_row_text_follows_the_settings_a_run_would_use_now(self):
         settings = _run_settings()
         panel = ProgramPanel(MagicMock(), get_soft_start_settings_fn=lambda: settings)
+        _add(panel, "Soft Start")
         settings = _run_settings(soft_start_threshold_c=150.0, soft_start_handoff_current_a=30.0)
 
         panel.refresh_run_labels(None)
@@ -67,14 +72,47 @@ class TestSoftStartRow:
         assert panel.get_soft_start_row_text() == ""
 
     def test_row_is_not_a_block_and_survives_block_edits(self):
+        # Rewritten in place: Soft start is now a block, so deleting it removes it
+        # and the other blocks are untouched.
         panel = _panel()
         panel.load_blocks([VoltageRampBlock(0.0, 1.0, 60.0), StableHoldBlock(293.15, 2.0, 60.0)])
+        _add(panel, "Soft Start")
 
         panel._delete_block(0)
-        panel._delete_block(0)
+
+        assert [b.block_type for b in panel.get_blocks()] == ["voltage_ramp", "stable_hold"]
+        assert panel.get_soft_start_row_text() == ""
+
+    def test_new_program_has_no_soft_start(self):
+        panel = _panel()
 
         assert panel.get_blocks() == []
-        assert panel.get_soft_start_row_text().startswith("Soft start")
+        assert panel.get_soft_start_row_text() == ""
+
+    def test_added_soft_start_goes_first_whatever_was_there(self):
+        panel = _panel()
+        panel.load_blocks([VoltageRampBlock(0.0, 1.0, 60.0)])
+
+        _add(panel, "Soft Start")
+
+        assert [b.block_type for b in panel.get_blocks()] == ["soft_start", "voltage_ramp"]
+
+    def test_a_program_holds_at_most_one_soft_start(self):
+        panel = _panel()
+
+        _add(panel, "Soft Start")
+        _add(panel, "Soft Start")
+
+        assert [b.block_type for b in panel.get_blocks()] == ["soft_start"]
+
+    def test_soft_start_offered_in_add_block(self):
+        assert "Soft Start" in ProgramPanel.BLOCK_TYPES
+
+
+def _add(panel: ProgramPanel, label: str) -> None:
+    panel._add_type_var = MagicMock()
+    panel._add_type_var.get.return_value = label
+    panel._add_block()
 
 
 class TestGainsAndCapsReadout:
