@@ -1,2 +1,2 @@
 @echo off
-python scriptsuild.py %*
+python scripts\build.py %*

@@ -12,10 +12,9 @@ Threading model:
   - Main Tkinter thread: polls queue via after() every 33ms (~30fps) to update
     the video Label. ALL Tkinter calls happen here — never from background threads.
   - Timelapse thread: sleeps 60s between frames, saves JPEG to subfolder.
-  - Export thread: stitches frames into MP4 via imageio-ffmpeg after stop.
+  - Export thread: stitches frames into MP4 or AVI via OpenCV after stop.
 """
 
-import importlib.util
 import logging
 import os
 import queue
@@ -41,10 +40,6 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-IMAGEIO_AVAILABLE = bool(
-    importlib.util.find_spec("imageio") is not None
-    and importlib.util.find_spec("imageio_ffmpeg") is not None
-)
 
 
 
@@ -56,7 +51,7 @@ class CameraPanel(ttk.Frame):
     Provides:
       1. Live feed  — 30fps preview displayed in a tk.Label via after() loop
       2. Snapshot   — saves full-resolution JPEG to logs/photos/
-      3. Timelapse  — 1 frame/min auto-capture -> MP4 export on stop
+      3. Timelapse  — 1 frame/min auto-capture -> MP4/AVI export on stop
     """
 
     FEED_INTERVAL_MS     = 33    # ~30fps display refresh
@@ -118,6 +113,7 @@ class CameraPanel(ttk.Frame):
     def __init__(self, parent, log_folder: str, camera_index: int = 0,
                  show_internal_buttons: bool = True, timelapse_interval_s: int = 60,
                  timelapse_export_fps: int = 10,
+                 timelapse_video_format: str = "mp4",
                  **kwargs):
         super().__init__(parent, **kwargs)
 
@@ -128,6 +124,7 @@ class CameraPanel(ttk.Frame):
         self._show_internal_buttons  = show_internal_buttons
         self._timelapse_interval_s   = timelapse_interval_s
         self._timelapse_export_fps   = timelapse_export_fps
+        self._timelapse_video_format = timelapse_video_format
 
         # ── Camera state ──────────────────────────────────────────────────────
         self._cap            = None
@@ -615,17 +612,14 @@ class CameraPanel(ttk.Frame):
 
     def _export_timelapse_thread(self):
         """
-        Background: sort JPEG frames -> write H.264 MP4 via imageio-ffmpeg.
-        10fps gives ~30s video for a 5h run (300 frames), well under 50MB.
+        Background: sort JPEG frames -> write MP4 or AVI via OpenCV's
+        in-process encoder (see data/timelapse_video.py for why not ffmpeg.exe).
+        10fps gives ~30s video for a 5h run (300 frames).
         Uses after(0, callback) to update UI on completion.
         """
         try:
-            if not IMAGEIO_AVAILABLE:
-                raise ImportError(
-                    "imageio and imageio-ffmpeg are required.\n"
-                    "Run: pip install imageio imageio-ffmpeg"
-                )
-            import imageio
+            # Imported here: the module needs cv2, which this panel treats as optional.
+            from t8_daq_system.data.timelapse_video import write_timelapse
 
             frame_files = sorted([
                 os.path.join(self._timelapse_folder, f)
@@ -637,26 +631,16 @@ class CameraPanel(ttk.Frame):
                 raise ValueError("No timelapse frames found in folder.")
 
             ts_tag   = os.path.basename(self._timelapse_folder).replace('timelapse_', '')
-            out_path = os.path.join(self._photos_folder, f'timelapse_{ts_tag}.mp4')
+            out_base = os.path.join(self._photos_folder, f'timelapse_{ts_tag}')
             n_frames = len(frame_files)
 
-            # H.264, yuv420p (required for broad player compatibility),
-            # quality=8 (~CRF 20), macro_block_size=16 avoids dimension errors.
-            export_fps = max(1, self._timelapse_export_fps)
-            with imageio.get_writer(
-                out_path,
-                fps=export_fps,
-                quality=8,
-                codec='libx264',
-                pixelformat='yuv420p',
-                macro_block_size=16
-            ) as writer:
-                for i, fpath in enumerate(frame_files):
-                    writer.append_data(imageio.imread(fpath))
-                    if i % 10 == 0:
-                        pct = int((i + 1) / n_frames * 100)
-                        self.after(0, lambda p=pct:
-                                   self._set_status(f'Exporting... {p}%', 'blue'))
+            out_path = write_timelapse(
+                frame_files, out_base,
+                fps=max(1, self._timelapse_export_fps),
+                fmt=self._timelapse_video_format,
+                progress=lambda p: self.after(
+                    0, lambda: self._set_status(f'Exporting... {p}%', 'blue')),
+            )
 
             out_name = os.path.basename(out_path)
             self.after(0, lambda: self._on_export_done(out_path, out_name, n_frames, None))
