@@ -82,6 +82,14 @@ def _settings(mock_settings_cls):
     s.pid_ki = 0.00078
     s.pid_kd = 0.00845
     s.pid_windup_limit = 1.0
+    # Real values: the programmer formats these into its Soft-start row and readout
+    s.soft_start_threshold_c = 200.0
+    s.soft_start_ramp_v_per_s = 0.02
+    s.soft_start_handoff_current_a = 35.0
+    s.soft_start_cap_enabled = True
+    s.soft_start_cap_a = 40.0
+    s.run_cap_enabled = True
+    s.run_cap_a = 120.0
     return s
 
 
