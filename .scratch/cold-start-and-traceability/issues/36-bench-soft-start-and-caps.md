@@ -15,7 +15,7 @@
 
 The developer validates this effort on the real rig with a build that carries a Build ID.
 
-Steps: build with `build.bat` and deploy to the rig PC; confirm the window title shows the Build ID. With a cold filament, run a short TempRamp program and watch Soft start ramp, the status banner and the handoff reason. Trip drill: set the Soft-start cap to 10 A, run, and confirm a `soft_start_overcurrent` trip with a full reason, and that reset is refused until the current falls. Repeat for the Run cap with a low value after handoff. Return the CSV and Diagnostic log to the planning project.
+Steps: build with `build.bat` and deploy to the rig PC; confirm the window title shows the Build ID. With a cold filament, run a short TempRamp program with a Soft Start block as block 1 (Soft start is optional since the 2026-11-05 amendment to ADR 0006) and watch Soft start ramp, the status banner and the handoff reason. Trip drill: set the Soft-start cap to 10 A, run, and confirm a `soft_start_overcurrent` trip with a full reason, and that reset is refused until the current falls. Repeat for the Run cap with a low value after handoff. Return the CSV and Diagnostic log to the planning project.
 
 ## Acceptance criteria
 

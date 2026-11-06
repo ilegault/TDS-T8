@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from t8_daq_system.control.heater_output import HeaterOutput
-from t8_daq_system.control.program_block import StableHoldBlock, TempRampBlock
+from t8_daq_system.control.program_block import SoftStartBlock, StableHoldBlock, TempRampBlock
 from t8_daq_system.control.safety_monitor import SafetyEvaluator
 from t8_daq_system.data.data_logger import DataLogger
 from t8_daq_system.data.run_record import RunRecord, build_header
@@ -141,7 +141,8 @@ def test_heartbeat_line_carries_the_run_state(tmp_path):
 
 def test_soft_start_overcurrent_trip_is_one_error_line_with_its_reason(tmp_path):
     rig, rr, data_logger, clock, sim = _make_fixture(tmp_path)
-    blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=1500.0, tc_name="TC_1")]
+    # Soft start is an optional block (ADR 0006, amended 2026-11-05).
+    blocks = [SoftStartBlock(), TempRampBlock(rate_k_per_min=60.0, end_temp_k=1500.0, tc_name="TC_1")]
     with _SessionLog(tmp_path / "session.log") as log:
         _start(rig, clock, blocks, soft_start_threshold_c=200.0, soft_start_cap_a=40.0)
         sim.force_current(45.0)
@@ -170,7 +171,8 @@ def test_disabled_run_cap_warns_at_run_start(tmp_path):
 
 def test_disabled_soft_start_cap_warns_at_run_start(tmp_path):
     rig, rr, data_logger, clock, _ = _make_fixture(tmp_path)
-    blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=900.0, tc_name="TC_1")]
+    # Soft start is an optional block (ADR 0006, amended 2026-11-05).
+    blocks = [SoftStartBlock(), TempRampBlock(rate_k_per_min=60.0, end_temp_k=900.0, tc_name="TC_1")]
     with _SessionLog(tmp_path / "session.log") as log:
         _start(rig, clock, blocks, soft_start_cap_enabled=False)
         _finish(rr, data_logger)
@@ -184,7 +186,8 @@ def test_disabled_soft_start_cap_warns_at_run_start(tmp_path):
 
 def test_transitions_start_and_stop_are_info_lines(tmp_path):
     rig, rr, data_logger, clock, _ = _make_fixture(tmp_path)
-    blocks = [TempRampBlock(rate_k_per_min=600.0, end_temp_k=400.0, tc_name="TC_1")]
+    # Soft start is an optional block (ADR 0006, amended 2026-11-05).
+    blocks = [SoftStartBlock(), TempRampBlock(rate_k_per_min=600.0, end_temp_k=400.0, tc_name="TC_1")]
     with _SessionLog(tmp_path / "session.log") as log:
         _start(rig, clock, blocks)
         _tick(rig, clock, 400)
