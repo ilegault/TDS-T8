@@ -1285,6 +1285,17 @@ class MainWindow:
         volts = snap.ps_volts if snap is not None else 0.0
         return temp_k, volts
 
+    def _ps_readings(self, snap):
+        """(volts, amps) for the PS tiles and plot, or (None, None) when unreachable.
+
+        The Rig reports 0.0 when it cannot read the supply, and SensorPanel shows any
+        number as CONNECTED, so an unplugged T8 looked like a live supply at 0 V.
+        None makes the tiles say DISCONNECTED. Same test as the PowerSupply indicator.
+        """
+        if snap.labjack.state == "connected" and self._ps_present():
+            return snap.ps_volts, snap.ps_amps
+        return None, None
+
     def _ps_present(self) -> bool:
         """True if the Rig's active adapter drives a power supply (ADR 0002)."""
         rig = getattr(self, 'rig', None)
@@ -1332,8 +1343,7 @@ class MainWindow:
         for k, v in snap.pressure_torr.items():
             all_readings[k] = v
 
-        all_readings['PS_Voltage'] = snap.ps_volts
-        all_readings['PS_Current'] = snap.ps_amps
+        all_readings['PS_Voltage'], all_readings['PS_Current'] = self._ps_readings(snap)
         all_readings['PS_Voltage_Setpoint'] = snap.commanded_volts
         all_readings['PS_CC_Limit'] = 180.0
 
@@ -2373,8 +2383,7 @@ class MainWindow:
                     idle_readings[name] = convert_temperature(value, 'C', t_unit) if value is not None else None
                 for name, value in snap.pressure_torr.items():
                     idle_readings[name] = convert_pressure(value, 'Torr', p_unit) if value is not None else None
-                idle_readings['PS_Voltage'] = snap.ps_volts
-                idle_readings['PS_Current'] = snap.ps_amps
+                idle_readings['PS_Voltage'], idle_readings['PS_Current'] = self._ps_readings(snap)
                 if hasattr(self, 'sensor_panel'):
                     self.sensor_panel.update(idle_readings)
                 for name, value in idle_readings.items():
