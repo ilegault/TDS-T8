@@ -26,7 +26,7 @@ from t8_daq_system.data.data_buffer import DataBuffer
 from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
 from t8_daq_system.gui.live_plot import LivePlot
 from t8_daq_system.gui.camera_panel import CameraPanel
-from t8_daq_system.gui.sensor_panel import SensorPanel
+from t8_daq_system.gui.sensor_panel import SensorPanel, STATUS_VALID
 from t8_daq_system.utils.helpers import convert_pressure, convert_temperature
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog
 from t8_daq_system.gui.settings_dialog import SettingsDialog
@@ -1182,7 +1182,7 @@ class MainWindow:
         self._programmer_panel = ProgramPanel(
             parent_frame=self._programmer_panel_frame,
             preview_plot=self._programmer_preview_plot,
-            get_initial_state_fn=lambda: (self._get_latest_tc_reading_k("TC_1"), self._latest_snapshot.ps_volts if self._latest_snapshot else 0.0),
+            get_initial_state_fn=self._programmer_initial_state,
             on_program_change=self._update_run_button_state,
             tc_names=sorted(self._tc_names),
             get_unit_fn=lambda: getattr(self, 't_unit_var', None) and self.t_unit_var.get() or 'K',
@@ -1270,6 +1270,26 @@ class MainWindow:
         # Apply dotted preview overlay to the ps LivePlot
         self._apply_programmer_overlay()
 
+    def _programmer_initial_state(self):
+        """(start temperature K, start voltage V) for the programmer's block chain.
+
+        Read from the Rig's latest Snapshot; with none yet, room temperature and 0 V.
+        The temperature is the first configured thermocouple's (§5.2: no hardcoded name).
+        """
+        tcs = self.config.get('thermocouples', [])
+        tc_name = tcs[0]['name'] if tcs else None
+        snap = self.rig.latest() if getattr(self, 'rig', None) else None
+        temp_k = 293.15
+        if snap is not None and tc_name in snap.tc_c and snap.tc_c[tc_name] is not None:
+            temp_k = snap.tc_c[tc_name] + 273.15
+        volts = snap.ps_volts if snap is not None else 0.0
+        return temp_k, volts
+
+    def _ps_present(self) -> bool:
+        """True if the Rig's active adapter drives a power supply (ADR 0002)."""
+        rig = getattr(self, 'rig', None)
+        return bool(rig is not None and rig.has_power_supply())
+
     def _get_tc_reading_k_provider(self, tc_name):
         return lambda: self._get_latest_tc_reading_k(tc_name)
 
@@ -1328,8 +1348,9 @@ class MainWindow:
         self._latest_readings = (snap.wall_time, all_readings)
         self._latest_tc_readings = dict(snap.tc_c)
         self._latest_raw_voltages = dict(snap.tc_raw_v)
+        # Status words must be SensorPanel's: only STATUS_VALID shows the number
         self._latest_frg702_details = {
-            g: {'pressure': p, 'status': 'OK' if p is not None else 'Error'}
+            g: {'pressure': p, 'status': STATUS_VALID if p is not None else 'error'}
             for g, p in snap.pressure_torr.items()
         }
 
@@ -2235,7 +2256,7 @@ class MainWindow:
                 build_id=get_build_id(),
             )
 
-            header = build_csv_header(self.config, has_ps_controller=bool(self.ps_controller))
+            header = build_csv_header(self.config, has_ps_controller=self._ps_present())
             sensor_names = header[1:]
 
             # Append Power Programmer metadata if a profile is loaded
@@ -2260,7 +2281,7 @@ class MainWindow:
                 t_unit=t_unit,
                 p_unit=p_unit,
                 sample_rate_ms=float(sample_rate),
-                has_ps=bool(self.ps_controller),
+                has_ps=self._ps_present(),
                 heartbeat_interval_s=float(self._app_settings.heartbeat_interval_s),
             )
             self._run_record.start()
@@ -2311,7 +2332,7 @@ class MainWindow:
             self.render_snapshot(snap)
         lj_connected = (snap.labjack.state == "connected") if snap else False
         xgs_connected = (snap.xgs.state == "connected") if snap else False
-        ps_connected = lj_connected and (self.ps_controller is not None or (snap is not None and snap.adapter == "simulated"))
+        ps_connected = lj_connected and self._ps_present()
 
         # Update connection indicators from Snapshot SourceStatus
         if 'LabJack' in self.indicators:

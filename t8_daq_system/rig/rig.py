@@ -167,6 +167,17 @@ class Rig:
         """The pure SafetyEvaluator evaluating Snapshots."""
         return self._safety_evaluator
 
+    def has_power_supply(self) -> bool:
+        """True if the active adapter drives a power supply.
+
+        The Simulated rig always does. The T8 adapter does once it holds a Keysight
+        controller (built on connect). The GUI asks here rather than holding a
+        controller of its own (ADR 0002).
+        """
+        if isinstance(self._adapter, SimulatedRig):
+            return True
+        return getattr(self._adapter, "ps_controller", None) is not None
+
     def set_program_executor(self, executor: Any) -> None:
         """Set the ProgramExecutor to be stopped on trip."""
         self._program_executor = executor
