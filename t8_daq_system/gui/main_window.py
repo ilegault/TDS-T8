@@ -1404,6 +1404,10 @@ class MainWindow:
 
         self._latest_rendered_snapshot = snap
 
+        # Programmer readout: Soft-start row, gains in use and current caps (ADR 0006)
+        if self._programmer_panel is not None:
+            self._programmer_panel.refresh_run_labels(snap)
+
         # 1. Trip banner handling
         is_tripped = (snap.heater is not None and snap.heater.state == "tripped")
         if is_tripped:

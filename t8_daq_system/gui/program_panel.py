@@ -1,6 +1,15 @@
 """
 program_panel.py
 PURPOSE: Unified Program Mode UI for the block-based editor.
+
+WHY THIS EXISTS
+---------------
+This is the programmer MainWindow builds. Every run begins with a Soft start
+(ADR 0006). It is not a block and is not saved, so the list shows it as a fixed
+first row with no Edit or Del buttons. A status line shows the gains and the two
+current caps the run will use: from the frozen RunSettings a Start would send when
+idle, and from the Snapshot's gains_in_use while a program runs. Ticket 25 first put
+these in PowerProgrammerPanel, which the app never builds, so operators saw neither.
 """
 
 import logging
@@ -201,6 +210,10 @@ class ProgramPanel:
         # Soft-start span, or None to preview the blocks alone
         self._get_soft_start_settings = get_soft_start_settings_fn
         self._blocks = []
+        self._soft_start_row_text = ""
+        self._gains_text = ""
+        self._caps_text = ""
+        self._soft_row_label = None
 
         self._build_gui()
 
@@ -261,8 +274,17 @@ class ProgramPanel:
         )
         self._warn_label.pack(side=tk.LEFT, padx=(8, 0))
 
+        # Run line: the gains and current caps the run will use (ADR 0006)
+        run_bar = ttk.Frame(main_frame)
+        run_bar.pack(fill=tk.X, pady=(2, 0))
+        self._gains_label = ttk.Label(run_bar, text="", font=('Arial', 9))
+        self._gains_label.pack(side=tk.LEFT, padx=(0, 12))
+        self._caps_label = ttk.Label(run_bar, text="", font=('Arial', 9))
+        self._caps_label.pack(side=tk.LEFT)
+
         self._refresh_list()
         self._update_pid_status()
+        self.refresh_run_labels(None)
 
     def _chain_start_temp_k(self, up_to_idx):
         """Return the start temperature (K) at block up_to_idx based on prior blocks."""
@@ -322,6 +344,7 @@ class ProgramPanel:
     def _refresh_list(self):
         for widget in self._scrollable_frame.winfo_children():
             widget.destroy()
+        self._build_soft_start_row()
         for i, block in enumerate(self._blocks):
             self._build_block_row(i, block)
             # After a StableHold that is followed by a TempRamp, show QMS toggle
@@ -329,6 +352,74 @@ class ProgramPanel:
                     i + 1 < len(self._blocks) and
                     self._blocks[i + 1].block_type == "temp_ramp"):
                 self._build_qms_trigger_row(i, block)
+
+    def _run_settings(self):
+        """The RunSettings a Start would send now, or None without a provider."""
+        return self._get_soft_start_settings() if self._get_soft_start_settings else None
+
+    def _build_soft_start_row(self):
+        """Fixed first row: Soft start is not a block, so it has no Edit or Del."""
+        self._soft_row_label = None
+        settings = self._run_settings()
+        if settings is None:
+            self._soft_start_row_text = ""
+            return
+        self._soft_start_row_text = self._soft_start_text(settings)
+        row = ttk.Frame(self._scrollable_frame, padding=5)
+        row.pack(fill=tk.X, expand=True)
+        ttk.Label(row, text="0.", width=3).pack(side=tk.LEFT)
+        ttk.Label(row, text="Soft Start", width=15).pack(side=tk.LEFT)
+        self._soft_row_label = ttk.Label(row, text=self._soft_start_row_text, foreground='gray')
+        self._soft_row_label.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
+        ttk.Label(row, text="(locked)", foreground='gray').pack(side=tk.RIGHT, padx=2)
+
+    @staticmethod
+    def _soft_start_text(settings) -> str:
+        return (
+            f"Soft start → PID at {settings.soft_start_threshold_c:g} °C "
+            f"or {settings.soft_start_handoff_current_a:g} A"
+        )
+
+    @staticmethod
+    def _cap_text(name: str, enabled: bool, amps: float) -> str:
+        return f"{name}: {amps:g} A" if enabled else f"{name}: OFF"
+
+    def refresh_run_labels(self, snapshot) -> None:
+        """Show the Soft-start thresholds, gains and caps the run uses.
+
+        Idle: all from the RunSettings a Start would freeze now. Running: gains from
+        the Snapshot's gains_in_use; caps and thresholds still from RunSettings.
+        """
+        settings = self._run_settings()
+        if settings is None:
+            return
+        self._soft_start_row_text = self._soft_start_text(settings)
+        if self._soft_row_label is not None:
+            self._soft_row_label.config(text=self._soft_start_row_text)
+        program = getattr(snapshot, 'program', None)
+        if program is not None and program.running and program.gains_in_use is not None:
+            kp, ki, kd = program.gains_in_use
+        else:
+            kp, ki, kd = settings.kp, settings.ki, settings.kd
+        self._gains_text = f"Gains in use: {kp:g} / {ki:g} / {kd:g}"
+        self._caps_text = "  ".join((
+            self._cap_text("Soft-start cap", settings.soft_start_cap_enabled, settings.soft_start_cap_a),
+            self._cap_text("Run cap", settings.run_cap_enabled, settings.run_cap_a),
+        ))
+        self._gains_label.config(text=self._gains_text)
+        self._caps_label.config(text=self._caps_text)
+
+    def get_soft_start_row_text(self) -> str:
+        """Text of the locked Soft-start row ('' when there is none)."""
+        return self._soft_start_row_text
+
+    def get_gains_text(self) -> str:
+        """Text of the gains readout."""
+        return self._gains_text
+
+    def get_caps_text(self) -> str:
+        """Text of the current-caps readout."""
+        return self._caps_text
 
     def _build_block_row(self, i, block):
         unit = self._get_unit()
