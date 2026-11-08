@@ -8,7 +8,7 @@ import importlib.util
 import inspect
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -48,12 +48,15 @@ def window(monkeypatch):
         _apply_settings_to_gui=MagicMock(),
     )
     asked = MagicMock(return_value=True)
-    monkeypatch.setattr(mw.messagebox, "askyesno", asked)
     dialog_cls = MagicMock()
     monkeypatch.setattr(mw, "SettingsDialog", dialog_cls)
-    return SimpleNamespace(fake=fake, record=record, suggestion=suggestion,
-                           save=save, asked=asked, dialog_cls=dialog_cls,
-                           settings=settings)
+    # Under the conftest Tk stub mw.messagebox is a MagicMock. pytest >= 9.2
+    # undoes monkeypatch.setattr on it with delattr, which a MagicMock
+    # remembers, so the next test finds no askyesno. patch.object restores it.
+    with patch.object(mw.messagebox, "askyesno", asked):
+        yield SimpleNamespace(fake=fake, record=record, suggestion=suggestion,
+                              save=save, asked=asked, dialog_cls=dialog_cls,
+                              settings=settings)
 
 
 def test_apply_opens_settings_prefilled_and_never_saves(window):
@@ -99,11 +102,12 @@ class _Var:
         return self.v
 
 
-def test_settings_dialog_prefill_sets_gain_variables(monkeypatch):
-    monkeypatch.setattr(sys.modules["tkinter"], "Toplevel", type("Toplevel", (), {}))
+def test_settings_dialog_prefill_sets_gain_variables():
+    # patch.object, not monkeypatch: see the window fixture above.
     spec = importlib.util.find_spec("t8_daq_system.gui.settings_dialog")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with patch.object(sys.modules["tkinter"], "Toplevel", type("Toplevel", (), {})):
+        spec.loader.exec_module(module)
     d = object.__new__(module.SettingsDialog)
     d._pid_kp_var, d._pid_ki_var, d._pid_kd_var = _Var(), _Var(), _Var()
     d._apply_gain_prefill((1.15, 0.0425, 0.05))
