@@ -1,6 +1,6 @@
 # 41: Simulated rig is a calibrated two-node model
 
-**Status:** in-progress
+**Status:** blocked
 
 **Runner:** any
 
@@ -73,3 +73,32 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     pytest --tb=short -q
 
 ## Comments
+
+## Escalation — 2026-11-08
+Repo: TDS-T8   Ticket: 41 Simulated rig is a calibrated two-node model   Branch: ticket/field-realistic-testing-41-calibrated-two-node-simulator
+Goal: Make the simulator a two-node model and calibrate it against the Field runs from ticket 40.
+Attempt 1: Baseline two-node model (C_FIL=0.5 J/K, C_TC=8.0 J/K, G_COUPLE=0.08 W/K). Current RMS passed across all 5 runs (<= 15% peak), but TC RMS was 153 to 408 K due to uncalibrated thermal lag.
+Attempt 2: High thermal coupling and slow TC node (C_TC=40.0 J/K, G_COUPLE=0.10 W/K, ALPHA=0.0026 /K). All 5 runs passed current RMS. Runs 0..3 passed TC RMS (<= 50 K: 44.6 K, 47.9 K, 39.7 K, 44.7 K) and 2026-04-15 peak thermal lag reached 533 K (>= 500 K). However, C_TC=40 was thermally too sluggish to cool in 100 s in `test_output_false_gives_zero_current_and_cools` (cooled TC was higher than hot TC due to residual heating).
+Attempt 3: Balanced constants (C_TC=15.0 J/K, C_FIL=0.5 J/K, G_COUPLE=0.12 W/K, K_COND_TC=0.02 W/K, AREA_FIL=0.0012 m^2, AREA_TC=0.0003 m^2, ALPHA=0.0026 /K, R_COLD=0.0050 Ohm).
+  - All existing unit and Rig tests pass (15/15 green).
+  - 6.0 V steady state is 176.3 A (within [120, 180] A).
+  - Cold 0.29 V current is 58 A (> 40 A).
+  - Peak thermal lag on 2026-04-15 passes (515.5 K >= 500 K).
+  - All 5 field runs pass current RMS (6.05 A, 5.19 A, 4.10 A, 3.92 A, 14.39 A, all <= 15% peak).
+  - However, TC RMS on `2026-04-15_ramp_hold_down` is 472.6 K. Root cause: the test ended at t = 7875 s (at t=7879 s the Keysight shut off), but the fixture downsampled post-run data where the disconnected Keysight monitor pins floated to ~2.62 V and 78.7 A for 3046 s (t=7900..10946 s) while the TC cooled in the dark chamber to 62 °C. During the active experiment (t <= 7875 s), RMS TC error is 47.48 K (passing <= 50 K). In vacuum, 200 W (2.6 V) applied for 50 minutes cannot physically coexist with a 62 °C specimen. Runs 0, 1, 3 are also marginally over (55.4 K, 50.1 K, 59.3 K).
+
+Failing output (exact, trimmed to the relevant lines):
+```
+AssertionError: Run 2026-04-15_ramp_hold_down: RMS TC error 472.64 K exceeds 50 K
+assert 472.63582538906945 <= 50.0
+AssertionError: Run 2026-03-26_temp_ramp_1550: RMS TC error 55.37 K exceeds 50 K
+assert 55.37073986352773 <= 50.0
+AssertionError: Run 2026-03-28_tds_5k_per_min: RMS TC error 50.14 K exceeds 50 K
+assert 50.141886756020256 <= 50.0
+AssertionError: Run 2026-03-30_tds_irradiated_33h: RMS TC error 59.33 K exceeds 50 K
+assert 59.33092924290546 <= 50.0
+```
+
+Decision needed:
+1. Should `tests/fixtures/field_runs/2026-04-15_ramp_hold_down.csv` be truncated at the run end (t = 7875 s when the Keysight shut off), or should `make_field_runs.py` stop downsampling when output is disabled?
+2. Alternatively, should the TC RMS tolerance for `2026-04-15_ramp_hold_down` be assessed only over the active run (t <= 7875 s, where it achieves 47.48 K <= 50 K), and should the general tolerance be adjusted to ~60 K to accommodate runs 0, 1, 3?
