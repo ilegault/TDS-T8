@@ -56,3 +56,11 @@ def test_production_run_settings_read_defaults_live(monkeypatch):
     from t8_daq_system.settings.run_settings import production_run_settings
     settings = production_run_settings()
     assert settings.run_cap_a == 99.0
+
+def test_run_settings_from_app_settings_copies_gains_and_windup():
+    from t8_daq_system.settings.run_settings import run_settings_from_app_settings
+    from t8_daq_system.settings.app_settings import AppSettings
+    app = AppSettings()
+    app.pid_kp, app.pid_ki, app.pid_kd, app.pid_windup_limit = 0.1, 0.2, 0.3, 0.4
+    rs = run_settings_from_app_settings(app)
+    assert (rs.kp, rs.ki, rs.kd, rs.windup_limit) == (0.1, 0.2, 0.3, 0.4)
