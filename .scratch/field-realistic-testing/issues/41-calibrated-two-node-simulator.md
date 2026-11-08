@@ -1,6 +1,6 @@
 # 41: Simulated rig is a calibrated two-node model
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
