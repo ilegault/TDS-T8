@@ -50,6 +50,7 @@ DEFAULT_EFFORT = "cold-start-and-traceability"
 POLL_SECONDS = 30
 CI_TIMEOUT_SECONDS = 40 * 60
 AUTO_MERGE_WAIT_SECONDS = 10 * 60
+MAX_BRANCH_UPDATES = 3
 PASS_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 
 DEFAULT_CLAUDE_ARGS = (
@@ -168,9 +169,23 @@ def pr_state(pr: int) -> tuple[str, str]:
     return "green", data["mergeable"]
 
 
+def pr_lifecycle(pr: int) -> tuple[str, str]:
+    """Return (state, mergeStateStatus): state is OPEN | MERGED | CLOSED."""
+    data = json.loads(run(["gh", "pr", "view", str(pr), "--json", "state,mergeStateStatus"]))
+    return data["state"], data["mergeStateStatus"]
+
+
 def wait_for_verdict(pr: int) -> tuple[str, str]:
+    """Return 'merged' | 'closed' | 'green' | 'red'; someone else may merge while we wait.
+
+    The repo's own dispatch engine auto-merges green ticket PRs, so a PR can vanish from
+    OPEN between two polls. That is success, not a failure to wait out.
+    """
     deadline = time.monotonic() + CI_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
+        state, _ = pr_lifecycle(pr)
+        if state in ("MERGED", "CLOSED"):
+            return state.lower(), state
         ci, mergeable = pr_state(pr)
         if ci == "red" or mergeable == "CONFLICTING":
             return "red", mergeable
@@ -224,18 +239,41 @@ def implement_prompt(ticket: Ticket) -> str:
 
 
 def merge_pr(label: str, pr: int) -> str:
-    """Squash-merge now; if branch rules refuse, arm GitHub auto-merge and wait for it.
+    """Land a green PR: squash-merge, refresh a stale branch, or arm auto-merge and wait.
 
-    A rule can demand a status that CI jobs here never post (e.g. the ruleset's
-    `ticket-engine/integrity-gate` context). Then the merge stays blocked no matter how
-    green the checks look, so we report the missing contexts instead of crashing.
+    Three things can stand in the way, all seen on real runs:
+    - the ruleset is strict, so a branch behind main is refused ("not up to date"):
+      `gh pr update-branch`, wait for CI on the new head, retry;
+    - the dispatch engine may merge the PR first: that counts as merged;
+    - a ruleset can demand a status that never arrives: report the contexts instead of hanging.
     """
     merge = ["gh", "pr", "merge", str(pr), "--squash", "--delete-branch"]
-    first = subprocess.run(merge, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-    if first.returncode == 0:
-        log.info("[%s] PR #%d merged", label, pr)
-        return "merged"
-    log.warning("[%s] PR #%d refused: %s", label, pr, first.stderr.strip().splitlines()[0])
+    for _ in range(MAX_BRANCH_UPDATES + 1):
+        if pr_lifecycle(pr)[0] == "MERGED":
+            log.info("[%s] PR #%d merged (by someone else)", label, pr)
+            return "merged"
+        first = subprocess.run(merge, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        if first.returncode == 0:
+            log.info("[%s] PR #%d merged", label, pr)
+            return "merged"
+        reason = first.stderr.strip().splitlines()[0] if first.stderr.strip() else "unknown"
+        log.warning("[%s] PR #%d refused: %s", label, pr, reason)
+        if "not up to date" not in reason and pr_lifecycle(pr)[1] != "BEHIND":
+            break
+        log.info("[%s] PR #%d is behind main - updating the branch and re-running CI", label, pr)
+        run(["gh", "pr", "update-branch", str(pr)], check=False)
+        time.sleep(POLL_SECONDS)  # let CI register the new head
+        verdict, _ = wait_for_verdict(pr)
+        if verdict == "merged":
+            log.info("[%s] PR #%d merged (by someone else)", label, pr)
+            return "merged"
+        if verdict != "green":
+            log.error("[%s] PR #%d went %s after updating the branch", label, pr, verdict)
+            return "blocked"
+    else:
+        log.error("[%s] PR #%d keeps falling behind main", label, pr)
+        return "blocked"
+
     armed = subprocess.run([*merge, "--auto"], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
     if armed.returncode != 0:
         log.error("[%s] cannot arm auto-merge either: %s", label, armed.stderr.strip())
@@ -243,9 +281,12 @@ def merge_pr(label: str, pr: int) -> str:
     log.info("[%s] auto-merge armed on PR #%d, waiting for branch rules", label, pr)
     deadline = time.monotonic() + AUTO_MERGE_WAIT_SECONDS
     while time.monotonic() < deadline:
-        if json.loads(run(["gh", "pr", "view", str(pr), "--json", "state"]))["state"] == "MERGED":
+        state, merge_state = pr_lifecycle(pr)
+        if state == "MERGED":
             log.info("[%s] PR #%d merged", label, pr)
             return "merged"
+        if merge_state == "BEHIND":
+            run(["gh", "pr", "update-branch", str(pr)], check=False)
         time.sleep(POLL_SECONDS)
     sha = json.loads(run(["gh", "pr", "view", str(pr), "--json", "headRefOid"]))["headRefOid"]
     seen = run(["gh", "api", f"repos/{{owner}}/{{repo}}/commits/{sha}/status", "--jq",
@@ -271,6 +312,12 @@ def drive_ticket(ticket: Ticket, effort: str, args: argparse.Namespace) -> str:
 
     for attempt in range(1, args.max_fix + 2):
         verdict, mergeable = wait_for_verdict(pr)
+        if verdict == "merged":
+            log.info("[%s] PR #%d merged (by the engine or you)", label, pr)
+            return "merged"
+        if verdict == "closed":
+            log.error("[%s] PR #%d was closed without merging", label, pr)
+            return "failed"
         if verdict == "green":
             if not ticket.auto_merge:
                 log.info("[%s] PR #%d green but Auto-merge is not 'yes' - left for the developer", label, pr)

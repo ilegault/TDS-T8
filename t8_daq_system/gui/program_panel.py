@@ -1,12 +1,29 @@
 """
 program_panel.py
 PURPOSE: Unified Program Mode UI for the block-based editor.
+
+WHY THIS EXISTS
+---------------
+This is the programmer MainWindow builds. Soft start is an optional block (ADR 0006,
+amended 2026-11-05): a new program has none, so a short PID test can step the
+voltage on purpose. "Soft Start" in Add Block puts one SoftStartBlock in as block 1
+(never a second one); its row has Del but no Edit, because its threshold and handoff
+current are Settings (ADR 0007) and the row only shows them. A status line shows the
+gains and the two current caps the run will use: from the frozen RunSettings a Start
+would send when idle, and from the Snapshot's gains_in_use while a program runs.
+Ticket 25 first put these in PowerProgrammerPanel, which the app never builds, so
+operators saw neither.
 """
 
 import logging
 import tkinter as tk
 from tkinter import ttk, messagebox
-from ..control.program_block import VoltageRampBlock, StableHoldBlock, TempRampBlock
+from ..control.program_block import (
+    SoftStartBlock,
+    StableHoldBlock,
+    TempRampBlock,
+    VoltageRampBlock,
+)
 from ..control.program_run import compute_preview
 
 logger = logging.getLogger(__name__)
@@ -185,6 +202,9 @@ class BlockEditDialog(tk.Toplevel):
 
 
 class ProgramPanel:
+    # The Add Block choices
+    BLOCK_TYPES = ("Linear Voltage Ramp", "Stable Hold", "Temp Ramp", "Soft Start")
+
     def __init__(self, parent_frame, preview_plot=None, get_initial_state_fn=None,
                  on_program_change=None, tc_names=None, get_unit_fn=None,
                  get_tc_temp_k_fn=None, ff_map=None, get_soft_start_settings_fn=None):
@@ -201,6 +221,10 @@ class ProgramPanel:
         # Soft-start span, or None to preview the blocks alone
         self._get_soft_start_settings = get_soft_start_settings_fn
         self._blocks = []
+        self._soft_start_row_text = ""
+        self._gains_text = ""
+        self._caps_text = ""
+        self._soft_row_label = None
 
         self._build_gui()
 
@@ -216,7 +240,7 @@ class ProgramPanel:
 
         self._add_type_var = tk.StringVar(value="Stable Hold")
         add_cb = ttk.Combobox(toolbar, textvariable=self._add_type_var,
-                              values=["Linear Voltage Ramp", "Stable Hold", "Temp Ramp"], state="readonly", width=12)
+                              values=list(self.BLOCK_TYPES), state="readonly", width=12)
         add_cb.pack(side=tk.LEFT, padx=2)
 
         ttk.Button(toolbar, text="Add Block", command=self._add_block).pack(side=tk.LEFT, padx=2)
@@ -261,8 +285,17 @@ class ProgramPanel:
         )
         self._warn_label.pack(side=tk.LEFT, padx=(8, 0))
 
+        # Run line: the gains and current caps the run will use (ADR 0006)
+        run_bar = ttk.Frame(main_frame)
+        run_bar.pack(fill=tk.X, pady=(2, 0))
+        self._gains_label = ttk.Label(run_bar, text="", font=('Arial', 9))
+        self._gains_label.pack(side=tk.LEFT, padx=(0, 12))
+        self._caps_label = ttk.Label(run_bar, text="", font=('Arial', 9))
+        self._caps_label.pack(side=tk.LEFT)
+
         self._refresh_list()
         self._update_pid_status()
+        self.refresh_run_labels(None)
 
     def _chain_start_temp_k(self, up_to_idx):
         """Return the start temperature (K) at block up_to_idx based on prior blocks."""
@@ -271,15 +304,28 @@ class ProgramPanel:
         else:
             t = 293.15
         for block in self._blocks[:up_to_idx]:
-            if block.block_type == "temp_ramp":
-                t = block.end_temp_k
-            elif block.block_type == "stable_hold":
-                t = block.target_temp_k
+            t = self._temp_after(block, t)
         return t
+
+    def _temp_after(self, block, temp_k):
+        """Expected temperature (K) once block ends, starting from temp_k."""
+        if block.block_type == "temp_ramp":
+            return block.end_temp_k
+        if block.block_type == "stable_hold":
+            return block.target_temp_k
+        if block.block_type == "soft_start":
+            settings = self._run_settings()
+            if settings is not None:
+                return max(temp_k, settings.soft_start_threshold_c + 273.15)
+        return temp_k
 
     def _add_block(self):
         btype = self._add_type_var.get()
-        if btype == "Linear Voltage Ramp":
+        if btype == "Soft Start":
+            if any(b.block_type == "soft_start" for b in self._blocks):
+                return  # a program holds at most one Soft start
+            self._blocks.insert(0, SoftStartBlock())
+        elif btype == "Linear Voltage Ramp":
             self._blocks.append(VoltageRampBlock(0.0, 1.0, 60.0))
         elif btype == "Stable Hold":
             self._blocks.append(StableHoldBlock(293.15, 2.0, 60.0))
@@ -322,6 +368,8 @@ class ProgramPanel:
     def _refresh_list(self):
         for widget in self._scrollable_frame.winfo_children():
             widget.destroy()
+        self._soft_row_label = None
+        self._soft_start_row_text = ""
         for i, block in enumerate(self._blocks):
             self._build_block_row(i, block)
             # After a StableHold that is followed by a TempRamp, show QMS toggle
@@ -330,7 +378,82 @@ class ProgramPanel:
                     self._blocks[i + 1].block_type == "temp_ramp"):
                 self._build_qms_trigger_row(i, block)
 
+    def _run_settings(self):
+        """The RunSettings a Start would send now, or None without a provider."""
+        return self._get_soft_start_settings() if self._get_soft_start_settings else None
+
+    def _build_soft_start_row(self, i):
+        """Row of the SoftStartBlock: Del only, its numbers come from Settings."""
+        settings = self._run_settings()
+        self._soft_start_row_text = (
+            self._soft_start_text(settings) if settings is not None
+            else "Soft start → PID (thresholds from Settings)"
+        )
+        row = ttk.Frame(self._scrollable_frame, padding=5)
+        row.pack(fill=tk.X, expand=True)
+        ttk.Label(row, text=f"{i+1}.", width=3).pack(side=tk.LEFT)
+        ttk.Label(row, text="Soft Start", width=15).pack(side=tk.LEFT)
+        self._soft_row_label = ttk.Label(row, text=self._soft_start_row_text)
+        self._soft_row_label.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
+        ttk.Button(row, text="Del", width=6,
+                   command=lambda idx=i: self._delete_block(idx)).pack(side=tk.RIGHT, padx=2)
+
+    def _has_soft_start(self) -> bool:
+        return any(b.block_type == "soft_start" for b in self._blocks)
+
+    @staticmethod
+    def _soft_start_text(settings) -> str:
+        return (
+            f"Soft start → PID at {settings.soft_start_threshold_c:g} °C "
+            f"or {settings.soft_start_handoff_current_a:g} A"
+        )
+
+    @staticmethod
+    def _cap_text(name: str, enabled: bool, amps: float) -> str:
+        return f"{name}: {amps:g} A" if enabled else f"{name}: OFF"
+
+    def refresh_run_labels(self, snapshot) -> None:
+        """Show the Soft-start thresholds, gains and caps the run uses.
+
+        Idle: all from the RunSettings a Start would freeze now. Running: gains from
+        the Snapshot's gains_in_use; caps and thresholds still from RunSettings.
+        """
+        settings = self._run_settings()
+        if settings is None:
+            return
+        if self._has_soft_start():
+            self._soft_start_row_text = self._soft_start_text(settings)
+            if self._soft_row_label is not None:
+                self._soft_row_label.config(text=self._soft_start_row_text)
+        program = getattr(snapshot, 'program', None)
+        if program is not None and program.running and program.gains_in_use is not None:
+            kp, ki, kd = program.gains_in_use
+        else:
+            kp, ki, kd = settings.kp, settings.ki, settings.kd
+        self._gains_text = f"Gains in use: {kp:g} / {ki:g} / {kd:g}"
+        self._caps_text = "  ".join((
+            self._cap_text("Soft-start cap", settings.soft_start_cap_enabled, settings.soft_start_cap_a),
+            self._cap_text("Run cap", settings.run_cap_enabled, settings.run_cap_a),
+        ))
+        self._gains_label.config(text=self._gains_text)
+        self._caps_label.config(text=self._caps_text)
+
+    def get_soft_start_row_text(self) -> str:
+        """Text of the Soft-start block's row ('' when the program has none)."""
+        return self._soft_start_row_text
+
+    def get_gains_text(self) -> str:
+        """Text of the gains readout."""
+        return self._gains_text
+
+    def get_caps_text(self) -> str:
+        """Text of the current-caps readout."""
+        return self._caps_text
+
     def _build_block_row(self, i, block):
+        if block.block_type == "soft_start":
+            self._build_soft_start_row(i)
+            return
         unit = self._get_unit()
         row = ttk.Frame(self._scrollable_frame, padding=5)
         row.pack(fill=tk.X, expand=True)
@@ -398,10 +521,8 @@ class ProgramPanel:
                     if dur > 0:
                         delta = block.end_temp_k - curr_t
                         block.rate_k_per_min = delta / dur
-                curr_t = block.end_temp_k
-            elif block.block_type == "stable_hold":
-                curr_t = block.target_temp_k
             # voltage_ramp doesn't change temperature chain
+            curr_t = self._temp_after(block, curr_t)
 
     def _on_preview(self):
         if not self.preview_plot:

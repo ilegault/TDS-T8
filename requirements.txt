@@ -2,9 +2,5 @@ labjack-ljm>=1.23.0
 matplotlib>=3.5.0
 numpy>=1.21.0
 pyserial>=3.5
-pyautogui>=0.9.54
-pygetwindow>=0.0.9
 opencv-python
 Pillow
-imageio
-imageio-ffmpeg

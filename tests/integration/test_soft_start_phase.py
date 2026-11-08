@@ -17,13 +17,14 @@ import pytest
 
 from tests.integration.test_run_record_integration import _advance, _make_fixture
 from tests.run_settings_helper import make_run_settings
-from t8_daq_system.control.program_block import TempRampBlock
+from t8_daq_system.control.program_block import SoftStartBlock, TempRampBlock
 from t8_daq_system.rig.commands import LoadProgram, StartProgram
 
 pytestmark = pytest.mark.integration
 
 RAMP_V_PER_S = 0.02
-BLOCKS = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=1500.0, tc_name="TC_1")]
+# Soft start is an optional block (ADR 0006, amended 2026-11-05): add it first.
+BLOCKS = [SoftStartBlock(), TempRampBlock(rate_k_per_min=60.0, end_temp_k=1500.0, tc_name="TC_1")]
 
 
 def _event_rows(csv_file) -> list[list[str]]:

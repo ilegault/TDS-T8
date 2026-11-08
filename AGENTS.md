@@ -311,9 +311,12 @@ and the ticket that changes the code updates the section.
    mode is the Simulated rig. (ADR 0005)
 5. **CV-only** (§2) holds on every path, including shutdown.
 6. **Never swallow an exception.** `except Exception: pass` is a defect.
-7. **Soft start.** Every Program run begins in Soft start when the control TC is below
-   the soft-start threshold: an open-loop DAC0 ramp with no Feedforward. It ends at
-   Handoff (TC ≥ threshold or current ≥ handoff current) and the reason is recorded.
+7. **Soft start.** Soft start is an optional block the operator adds as block 1; a
+   program has none by default, so PID tests can step the voltage on purpose. When
+   present and the control TC is below the soft-start threshold it is an open-loop
+   DAC0 ramp with no Feedforward. It ends at Handoff (TC ≥ threshold or current ≥
+   handoff current) and the reason is recorded. Without it the Run current cap is
+   active from the first tick.
    Handoff and block boundaries are bumpless, including Feedforward; Feedforward below
    its lowest map point is 0 V. (ADR 0006)
 8. **Two current caps, each with its own toggle.** The Soft-start current cap (default
@@ -362,43 +365,38 @@ the `tests-exempt` PR label.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-10-05 22:42. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-06 15:56. Implement this. If something in it is wrong, say so before changing course._
 
-## Active implementation plan — Cold-start safety and deployed-run traceability
+## Active implementation plan — Field-realistic testing
 
 This is a pointer, not the work.
 
-- **Spec:** `.scratch/cold-start-and-traceability/spec.md`
-- **Tickets:** `.scratch/cold-start-and-traceability/issues/19`–`36`
-- **Binding ADRs:** `docs/adr/0006-soft-start-and-current-caps.md`, `0007-registry-is-the-single-source-of-settings.md`, `0008-diagnostic-log-and-build-id.md`, plus 0001 (tests first, never mute) and 0003 (trips).
-- **New glossary terms (`CONTEXT.md`):** Soft start, Handoff, Soft-start current cap, Run current cap, Gains in use, Suggestion engine, Run history, Run ID, Diagnostic log, Heartbeat, Build ID; Bumpless transfer redefined to include Feedforward.
-- **Tracker conventions:** `docs/agents/issue-tracker.md`. Previous effort `.scratch/rig-architecture/` is done through 15; its bench tickets 16–18 are the developer's.
+- **Spec:** `.scratch/field-realistic-testing/spec.md`
+- **Tickets:** `.scratch/field-realistic-testing/issues/38`–`48`
+- **Binding ADRs:** `docs/adr/0001-tests-first-and-no-muted-failures.md` (binding on every ticket), `0005-practice-mode-is-a-rig-adapter.md`, `0006-soft-start-and-current-caps.md`, `0007-registry-is-the-single-source-of-settings.md`, `0008-diagnostic-log-and-build-id.md`, plus 0003 (trips).
+- **New glossary terms (`CONTEXT.md`, added by ticket 46):** Field run, Field case, Scenario test, Production settings; Run current cap changes with ticket 43's decision.
+- **Tracker conventions:** `docs/agents/issue-tracker.md`. Previous effort `.scratch/cold-start-and-traceability/` is done through 37; its bench ticket 36 is the developer's.
 
-**Next:** 19, 20 and 34 have no blockers. Start with **19** (Run settings travel with Start) — it is the prefactor every control ticket builds on. 20 and 34 can run in parallel with it.
+**Next:** 38 and 40 have no blockers. Start with **38** (Run settings come from one pure function) — it is the prefactor that lets ticket 39 put every test on Production settings. 40 (Field run fixtures) can run in parallel, but only on the developer's PC: it reads the gitignored `logs/` of the main clone. 47 (lab evidence) is the developer's and can start now.
 
 Dependency graph:
 
-    19 ─┬─ 21 ─┐
-        │      ├─ 22 ─┬─ 23 ─┐
-    20 ─┼──────┘      │      ├─ 25 ─┐
-        │             │      │      │
-        ├─ 24 ─┬──────┼──────┘      │
-        │      └─ 26 ─┼─ 27 ─ 28    │
-        │             ├─ 29 (also 22, 23)
-        │             ├─ 30 (also 24)
-        └─ 31 (also 26) ─ 32 (also 24)
-                      └─ 33 ──────────┴─ 36 [ready-for-developer: bench]
-    34 (independent)
-    35 [held: Auto-merge no, changes AGENTS.md] ← 23, 24, 26, 33
+    38 ─ 39 ─────────┐
+                     ├─ 42 ─┬─ 43 [ready-for-developer: Run cap decision] ─┬─ 45 (also 47) ─┐
+    40 ─ 41 ─────────┘      │                                               │                ├─ 46 [held: Auto-merge no, docs/ADR/AGENTS.md]
+                            └─ 44 ──────────────────────────────────────────┼────────────────┘
+                                                                            └─ 48 [ready-for-developer: bench] (also 44)
+    47 [ready-for-developer: lab evidence] ─ 45
 
 Requirements an implementer would treat as preferences — they are not:
-- Block steps, the Soft-start step, `compute_preview`, `run_metrics`/`suggest` and `build_id` are **pure functions** (no clock, hardware or Tk), because the tests drive them directly.
-- `PIDController` has **no default gains**; `PIDRunLogger` has **no default path**. Silent defaults are the bug this effort removes.
-- The heartbeat runs on the Run record's thread, **never on the Rig loop**.
+- Tests start from **Production settings** (`production_run_settings()`, built from `_DEFAULTS` only). Overriding a field needs `# not production: <why>` on that line, and a test may never override the field it is about.
+- A test that goes red because the settings or the simulator became realistic is a **finding**: fix the code or escalate. No skip, xfail, loosened tolerance or narrowed input (ADR 0001).
+- The ticket 41 tolerances (current RMS ≤ 15 % of peak, TC RMS ≤ 50 K) are fixed. If no sensible constants meet them, escalate with the errors reached.
+- `test_field_case_2026_11_06_cold_start` asserts the lab trip in ticket 42 and is rewritten in place in ticket 43 to assert the fix; if ticket 42's simulator does not reproduce the trip, escalate.
+- `production_run_settings()`, `TungstenSim.replay`, `block_from_dict` and `build_id` are pure (no clock, hardware or Tk).
 - No test is deleted. A test whose behaviour changed is rewritten in place under the same name.
-- `SimulatedRig` must draw > 40 A at 0.29 V cold (ticket 20) before any cap test means anything.
 
-Deliberately not done here: remote trip alerts (`docs/future/remote-trip-alerts.md`), hotfixes to old deployed builds, zone gain scheduling, feedforward auto-ingest, any change to CV-only / DAC1.
+Deliberately not done here: PID gain changes, any change to CV-only / DAC1, running the frozen exe headless, hardware-in-the-loop tests beyond bench ticket 48, remote trip alerts.
 <!-- ACTIVE-PLAN:END -->
 
 ## Implementation Protocol

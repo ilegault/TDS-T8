@@ -26,7 +26,7 @@ from t8_daq_system.data.data_buffer import DataBuffer
 from t8_daq_system.data.data_logger import DataLogger, create_metadata_dict
 from t8_daq_system.gui.live_plot import LivePlot
 from t8_daq_system.gui.camera_panel import CameraPanel
-from t8_daq_system.gui.sensor_panel import SensorPanel
+from t8_daq_system.gui.sensor_panel import SensorPanel, STATUS_VALID
 from t8_daq_system.utils.helpers import convert_pressure, convert_temperature
 from t8_daq_system.gui.dialogs import LoggingDialog, LoadCSVDialog
 from t8_daq_system.gui.settings_dialog import SettingsDialog
@@ -548,6 +548,7 @@ class MainWindow:
             # Update timelapse settings (take effect on next timelapse start)
             self._camera_panel._timelapse_interval_s = getattr(s, 'timelapse_interval_s', 60)
             self._camera_panel._timelapse_export_fps = getattr(s, 'timelapse_export_fps', 10)
+            self._camera_panel._timelapse_video_format = s.timelapse_video_format
 
         # Refresh pinout display if open
         if hasattr(self, '_pinout_window') and self._pinout_window is not None:
@@ -1057,7 +1058,8 @@ class MainWindow:
             camera_index=camera_index,
             show_internal_buttons=False,
             timelapse_interval_s=getattr(self._app_settings, 'timelapse_interval_s', 60),
-            timelapse_export_fps=getattr(self._app_settings, 'timelapse_export_fps', 10)
+            timelapse_export_fps=getattr(self._app_settings, 'timelapse_export_fps', 10),
+            timelapse_video_format=getattr(self._app_settings, 'timelapse_video_format', 'mp4'),
         )
         self._camera_panel.grid(row=0, column=0, sticky='nsew')
         profiler.checkpoint("Camera panel created")
@@ -1180,7 +1182,7 @@ class MainWindow:
         self._programmer_panel = ProgramPanel(
             parent_frame=self._programmer_panel_frame,
             preview_plot=self._programmer_preview_plot,
-            get_initial_state_fn=lambda: (self._get_latest_tc_reading_k("TC_1"), self._latest_snapshot.ps_volts if self._latest_snapshot else 0.0),
+            get_initial_state_fn=self._programmer_initial_state,
             on_program_change=self._update_run_button_state,
             tc_names=sorted(self._tc_names),
             get_unit_fn=lambda: getattr(self, 't_unit_var', None) and self.t_unit_var.get() or 'K',
@@ -1268,6 +1270,37 @@ class MainWindow:
         # Apply dotted preview overlay to the ps LivePlot
         self._apply_programmer_overlay()
 
+    def _programmer_initial_state(self):
+        """(start temperature K, start voltage V) for the programmer's block chain.
+
+        Read from the Rig's latest Snapshot; with none yet, room temperature and 0 V.
+        The temperature is the first configured thermocouple's (§5.2: no hardcoded name).
+        """
+        tcs = self.config.get('thermocouples', [])
+        tc_name = tcs[0]['name'] if tcs else None
+        snap = self.rig.latest() if getattr(self, 'rig', None) else None
+        temp_k = 293.15
+        if snap is not None and tc_name in snap.tc_c and snap.tc_c[tc_name] is not None:
+            temp_k = snap.tc_c[tc_name] + 273.15
+        volts = snap.ps_volts if snap is not None else 0.0
+        return temp_k, volts
+
+    def _ps_readings(self, snap):
+        """(volts, amps) for the PS tiles and plot, or (None, None) when unreachable.
+
+        The Rig reports 0.0 when it cannot read the supply, and SensorPanel shows any
+        number as CONNECTED, so an unplugged T8 looked like a live supply at 0 V.
+        None makes the tiles say DISCONNECTED. Same test as the PowerSupply indicator.
+        """
+        if snap.labjack.state == "connected" and self._ps_present():
+            return snap.ps_volts, snap.ps_amps
+        return None, None
+
+    def _ps_present(self) -> bool:
+        """True if the Rig's active adapter drives a power supply (ADR 0002)."""
+        rig = getattr(self, 'rig', None)
+        return bool(rig is not None and rig.has_power_supply())
+
     def _get_tc_reading_k_provider(self, tc_name):
         return lambda: self._get_latest_tc_reading_k(tc_name)
 
@@ -1310,8 +1343,7 @@ class MainWindow:
         for k, v in snap.pressure_torr.items():
             all_readings[k] = v
 
-        all_readings['PS_Voltage'] = snap.ps_volts
-        all_readings['PS_Current'] = snap.ps_amps
+        all_readings['PS_Voltage'], all_readings['PS_Current'] = self._ps_readings(snap)
         all_readings['PS_Voltage_Setpoint'] = snap.commanded_volts
         all_readings['PS_CC_Limit'] = 180.0
 
@@ -1326,8 +1358,9 @@ class MainWindow:
         self._latest_readings = (snap.wall_time, all_readings)
         self._latest_tc_readings = dict(snap.tc_c)
         self._latest_raw_voltages = dict(snap.tc_raw_v)
+        # Status words must be SensorPanel's: only STATUS_VALID shows the number
         self._latest_frg702_details = {
-            g: {'pressure': p, 'status': 'OK' if p is not None else 'Error'}
+            g: {'pressure': p, 'status': STATUS_VALID if p is not None else 'error'}
             for g, p in snap.pressure_torr.items()
         }
 
@@ -1356,22 +1389,20 @@ class MainWindow:
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(ResetTrip())
 
-    def _abort_massoft(self):
-        """Abort MASsoft scan on Tk thread; failure is reported and not swallowed."""
-        try:
-            import pyautogui
-            windows = pyautogui.getWindowsWithTitle("MASsoft")
-            if windows:
-                windows[0].activate()
-                time.sleep(0.1)
-                pyautogui.press('escape')
-        except Exception as err:
-            _log.error("MASsoft abort failed: %s", err)
-            messagebox.showerror(
-                "MASsoft Abort Failed",
-                f"Could not abort MASsoft scan:\n{err}"
-            )
-            self.status_var.set(f"MASsoft abort failed: {err}")
+    def _prompt_massoft_abort(self):
+        """Tell the operator to abort the MASsoft scan by hand.
+
+        The app no longer drives MASsoft with injected key presses: endpoint
+        security deletes builds that do. The heater is already off (ADR 0003);
+        only the QMS scan needs the operator.
+        """
+        _log.warning("Pressure trip: operator prompted to abort the MASsoft scan")
+        self.status_var.set("Pressure trip \u2014 abort the MASsoft scan now")
+        messagebox.showwarning(
+            "Pressure trip \u2014 abort the QMS scan",
+            "Chamber pressure tripped the heater (power is off).\n\n"
+            "Abort the MASsoft scan by hand now to protect the QMS filament."
+        )
 
     def render_snapshot(self, snap: Snapshot):
         """
@@ -1382,6 +1413,10 @@ class MainWindow:
             return
 
         self._latest_rendered_snapshot = snap
+
+        # Programmer readout: Soft-start row, gains in use and current caps (ADR 0006)
+        if self._programmer_panel is not None:
+            self._programmer_panel.refresh_run_labels(snap)
 
         # 1. Trip banner handling
         is_tripped = (snap.heater is not None and snap.heater.state == "tripped")
@@ -1414,11 +1449,11 @@ class MainWindow:
                         self._trip_banner_frame.pack(fill=tk.X, padx=10, pady=2)
                 self._trip_banner_visible = True
 
-            # On pressure_high or pressure_stale trip, run MASsoft abort if not yet aborted for this trip
+            # On pressure_high or pressure_stale trip, prompt a MASsoft abort once per trip
             if kind in ("pressure_high", "pressure_stale"):
                 if getattr(self, '_last_aborted_trip_kind', None) != kind:
                     self._last_aborted_trip_kind = kind
-                    self._abort_massoft()
+                    self._prompt_massoft_abort()
         else:
             self._last_aborted_trip_kind = None
             self._trip_text = ""
@@ -1505,12 +1540,12 @@ class MainWindow:
                 w.destroy()
             ttk.Label(
                 frame,
-                text="Stable Hold complete — click to start QMS recording and continue to next ramp.",
+                text="Stable Hold complete — start the QMS in MASsoft, then click to continue to the next ramp.",
                 font=('Arial', 10, 'bold'), foreground='#9b59b6'
             ).pack(side=tk.LEFT, padx=8, pady=6, expand=True)
             ttk.Button(
                 frame,
-                text="\u25b6  Start QMS + Continue Ramp",
+                text="\u25b6  QMS Started — Continue Ramp",
                 command=self._on_qms_confirmation_click
             ).pack(side=tk.RIGHT, padx=8, pady=6)
             frame.pack(fill=tk.X, padx=4, pady=4)
@@ -1520,38 +1555,18 @@ class MainWindow:
         """User clicked the QMS confirmation button."""
         import datetime
 
-        # 1. Perform auto-click if enabled
-        settings = getattr(self, '_app_settings', None)
-        if settings and getattr(settings, 'qms_auto_click_enabled', False):
-            try:
-                import pyautogui
-                x = int(settings.qms_auto_click_x)
-                y = int(settings.qms_auto_click_y)
-                pyautogui.click(x, y)
-            except ImportError:
-                from tkinter import messagebox
-                messagebox.showerror(
-                    "Missing Library",
-                    "pyautogui is not installed. Run: pip install pyautogui\n"
-                    "Continuing without auto-click."
-                )
-            except Exception as e:
-                from tkinter import messagebox
-                messagebox.showwarning("Auto-Click Error",
-                                       f"Click failed: {e}\nContinuing anyway.")
-
-        # 2. Log QMS_TRIGGER event
+        # 1. Log QMS_TRIGGER event (the operator has started the QMS themselves)
         ts = datetime.datetime.now().isoformat()
         if hasattr(self, 'logger') and self.logger is not None:
             if self.logger.is_logging():
                 self.logger.log_event("QMS_TRIGGER", ts)
 
-        # 3. Hide confirmation banner
+        # 2. Hide confirmation banner
         frame = getattr(self, '_qms_confirm_frame', None)
         if frame is not None and frame.winfo_exists():
             frame.pack_forget()
 
-        # 4. Release executor / submit ConfirmContinue to Rig
+        # 3. Release executor / submit ConfirmContinue to Rig
         if hasattr(self, 'rig') and self.rig is not None:
             self.rig.submit(ConfirmContinue())
 
@@ -2255,7 +2270,7 @@ class MainWindow:
                 build_id=get_build_id(),
             )
 
-            header = build_csv_header(self.config, has_ps_controller=bool(self.ps_controller))
+            header = build_csv_header(self.config, has_ps_controller=self._ps_present())
             sensor_names = header[1:]
 
             # Append Power Programmer metadata if a profile is loaded
@@ -2280,7 +2295,7 @@ class MainWindow:
                 t_unit=t_unit,
                 p_unit=p_unit,
                 sample_rate_ms=float(sample_rate),
-                has_ps=bool(self.ps_controller),
+                has_ps=self._ps_present(),
                 heartbeat_interval_s=float(self._app_settings.heartbeat_interval_s),
             )
             self._run_record.start()
@@ -2331,7 +2346,7 @@ class MainWindow:
             self.render_snapshot(snap)
         lj_connected = (snap.labjack.state == "connected") if snap else False
         xgs_connected = (snap.xgs.state == "connected") if snap else False
-        ps_connected = lj_connected and (self.ps_controller is not None or (snap is not None and snap.adapter == "simulated"))
+        ps_connected = lj_connected and self._ps_present()
 
         # Update connection indicators from Snapshot SourceStatus
         if 'LabJack' in self.indicators:
@@ -2368,8 +2383,7 @@ class MainWindow:
                     idle_readings[name] = convert_temperature(value, 'C', t_unit) if value is not None else None
                 for name, value in snap.pressure_torr.items():
                     idle_readings[name] = convert_pressure(value, 'Torr', p_unit) if value is not None else None
-                idle_readings['PS_Voltage'] = snap.ps_volts
-                idle_readings['PS_Current'] = snap.ps_amps
+                idle_readings['PS_Voltage'], idle_readings['PS_Current'] = self._ps_readings(snap)
                 if hasattr(self, 'sensor_panel'):
                     self.sensor_panel.update(idle_readings)
                 for name, value in idle_readings.items():
@@ -2641,7 +2655,7 @@ class MainWindow:
 
         self._qms_ramp_btn = ttk.Button(
             self._qms_btn_frame,
-            text="\U0001f680  Start QMS + Begin Ramp",
+            text="\U0001f680  QMS Started — Begin Ramp",
             state='disabled',
             command=self._on_qms_ramp_start
         )
@@ -2708,7 +2722,7 @@ class MainWindow:
         """
         Simultaneous QMS + Ramp launch.
         1. Guard: Check pressure permissive (ADR 0004).
-        2. Trigger MASsoft Start via pyautogui keyboard shortcut.
+        2. The operator has started the QMS in MASsoft themselves (no key injection).
         3. Write RAMP_START event to DataLogger CSV.
         4. Signal the program executor to continue (if pausing between blocks).
         """
@@ -2719,30 +2733,6 @@ class MainWindow:
             return
 
         import datetime
-        try:
-            import pyautogui
-            import time as _time
-
-            windows = pyautogui.getWindowsWithTitle("MASsoft")
-            if not windows:
-                messagebox.showwarning(
-                    "MASsoft Not Found",
-                    "Could not find a window titled 'MASsoft'. "
-                    "Make sure MASsoft is open with your scan tree loaded, then try again."
-                )
-                return
-            win = windows[0]
-            win.activate()
-            _time.sleep(0.15)
-            pyautogui.press('f5')
-
-        except ImportError:
-            messagebox.showerror("Missing Library",
-                                 "pyautogui is not installed. Run: pip install pyautogui")
-            return
-        except Exception as e:
-            messagebox.showerror("QMS Start Error", f"Could not start MASsoft:\n{e}")
-            return
 
         # Log RAMP_START event with ISO timestamp
         ts = datetime.datetime.now().isoformat()
@@ -2771,8 +2761,7 @@ class MainWindow:
 
             # Power supply cutoff is handled by Rig / HeaterOutput (ADR 0003)
 
-            # 3. Abort MASsoft scan via pyautogui (Escape key = Abort in MASsoft toolbar)
-            self._abort_massoft()
+            # 3. The MASsoft scan is aborted by the operator (see the alert below)
 
             # 4. Log the event
             if hasattr(self, 'logger') and self.logger and self.logger.is_logging():
@@ -2789,7 +2778,7 @@ class MainWindow:
             messagebox.showerror(
                 "\u26a0\ufe0f PRESSURE INTERLOCK",
                 f"Pressure reached {pressure_torr:.2e} Torr \u2014 exceeds 1\u00d710\u207b\u2074 Torr limit.\n\n"
-                "Power supply OFF.\nMASsoft scan aborted.\nCheck vacuum system before restarting."
+                "Power supply OFF.\nAbort the MASsoft scan by hand now.\nCheck vacuum system before restarting."
             )
             self.status_var.set(f"INTERLOCK: Pressure {pressure_torr:.2e} Torr \u2014 ALL STOPPED")
 

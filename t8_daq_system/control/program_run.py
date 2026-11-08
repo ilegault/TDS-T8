@@ -28,17 +28,21 @@ two-phase just-started mechanism:
 This produces identical per-tick voltage literals to the old executor (AC 5,
 ticket rig-architecture-10).
 
-SOFT START (ADR 0006)
----------------------
-Every run begins in the "soft_start" phase unless the control TC is already at or
-above RunSettings.soft_start_threshold_c at start().  Soft start is not a block and
-is not saved in profiles.  It ramps the commanded voltage open-loop with no
-Feedforward (block_steps.step_soft_start) until the control TC reaches the
-threshold or the measured current reaches the handoff current.  Handoff (or a skip)
-publishes the reason in ProgramStatus.handoff_reason and emits a SOFT_START_HANDOFF
-event.  On handoff the commanded voltage is held and block 0 starts through the
-normal two-tick warm-up, whose bumpless transfer seeds the PID so the first block
-output equals the last Soft-start voltage.
+SOFT START (ADR 0006, amended 2026-11-05)
+-----------------------------------------
+Soft start is an optional SoftStartBlock, normally block 0.  A Soft start forced on
+every run made it impossible to step the voltage on purpose for short PID-transient
+tests, so a program without the block starts on its first block from the first tick,
+with the Run current cap active from that tick.  While a SoftStartBlock is the current
+block the phase is "soft_start": the commanded voltage ramps open-loop with no
+Feedforward (block_steps.step_soft_start) until the control TC reaches the threshold
+or the measured current reaches the handoff current; it is skipped at once if the
+control TC is already at or above the threshold.  Handoff (or a skip) publishes the
+reason in ProgramStatus.handoff_reason and emits a SOFT_START_HANDOFF event.  The
+commanded voltage is held and the next block starts through the normal two-tick
+warm-up, whose bumpless transfer seeds the PID so its first output equals the last
+Soft-start voltage.  The threshold, ramp rate and handoff current come from the
+run's RunSettings, not the block.
 """
 from __future__ import annotations
 
@@ -224,23 +228,19 @@ class ProgramRun:
         self._confirmation_ready = False
         self._run_log = []
         self._pending_events.append(("PROGRAM_START", ""))
-        if not settings.soft_start_cap_enabled:
+        has_soft_start = any(b.block_type == "soft_start" for b in self._blocks)
+        if has_soft_start and not settings.soft_start_cap_enabled:
             logger.warning("Soft-start current cap is OFF")
         if not settings.run_cap_enabled:
             logger.warning("Run current cap is OFF")
 
-        # Soft start unless the specimen is already at or above the threshold.
-        self._soft_start_began_s = now_s
-        self._soft_start_from_volts = commanded_volts
+        # Soft start only when the program asks for it with a SoftStartBlock.
+        self._phase = "block"
         self._handoff_reason = ""
-        control_tc_c = self._read_temp_k(self._blocks[0], snapshot) - 273.15
-        if control_tc_c >= settings.soft_start_threshold_c:
-            self._phase = "block"
-            self._handoff_reason = f"skipped: control TC {control_tc_c:.1f} °C ≥ threshold"
-            self._pending_events.append(("SOFT_START_HANDOFF", self._handoff_reason))
-            logger.info("ProgramRun: soft start %s", self._handoff_reason)
+        if self._blocks[0].block_type == "soft_start":
+            self._enter_soft_start(snapshot, now_s, commanded_volts)
         else:
-            self._phase = "soft_start"
+            logger.info("ProgramRun: no Soft start block; block 1 runs from the first tick")
 
     def stop(self) -> None:
         """Stop execution immediately (called on StopProgram or trip)."""
@@ -292,10 +292,16 @@ class ProgramRun:
             else:
                 return None
 
+        block = self._blocks[self._block_index]
+
+        if block.block_type == "soft_start" and self._phase != "soft_start":
+            # Reached a SoftStartBlock after another block finished.
+            self._enter_soft_start(snapshot, now_s, self._last_step_volts)
+            if self._phase != "soft_start":
+                return None  # skipped: already at or above the threshold
+
         if self._phase == "soft_start":
             return self._step_soft_start(snapshot, now_s)
-
-        block = self._blocks[self._block_index]
 
         # ---- Phase 2: first tick after start/transition — no-op ----
         if self._just_started_phase == 2:
@@ -378,13 +384,40 @@ class ProgramRun:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _enter_soft_start(self, snapshot: Snapshot, now_s: float, from_volts: float) -> None:
+        """Begin the SoftStartBlock at the current index, or skip it if already hot."""
+        self._soft_start_began_s = now_s
+        self._soft_start_from_volts = from_volts
+        self._pending_events.append((f"BLOCK_START {self._block_index} soft_start", ""))
+        control_tc_c = self._read_temp_k(self._blocks[self._block_index], snapshot) - 273.15
+        if control_tc_c >= self._settings.soft_start_threshold_c:
+            self._handoff_reason = f"skipped: control TC {control_tc_c:.1f} °C ≥ threshold"
+            self._pending_events.append(("SOFT_START_HANDOFF", self._handoff_reason))
+            logger.info("ProgramRun: soft start %s", self._handoff_reason)
+            self._finish_soft_start()
+        else:
+            self._phase = "soft_start"
+
+    def _finish_soft_start(self) -> None:
+        """Leave Soft start holding the voltage; the next block starts after its warm-up."""
+        self._phase = "block"
+        self._elapsed_s = 0.0
+        next_idx = self._block_index + 1
+        if next_idx >= len(self._blocks):
+            self._running = False
+            self._pending_events.append(("PROGRAM_COMPLETE", ""))
+            logger.info("ProgramRun: program complete after Soft start")
+            return
+        self._block_index = next_idx
+        self._just_started_phase = 2
+
     def _step_soft_start(
         self, snapshot: Snapshot, now_s: float
     ) -> ProgramHeaterRequest | None:
-        """One Soft-start tick: ramp open-loop, or hand off to block 0 holding the voltage."""
+        """One Soft-start tick: ramp open-loop, or hand off to the next block holding the voltage."""
         elapsed_s = now_s - self._soft_start_began_s
         self._elapsed_s = elapsed_s
-        temp_c = self._read_temp_k(self._blocks[0], snapshot) - 273.15
+        temp_c = self._read_temp_k(self._blocks[self._block_index], snapshot) - 273.15
         res, reason = _block_steps.step_soft_start(
             self._settings, temp_c, snapshot.ps_amps, elapsed_s, self._soft_start_from_volts
         )
@@ -393,14 +426,12 @@ class ProgramRun:
             self._sched = res.sched
             return ProgramHeaterRequest(volts=res.volts)
 
-        # Handoff: keep the last Soft-start voltage on the output; block 0 begins
-        # after its warm-up ticks, seeded from that voltage (bumpless transfer).
-        self._phase = "block"
+        # Handoff: keep the last Soft-start voltage on the output; the next block
+        # begins after its warm-up ticks, seeded from that voltage (bumpless transfer).
         self._handoff_reason = reason
-        self._elapsed_s = 0.0
-        self._just_started_phase = 2
         self._pending_events.append(("SOFT_START_HANDOFF", reason))
         logger.info("ProgramRun: soft start handoff: %s", reason)
+        self._finish_soft_start()
         return None
 
     def _setup_block(self, block: Any, snapshot: Snapshot, now_s: float) -> StepContext:
@@ -498,9 +529,10 @@ class ProgramRun:
         return c_to_k(temp_c) if temp_c is not None else 293.15
 
     def _get_control_tc(self) -> str:
-        """Return the TC name for the current or any temp-measuring block."""
-        if self._block_index < len(self._blocks):
-            tc = getattr(self._blocks[self._block_index], "tc_name", None)
+        """Return the TC name of the current block, else of the next block that names
+        one (a SoftStartBlock has none), else of any block."""
+        for block in self._blocks[self._block_index:]:
+            tc = getattr(block, "tc_name", None)
             if tc:
                 return tc
         for block in self._blocks:
@@ -568,16 +600,16 @@ def compute_preview(
     Compute the expected voltage and temperature profile for the given blocks.
 
     soft_start is any object with soft_start_threshold_c and soft_start_ramp_v_per_s
-    (a RunSettings).  When given and the start temperature is below the threshold,
-    a Soft-start segment is prepended: voltage ramps from start_voltage at the
-    configured rate until the estimated temperature reaches the threshold.  Block
-    times are shifted by the segment's length.  With soft_start=None, or when Soft
+    (a RunSettings).  A SoftStartBlock in blocks becomes a Soft-start segment when
+    soft_start is given and the temperature is below the threshold: voltage ramps
+    from the current voltage at the configured rate until the estimated temperature
+    reaches the threshold.  Without the block, with soft_start=None, or when Soft
     start would be skipped, the segment is empty.
 
     Returns:
         (times, voltages, temps_k, block_boundaries, soft_start_end_s)
-        block_boundaries[i] is the start time of block i; soft_start_end_s is 0.0
-        when there is no Soft-start segment.
+        block_boundaries[i] is the start time of block i; soft_start_end_s is the end
+        of a Soft-start segment that is block 0, else 0.0.
     """
     times = [0.0]
     voltages = [start_voltage]
@@ -588,29 +620,33 @@ def compute_preview(
     current_t = start_temp_k
     soft_end_s = 0.0
 
-    if soft_start is not None:
-        threshold_k = soft_start.soft_start_threshold_c + 273.15
-        rate = soft_start.soft_start_ramp_v_per_s
-        v_span = SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD - start_voltage
-        if rate > 0 and start_temp_k < threshold_k and v_span > 0:
-            soft_end_s = v_span / rate
-            whole = int(soft_end_s)
-            for i in range(1, whole + 1):
-                times.append(float(i))
-                voltages.append(start_voltage + rate * i)
-                temps_k.append(start_temp_k + (threshold_k - start_temp_k) * (i / soft_end_s))
-            if soft_end_s > whole:
-                times.append(soft_end_s)
-                voltages.append(SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD)
-                temps_k.append(threshold_k)
-            current_time = soft_end_s
-            current_v = SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD
-            current_t = threshold_k
-
     boundaries = [current_time]
 
-    for block in blocks:
-        if block.block_type == "voltage_ramp":
+    for index, block in enumerate(blocks):
+        if block.block_type == "soft_start":
+            if soft_start is not None:
+                threshold_k = soft_start.soft_start_threshold_c + 273.15
+                rate = soft_start.soft_start_ramp_v_per_s
+                v_span = SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD - current_v
+                if rate > 0 and current_t < threshold_k and v_span > 0:
+                    span_s = v_span / rate
+                    t0, v0, temp0 = current_time, current_v, current_t
+                    whole = int(span_s)
+                    for i in range(1, whole + 1):
+                        times.append(t0 + i)
+                        voltages.append(v0 + rate * i)
+                        temps_k.append(temp0 + (threshold_k - temp0) * (i / span_s))
+                    if span_s > whole:
+                        times.append(t0 + span_s)
+                        voltages.append(SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD)
+                        temps_k.append(threshold_k)
+                    current_time = t0 + span_s
+                    current_v = SOFT_START_PREVIEW_VOLTS_AT_THRESHOLD
+                    current_t = threshold_k
+                    if index == 0:
+                        soft_end_s = current_time
+
+        elif block.block_type == "voltage_ramp":
             dur = block.duration_sec
             steps = max(1, int(dur))
             v_start = block.start_voltage

@@ -243,8 +243,13 @@ class TestQmsPermissiveAndAbort:
         status_text = app.get_qms_status_text()
         assert "Chamber pressure high" in status_text
 
-    @patch('t8_daq_system.gui.main_window.messagebox.showerror')
-    def test_pressure_trip_triggers_mas_abort_and_reports_failure(self, mock_error, gui_app):
+    @patch('t8_daq_system.gui.main_window.messagebox.showwarning')
+    def test_pressure_trip_triggers_mas_abort_and_reports_failure(self, mock_warn, gui_app):
+        """A pressure trip tells the operator, once, to abort the MASsoft scan by hand.
+
+        The app no longer injects keys into MASsoft (endpoint security deletes
+        builds that do); the operator aborts the scan, so the prompt must appear.
+        """
         app, _, _ = gui_app
         snap = _make_snapshot(
             heater_state="tripped",
@@ -253,14 +258,27 @@ class TestQmsPermissiveAndAbort:
             permissive_ok=False,
         )
 
-        mock_pyautogui = MagicMock()
-        mock_pyautogui.getWindowsWithTitle.side_effect = RuntimeError("pyautogui crashed")
-        with patch.dict('sys.modules', {'pyautogui': mock_pyautogui}):
-            # Rendering this snapshot or handling trip should trigger abort on Tk thread
+        with patch.dict('sys.modules', {'pyautogui': None}):
+            app.render_snapshot(snap)
             app.render_snapshot(snap)
 
-        # Failure must be reported / shown, NOT silently swallowed
-        assert mock_error.called or "pyautogui" in app.status_var.get()
+        assert mock_warn.call_count == 1
+        title, message = mock_warn.call_args[0][:2]
+        assert "MASsoft" in message and "abort" in message.lower()
+
+    @patch('t8_daq_system.gui.main_window.messagebox.showerror')
+    def test_qms_start_continues_ramp_without_driving_massoft(self, mock_error, gui_app):
+        """With the permissive OK, QMS + Ramp continues the program; the operator starts MASsoft."""
+        app, mock_rig, _ = gui_app
+        snap = _make_snapshot(permissive_ok=True)
+        mock_rig.latest.return_value = snap
+
+        with patch.dict('sys.modules', {'pyautogui': None}):
+            app._on_qms_ramp_start()
+
+        submitted = [call.args[0] for call in mock_rig.submit.call_args_list]
+        assert any(isinstance(cmd, ConfirmContinue) for cmd in submitted)
+        assert not mock_error.called
 
 
 class TestControlsSubmitCommands:

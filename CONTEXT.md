@@ -23,9 +23,10 @@ intended shape, not the current code.
 - **Control TC** — the thermocouple a closed-loop block regulates against. Named per
   block (`tc_name`, default `TC_1`). Distinct from *monitor TCs*, which are logged
   and safety-checked but not controlled against.
-- **QMS** — the Hiden quadrupole mass spectrometer, driven through MASsoft by
-  simulated keypresses/clicks (pyautogui). The application cannot read its state; it
-  can only start or abort a scan.
+- **QMS** — the Hiden quadrupole mass spectrometer, run in MASsoft by the operator.
+  The application neither reads nor drives it: the operator starts and aborts scans,
+  and the app prompts them (QMS + Ramp gate, pressure-trip alert). It never injects
+  key presses or clicks — endpoint security deletes builds that do.
 
 ## Acquisition
 
@@ -74,9 +75,12 @@ intended shape, not the current code.
 - **Bumpless transfer** — re-seeding the PID at a block boundary or Soft-start
   handoff so the first output of `FF + PID` equals the voltage already being
   commanded: the PID is seeded with `V_now − FF(T_now)` and may go negative. ADR 0006.
-- **Soft start** — the locked first phase of every Program run while the control TC
-  is below the *soft-start threshold*: open-loop DAC0 ramp at the *soft-start ramp
-  rate*, no Feedforward. Not a block; cannot be deleted. ADR 0006.
+- **Soft start** — an optional block (*Soft Start* in Add Block, always block 1, at
+  most one per program) that, while the control TC is below the *soft-start
+  threshold*, ramps DAC0 open-loop at the *soft-start ramp rate* with no Feedforward.
+  A program has none unless the operator adds it; without one the first block runs
+  from the first tick under the Run current cap. Its numbers are Settings. ADR 0006
+  (amended 2026-11-05).
 - **Handoff** — the end of Soft start, at the first of: control TC ≥ soft-start
   threshold, or measured current ≥ *soft-start handoff current*. Always a bumpless
   transfer; the reason is recorded.
@@ -101,8 +105,9 @@ intended shape, not the current code.
   overcurrent, run overcurrent (ADR 0006).
 - **Soft-start current cap** — measured current above which a trip fires during Soft
   start. Default 40 A, editable, toggleable. ADR 0006.
-- **Run current cap** — measured current above which a trip fires after handoff.
-  Default 120 A, editable, toggleable. ADR 0006.
+- **Run current cap** — measured current above which a trip fires after handoff, or
+  from the first tick of a program with no Soft start. Default 120 A, editable,
+  toggleable. ADR 0006.
 - **Latch** — after a trip, Operator and Program requests are ignored until the
   operator explicitly *resets*. A reset is refused while the tripping condition is
   still present.

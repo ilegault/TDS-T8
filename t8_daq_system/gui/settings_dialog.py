@@ -13,6 +13,9 @@ from tkinter import ttk, filedialog, messagebox, colorchooser
 
 from t8_daq_system.settings.app_settings import _DEFAULTS
 
+# Mirrors data/timelapse_video.VIDEO_FORMATS; that module imports cv2, which the dialog must not need.
+VIDEO_FORMAT_CHOICES = ("mp4", "avi")
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,7 +78,6 @@ class SettingsDialog(tk.Toplevel):
         self._build_scales_tab(notebook)
         self._build_paths_tab(notebook)
         self._build_power_programmer_tab(notebook)
-        self._build_qms_trigger_tab(notebook)
         self._build_camera_tab(notebook)
 
         self._build_button_frame()
@@ -154,109 +156,6 @@ class SettingsDialog(tk.Toplevel):
         self._pid_ki_var.set(str(_DEFAULTS["pid_ki"][1]))
         self._pid_kd_var.set(str(_DEFAULTS["pid_kd"][1]))
 
-    def _build_qms_trigger_tab(self, notebook):
-        """Tab for QMS Auto-Click configuration."""
-        tab = ttk.Frame(notebook, padding=15)
-        notebook.add(tab, text="QMS Trigger")
-
-        ttk.Label(tab, text="QMS Auto-Click Configuration",
-                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=(0, 10))
-
-        ttk.Label(
-            tab,
-            text=("When enabled, a confirmation button appears after a Stable Hold block\n"
-                  "that has 'Pause for QMS trigger' enabled. Clicking confirm will\n"
-                  "automatically click the configured location (e.g. QMS start button)."),
-            foreground='gray', font=('Arial', 9)
-        ).pack(anchor='w', pady=(0, 10))
-
-        # Enable toggle
-        enable_frame = ttk.LabelFrame(tab, text="Enable", padding=10)
-        enable_frame.pack(fill=tk.X, pady=5)
-        self._qms_auto_click_enabled_var = tk.BooleanVar()
-        ttk.Checkbutton(enable_frame,
-                        text="Enable QMS auto-click on confirmation",
-                        variable=self._qms_auto_click_enabled_var).pack(anchor='w')
-
-        # Coordinates
-        coord_frame = ttk.LabelFrame(tab, text="Click Location", padding=10)
-        coord_frame.pack(fill=tk.X, pady=5)
-
-        self._qms_click_x_var = tk.StringVar(value="0")
-        self._qms_click_y_var = tk.StringVar(value="0")
-
-        xy_row = ttk.Frame(coord_frame)
-        xy_row.pack(fill=tk.X, pady=4)
-        ttk.Label(xy_row, text="X:", width=4).pack(side=tk.LEFT)
-        ttk.Entry(xy_row, textvariable=self._qms_click_x_var, width=8).pack(side=tk.LEFT, padx=(0, 12))
-        ttk.Label(xy_row, text="Y:", width=4).pack(side=tk.LEFT)
-        ttk.Entry(xy_row, textvariable=self._qms_click_y_var, width=8).pack(side=tk.LEFT)
-
-        self._qms_capture_label = ttk.Label(coord_frame, text="", foreground='gray')
-        self._qms_capture_label.pack(anchor='w', pady=(4, 0))
-
-        btn_row = ttk.Frame(coord_frame)
-        btn_row.pack(fill=tk.X, pady=(8, 0))
-        self._qms_capture_btn = ttk.Button(btn_row, text="Capture Location (3s)",
-                                           command=self._start_qms_capture)
-        self._qms_capture_btn.pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(btn_row, text="Test Click",
-                   command=self._test_qms_click).pack(side=tk.LEFT)
-
-        ttk.Label(coord_frame,
-                  text="Tip: Click 'Capture Location', then move mouse to the QMS start button\n"
-                       "on your QMS monitor and wait 3 seconds.",
-                  foreground='gray', font=('Arial', 8)).pack(anchor='w', pady=(6, 0))
-
-    def _start_qms_capture(self):
-        """Count down 3 seconds then capture mouse position."""
-        self._qms_capture_countdown = 3
-        self._qms_capture_btn.config(state='disabled')
-        self._qms_capture_label.config(text=f"Move mouse to target... {self._qms_capture_countdown}",
-                                        foreground='orange')
-        self._do_qms_capture_tick()
-
-    def _do_qms_capture_tick(self):
-        if self._qms_capture_countdown > 0:
-            self._qms_capture_label.config(
-                text=f"Move mouse to target... {self._qms_capture_countdown}")
-            self._qms_capture_countdown -= 1
-            self.after(1000, self._do_qms_capture_tick)
-        else:
-            try:
-                import pyautogui
-                x, y = pyautogui.position()
-                self._qms_click_x_var.set(str(x))
-                self._qms_click_y_var.set(str(y))
-                self._qms_capture_label.config(
-                    text=f"Captured: ({x}, {y})", foreground='green')
-            except ImportError:
-                self._qms_capture_label.config(
-                    text="pyautogui not installed. Run: pip install pyautogui",
-                    foreground='red')
-            except Exception as e:
-                self._qms_capture_label.config(text=f"Error: {e}", foreground='red')
-            self._qms_capture_btn.config(state='normal')
-
-    def _test_qms_click(self):
-        """Perform a test click at the configured coordinates."""
-        try:
-            import pyautogui
-            x = int(self._qms_click_x_var.get())
-            y = int(self._qms_click_y_var.get())
-            pyautogui.click(x, y)
-            self._qms_capture_label.config(text=f"Test click sent to ({x}, {y})",
-                                            foreground='green')
-        except ImportError:
-            messagebox.showerror("Missing Library",
-                                 "pyautogui not installed.\nRun: pip install pyautogui",
-                                 parent=self)
-        except ValueError:
-            messagebox.showerror("Invalid Coordinates",
-                                 "X and Y must be integers.", parent=self)
-        except Exception as e:
-            messagebox.showerror("Click Error", str(e), parent=self)
-
     def _build_camera_tab(self, notebook):
         """Tab for camera configuration."""
         tab = ttk.Frame(notebook, padding=15)
@@ -302,10 +201,20 @@ class SettingsDialog(tk.Toplevel):
                     from_=1, to=60, increment=1, width=7).pack(side=tk.LEFT, padx=5)
         ttk.Label(fps_row, text="fps", foreground='gray').pack(side=tk.LEFT)
 
+        fmt_row = ttk.Frame(tl_frame)
+        fmt_row.pack(fill=tk.X, pady=4)
+        ttk.Label(fmt_row, text="Export video format:", width=24).pack(side=tk.LEFT)
+        self._timelapse_video_format_var = tk.StringVar()
+        ttk.Combobox(fmt_row, textvariable=self._timelapse_video_format_var,
+                     values=VIDEO_FORMAT_CHOICES, state='readonly',
+                     width=6).pack(side=tk.LEFT, padx=5)
+        ttk.Label(fmt_row, text="mp4 = smaller files,  avi = plays everywhere",
+                  foreground='gray').pack(side=tk.LEFT)
+
         ttk.Label(tl_frame,
                   text="Minimum 2 s (camera limit: 30 fps).\n"
                        "Examples: 2 s = max rate,  60 s = 1 frame/min (default),  300 s = 1 frame/5 min.\n"
-                       "Export FPS: how fast the stitched MP4 plays back (default 10 fps).\n"
+                       "Export FPS: how fast the stitched video plays back (default 10 fps).\n"
                        "Takes effect on the next timelapse start.",
                   foreground='gray', font=('Arial', 8)).pack(anchor='w', pady=(4, 0))
 
@@ -1057,16 +966,12 @@ class SettingsDialog(tk.Toplevel):
         self._run_cap_a_var.set(str(s.run_cap_a))
         self._run_cap_enabled_var.set(s.run_cap_enabled)
 
-        # QMS Auto-Click
-        self._qms_auto_click_enabled_var.set(s.qms_auto_click_enabled)
-        self._qms_click_x_var.set(str(s.qms_auto_click_x))
-        self._qms_click_y_var.set(str(s.qms_auto_click_y))
-
         # Camera
         self._camera_index_var.set(str(s.camera_index))
         self._camera_buttons_overlay_var.set(s.camera_buttons_overlay)
         self._timelapse_interval_s_var.set(str(s.timelapse_interval_s))
         self._timelapse_export_fps_var.set(str(getattr(s, 'timelapse_export_fps', 10)))
+        self._timelapse_video_format_var.set(s.timelapse_video_format)
 
     def _save_settings_from_gui(self):
         """Internal helper to read all GUI vars and write to AppSettings."""
@@ -1147,10 +1052,6 @@ class SettingsDialog(tk.Toplevel):
             s.soft_start_cap_enabled = self._soft_start_cap_enabled_var.get()
             s.run_cap_a = float(self._run_cap_a_var.get())
             s.run_cap_enabled = self._run_cap_enabled_var.get()
-            # QMS Auto-Click
-            s.qms_auto_click_enabled = self._qms_auto_click_enabled_var.get()
-            s.qms_auto_click_x = int(self._qms_click_x_var.get())
-            s.qms_auto_click_y = int(self._qms_click_y_var.get())
             # Camera
             s.camera_index = int(self._camera_index_var.get())
             s.camera_buttons_overlay = self._camera_buttons_overlay_var.get()
@@ -1162,6 +1063,10 @@ class SettingsDialog(tk.Toplevel):
             if export_fps < 1 or export_fps > 60:
                 raise ValueError("Export FPS must be between 1 and 60.")
             s.timelapse_export_fps = export_fps
+            video_format = self._timelapse_video_format_var.get()
+            if video_format not in VIDEO_FORMAT_CHOICES:
+                raise ValueError(f"Export video format must be one of {VIDEO_FORMAT_CHOICES}.")
+            s.timelapse_video_format = video_format
         except ValueError as exc:
             messagebox.showerror("Invalid Value",
                                 f"Please check your entries:\n{exc}", parent=self)

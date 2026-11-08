@@ -13,8 +13,9 @@ WHY THE REGISTRY WINS (ADR 0007)
 _DEFAULTS seeds only keys the registry lacks; no other module holds a default
 for a setting. load() records in ``sources`` whether each key came from the
 "registry" or a "default". Keys deleted from _DEFAULTS (ps_current_limit,
-soft_start_current_limit_a, pid_output_max) may linger in an old registry; they
-are never read and never written back.
+soft_start_current_limit_a, pid_output_max, and the qms_auto_click_* keys removed
+with pyautogui) may linger in an old registry; they are never read and never
+written back.
 
 save() logs one INFO line per key whose value differs from what was last loaded
 or saved (old and new value), so the Diagnostic log shows what an operator
@@ -58,6 +59,7 @@ _DEFAULTS = {
     "camera_buttons_overlay": ("bool", False),
     "timelapse_interval_s":   ("int",  60),
     "timelapse_export_fps":   ("int",  10),
+    "timelapse_video_format": ("str",  "mp4"),   # "mp4" or "avi" (data/timelapse_video.py)
     "xgs600_port":        ("str",   "COM4"),
     "xgs600_baudrate":    ("int",   9600),
     "xgs600_timeout":     ("float", 1.0),
@@ -120,10 +122,6 @@ _DEFAULTS = {
     "heartbeat_interval_s":      ("int",   30),
     "show_console":              ("bool",  False),
     "diagnostic_log_keep":       ("int",   30),
-    # ── QMS Auto-Click settings ───────────────────────────────────────────
-    "qms_auto_click_enabled": ("bool", False),
-    "qms_auto_click_x":       ("int",  0),
-    "qms_auto_click_y":       ("int",  0),
     # ── Logging behaviour ─────────────────────────────────────────────────
     "reset_graph_on_start_logging": ("bool", True),
 }
@@ -170,6 +168,7 @@ class AppSettings:
         self.camera_buttons_overlay: bool = False
         self.timelapse_interval_s: int = 60
         self.timelapse_export_fps: int = 10
+        self.timelapse_video_format: str = "mp4"
         self.xgs600_port: str        = "COM4"
         self.xgs600_baudrate: int    = 9600
         self.xgs600_timeout: float   = 1.0
@@ -230,10 +229,6 @@ class AppSettings:
         self.diagnostic_log_keep: int = 30
         # Where each loaded key came from: "registry" or "default" (ADR 0007)
         self.sources: dict = {k: "default" for k in _DEFAULTS}
-        # QMS Auto-Click
-        self.qms_auto_click_enabled: bool = False
-        self.qms_auto_click_x: int = 0
-        self.qms_auto_click_y: int = 0
         # Logging behaviour
         self.reset_graph_on_start_logging: bool = True
 
