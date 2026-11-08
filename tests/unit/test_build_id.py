@@ -124,6 +124,7 @@ def test_get_build_id_reads_generated_module(monkeypatch):
 
 def test_window_title_ends_with_build_id(monkeypatch):
     monkeypatch.setitem(sys.modules, "t8_daq_system._build_info", None)
+    monkeypatch.setattr("t8_daq_system.settings.app_settings.AppSettings.load", lambda self: self)
     from t8_daq_system.gui.main_window import MainWindow
 
     rig = MagicMock()
