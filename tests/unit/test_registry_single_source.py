@@ -2,7 +2,7 @@
 
 import importlib.util
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -131,11 +131,13 @@ def dialog(monkeypatch):
     tk.StringVar.side_effect = lambda *a, **k: _Var()
     tk.BooleanVar.side_effect = lambda *a, **k: _Var()
     # Under the conftest Tk stub Toplevel is a MagicMock, so load a private
-    # copy of the module whose Toplevel is a real class.
-    monkeypatch.setattr(sys.modules["tkinter"], "Toplevel", type("Toplevel", (), {}))
+    # copy of the module whose Toplevel is a real class. patch.object, not
+    # monkeypatch: pytest >= 9.2 undoes monkeypatch.setattr on a MagicMock
+    # with delattr, which the MagicMock remembers for the rest of the session.
     spec = importlib.util.find_spec("t8_daq_system.gui.settings_dialog")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with patch.object(sys.modules["tkinter"], "Toplevel", type("Toplevel", (), {})):
+        spec.loader.exec_module(module)
     monkeypatch.setattr(module, "ttk", ttk)
     monkeypatch.setattr(module, "tk", tk)
     d = object.__new__(module.SettingsDialog)
