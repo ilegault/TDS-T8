@@ -1,6 +1,6 @@
 # 40: Field run fixtures
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -53,16 +53,16 @@ Tests may fake: nothing. Must be real: the checked-in fixture files.
 
 ## Acceptance criteria
 
-- [ ] `test_all_field_runs_are_the_five_listed` in `tests/unit/test_field_runs.py`: `all_field_runs()` returns the five names in the
+- [x] `test_all_field_runs_are_the_five_listed` in `tests/unit/test_field_runs.py`: `all_field_runs()` returns the five names in the
       table above, and each run's `t_s` is strictly increasing and starts at 0.
-- [ ] Same file, `test_peak_current_matches_manifest`: for each run, `max(ps_amps)` equals the manifest's `peak_current_a`
+- [x] Same file, `test_peak_current_matches_manifest`: for each run, `max(ps_amps)` equals the manifest's `peak_current_a`
       within 0.1 A, and the 2026-03-28 run's peak is at least 175 A (the supply's
       ceiling was reached).
-- [ ] Same file, `test_fixture_files_are_small`: every fixture file's size is below 200 000 bytes.
-- [ ] Same file, `test_cold_start_kept_at_full_resolution`: within the first 300 s of each run, the median gap between
+- [x] Same file, `test_fixture_files_are_small`: every fixture file's size is below 200 000 bytes.
+- [x] Same file, `test_cold_start_kept_at_full_resolution`: within the first 300 s of each run, the median gap between
       consecutive `t_s` values is at most 0.6 s (the cold-start transient kept at
       full resolution), and after 300 s it is between 4.5 and 5.5 s.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
 ## Gate
 
@@ -73,3 +73,10 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     pytest --tb=short -q
 
 ## Comments
+
+Summary (2026-11-08):
+- Added `scripts/make_field_runs.py` to downsample raw lab logs from `logs/` into checked-in fixtures.
+- Generated `tests/fixtures/field_runs/` containing all 5 fixtures (each 84-126 kB, well under the 200 kB limit) and `manifest.json`.
+- Implemented pure loader `tests/field_runs.py` with `load_field_run()` and `all_field_runs()`.
+- Added contract tests in `tests/unit/test_field_runs.py` covering all acceptance criteria.
+- Gate green (ruff check, check_tests_first, pytest 609 passed). No bench verification required.
