@@ -1,6 +1,6 @@
 # 38: Run settings come from one pure function
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -42,21 +42,21 @@ Tests may fake: the registry (the fake `winreg` in `tests/conftest.py`). Must be
 
 ## Acceptance criteria
 
-- [ ] `test_module_imports_without_tk_or_gui` in `tests/unit/test_run_settings_module.py` runs
+- [x] `test_module_imports_without_tk_or_gui` in `tests/unit/test_run_settings_module.py` runs
       `subprocess.run([sys.executable, "-c", "import t8_daq_system.settings.run_settings, sys; print('tkinter' in sys.modules, any(m.startswith('t8_daq_system.gui') for m in sys.modules))"], cwd=<repo root>)`
       and asserts stdout is `False False`.
-- [ ] `test_production_run_settings_match_defaults` asserts each field of `production_run_settings()` equals its `_DEFAULTS`
+- [x] `test_production_run_settings_match_defaults` asserts each field of `production_run_settings()` equals its `_DEFAULTS`
       value: `kp == _DEFAULTS["pid_kp"][1]`, `ki`/`pid_ki`, `kd`/`pid_kd`,
       `windup_limit`/`pid_windup_limit`, and the seven `soft_start_*` / `run_cap_*`
       fields against the keys of the same name.
-- [ ] `test_production_run_settings_read_defaults_live` changes one `_DEFAULTS` entry with `monkeypatch.setitem` (e.g.
+- [x] `test_production_run_settings_read_defaults_live` changes one `_DEFAULTS` entry with `monkeypatch.setitem` (e.g.
       `run_cap_a` to `(..., 99.0)`) and asserts `production_run_settings().run_cap_a == 99.0`,
       proving no second copy of the default exists.
-- [ ] `test_run_settings_from_app_settings_copies_gains_and_windup` and the other existing
+- [x] `test_run_settings_from_app_settings_copies_gains_and_windup` and the other existing
       tests in the two files above pass unchanged apart from their import line, and
       `grep -n "def run_settings_from_app_settings" t8_daq_system/gui/main_window.py`
       finds nothing.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
 ## Gate
 
@@ -66,4 +66,14 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     python scripts/check_tests_first.py
     pytest --tb=short -q
 
+Summary (2024-05-18): Extracted `run_settings_from_app_settings` and `production_run_settings` into a pure module `run_settings.py` so they can be loaded without `tkinter` or GUI dependencies.
+Tests confirm the pure module logic and that production run settings correctly match default values without making registry calls.
+`test_module_imports_without_tk_or_gui`, `test_production_run_settings_match_defaults`, and `test_production_run_settings_read_defaults_live` verify criteria 1-3.
+Updated `test_run_settings_travel.py` and `test_registry_single_source.py` imports to verify criterion 4.
+The CI gate commands completed with zero failures to verify criterion 5.
 ## Comments
+Summary (2024-05-18): Extracted `run_settings_from_app_settings` and `production_run_settings` into a pure module `run_settings.py` so they can be loaded without `tkinter` or GUI dependencies.
+Tests confirm the pure module logic and that production run settings correctly match default values without making registry calls.
+`test_module_imports_without_tk_or_gui`, `test_production_run_settings_match_defaults`, and `test_production_run_settings_read_defaults_live` verify criteria 1-3.
+Updated `test_run_settings_travel.py` and `test_registry_single_source.py` imports to verify criterion 4.
+The CI gate commands completed with zero failures to verify criterion 5.

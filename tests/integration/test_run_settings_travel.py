@@ -14,7 +14,7 @@ from t8_daq_system.control.program_block import VoltageRampBlock
 from t8_daq_system.control.temp_ramp_pid import PIDController
 from t8_daq_system.rig.commands import LoadProgram, StartProgram
 from t8_daq_system.settings.app_settings import AppSettings
-from t8_daq_system.gui.main_window import run_settings_from_app_settings
+from t8_daq_system.settings.run_settings import run_settings_from_app_settings
 from tests.integration.test_program_run_rig import make_rig_fixture, tick
 from tests.run_settings_helper import make_run_settings
 

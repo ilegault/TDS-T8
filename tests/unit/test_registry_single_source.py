@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from t8_daq_system.gui.main_window import run_settings_from_app_settings
+from t8_daq_system.settings.run_settings import run_settings_from_app_settings
 from t8_daq_system.settings import app_settings
 from t8_daq_system.settings.app_settings import AppSettings, _DEFAULTS
 
