@@ -20,6 +20,7 @@ import sys
 from t8_daq_system.build_info import get_build_id
 from t8_daq_system.utils.startup_profiler import profiler
 from t8_daq_system.control.program_run import ProgramRun
+from t8_daq_system.settings.run_settings import run_settings_from_app_settings
 from t8_daq_system.control.safety_monitor import SafetyMonitor, SafetyStatus
 from t8_daq_system.control.temp_ramp_pid import PIDRunLogger
 from t8_daq_system.data.data_buffer import DataBuffer
@@ -46,7 +47,6 @@ from t8_daq_system.rig.commands import (
     LoadProgram,
     Nudge,
     ResetTrip,
-    RunSettings,
     SelectAdapter,
     SetOutput,
     SetVoltage,
@@ -122,26 +122,6 @@ _PROGRAMMER_SAFE_MODE_MAX_VOLTS = 1.0   # V
 _PROGRAMMER_SAFE_MODE_MAX_AMPS  = 10.0  # A
 
 
-def run_settings_from_app_settings(settings) -> RunSettings:
-    """
-    Capture every run-shaping value from AppSettings into one frozen RunSettings.
-
-    Called once when the operator presses Run. Every value is read from
-    AppSettings (ADR 0007); this function holds no literals.
-    """
-    return RunSettings(
-        kp=settings.pid_kp,
-        ki=settings.pid_ki,
-        kd=settings.pid_kd,
-        windup_limit=settings.pid_windup_limit,
-        soft_start_threshold_c=settings.soft_start_threshold_c,
-        soft_start_ramp_v_per_s=settings.soft_start_ramp_v_per_s,
-        soft_start_handoff_current_a=settings.soft_start_handoff_current_a,
-        soft_start_cap_enabled=settings.soft_start_cap_enabled,
-        soft_start_cap_a=settings.soft_start_cap_a,
-        run_cap_enabled=settings.run_cap_enabled,
-        run_cap_a=settings.run_cap_a,
-    )
 
 
 def build_csv_header(config: dict, has_ps_controller: bool = True) -> list:
