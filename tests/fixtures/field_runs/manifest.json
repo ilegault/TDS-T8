@@ -1,0 +1,52 @@
+{
+  "2026-03-26_temp_ramp_1550": {
+    "name": "2026-03-26_temp_ramp_1550",
+    "source_file": "data_log_Fuller_Temp_Ramp_with_1550_Target_20260326_122133.csv",
+    "rows_in": 24814,
+    "rows_out": 2960,
+    "rows_dropped": 0,
+    "peak_current_a": 83.225,
+    "peak_filament_c": 980.707,
+    "control_tc": "Filament"
+  },
+  "2026-03-28_tds_5k_per_min": {
+    "name": "2026-03-28_tds_5k_per_min",
+    "source_file": "data_log_Unirradiated_Bulk_W_Sample_TDS___5k.min_20260328_085521.csv",
+    "rows_in": 34441,
+    "rows_out": 3901,
+    "rows_dropped": 0,
+    "peak_current_a": 179.879,
+    "peak_filament_c": 1454.213,
+    "control_tc": "Filament"
+  },
+  "2026-03-29_tds_unirradiated_33h": {
+    "name": "2026-03-29_tds_unirradiated_33h",
+    "source_file": "data_log_Unirradiated_Bulk_W_Sample_-_33_hr_D2_Exposure_-_TDS_20260329_151315.csv",
+    "rows_in": 34300,
+    "rows_out": 3887,
+    "rows_dropped": 0,
+    "peak_current_a": 143.519,
+    "peak_filament_c": 1450.022,
+    "control_tc": "Filament"
+  },
+  "2026-03-30_tds_irradiated_33h": {
+    "name": "2026-03-30_tds_irradiated_33h",
+    "source_file": "data_log_Ion_Irradiated_DiMES_Bulk_W_-_33_hr_D2_Exposed_-_TDS_20260330_073924.csv",
+    "rows_in": 34933,
+    "rows_out": 3948,
+    "rows_dropped": 0,
+    "peak_current_a": 142.135,
+    "peak_filament_c": 1476.566,
+    "control_tc": "Filament"
+  },
+  "2026-04-15_ramp_hold_down": {
+    "name": "2026-04-15_ramp_hold_down",
+    "source_file": "data_log_H_and_D_Chamber_Background_Check_-_Temp_Ramp_Up_and_Hold_and_Down_20260415_094625.csv",
+    "rows_in": 21876,
+    "rows_out": 2674,
+    "rows_dropped": 0,
+    "peak_current_a": 144.395,
+    "peak_filament_c": 1450.871,
+    "control_tc": "Filament"
+  }
+}
