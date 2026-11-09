@@ -33,6 +33,10 @@ Requirements:
   - The failing field **is what the test is about** (a cap, Soft start, gains, windup
     or PID behaviour test): that is a finding. Do not override it. Escalate per
     AGENTS.md §12.4 point 8, quoting the failure.
+- A test whose subject is the disabled state of a toggle (for example a test of what
+  happens when the Run current cap is off) sets that field with
+  `# not production: tests the disabled <field>` on the same line. That is the one case
+  where a test overrides the field it is about.
 - No test is deleted, skipped, xfailed or loosened (ADR 0001). A test whose behaviour
   changed is rewritten in place under the same name.
 
@@ -40,15 +44,15 @@ Tests may fake: everything they faked before. Must be real: `production_run_sett
 
 ## Acceptance criteria
 
-- [ ] `test_make_run_settings_is_production` in `tests/unit/test_run_settings_helper.py`: `make_run_settings() == production_run_settings()`.
-- [ ] Same file, `test_non_production_overrides_are_marked`: scans every `tests/**/*.py` file except itself for the text
+- [ ] test_make_run_settings_is_production in `tests/unit/test_run_settings_helper.py`: `make_run_settings() == production_run_settings()`. (no test: it checks test-helper code under `tests/`, which the integrity gate does not swap back to the base version, so check 9 cannot see it fail; the developer reviews the held PR)
+- [ ] Same file, test_non_production_overrides_are_marked: scans every `tests/**/*.py` file except itself for the text
       `run_cap_enabled=False`, `soft_start_cap_enabled=False` and
       `soft_start_threshold_c=-273` and asserts each matching line also contains
       `# not production:`. The test lists the offending `file:line` values in its
-      assertion message.
-- [ ] Same file, `test_helper_holds_no_gain_literals`: asserts `tests/run_settings_helper.py` contains no float
+      assertion message. (no test: it checks test-helper code under `tests/`, which the integrity gate does not swap back to the base version, so check 9 cannot see it fail; the developer reviews the held PR)
+- [ ] Same file, test_helper_holds_no_gain_literals: asserts `tests/run_settings_helper.py` contains no float
       literal for a gain (no `kp=`, `ki=`, `kd=`, `windup_limit=` text), so the gains
-      cannot drift from `_DEFAULTS` again.
+      cannot drift from `_DEFAULTS` again. (no test: it checks test-helper code under `tests/`, which the integrity gate does not swap back to the base version, so check 9 cannot see it fail; the developer reviews the held PR)
 - [ ] The PR description carries the decision table above, one row per test touched. (by hand)
 - [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
@@ -61,3 +65,15 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     pytest --tb=short -q
 
 ## Comments
+
+- 2026-11-09 (planning): Criteria 1–3 no longer backtick their test names and carry a
+  `(no test: ...)` tag. As first written, the ticket could not land: the three tests
+  check `tests/run_settings_helper.py`, which check 7 does not swap to base, so they
+  pass on base and check 9 failed the PR (PR #117, closed). The tests are still
+  required, under exactly those names. Expect the gate to hold the PR (check 7 hold:
+  new tests passed on base) for the developer's merge.
+  PR #117 found that the production windup limit 0.4 breaks the bumpless-transfer
+  tests in `tests/integration/test_handoff_includes_feedforward.py` (their flat Feedforward sits
+  0.5 V from the held voltage). Windup is not what those tests are about, so passing
+  the old `windup_limit` there with `# not production:` is allowed; list it in the PR
+  table so the developer can judge it.
