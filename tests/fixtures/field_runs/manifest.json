@@ -42,8 +42,8 @@
   "2026-04-15_ramp_hold_down": {
     "name": "2026-04-15_ramp_hold_down",
     "source_file": "data_log_H_and_D_Chamber_Background_Check_-_Temp_Ramp_Up_and_Hold_and_Down_20260415_094625.csv",
-    "rows_in": 21876,
-    "rows_out": 2674,
+    "rows_in": 15734,
+    "rows_out": 2076,
     "rows_dropped": 0,
     "peak_current_a": 144.395,
     "peak_filament_c": 1450.871,

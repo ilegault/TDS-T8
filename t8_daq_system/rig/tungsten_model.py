@@ -20,9 +20,9 @@ This module implements a physical two-node thermal model (ticket 41, ADR 0005):
 
 Calibration targets:
 - Cold resistance R(300 K) between 0.004 and 0.006 Ohm (March 2026 logs: ~4-5 mOhm).
-- Steady-state current at 6.0 V between 120 and 180 A (tested: ~176 A at T_fil ~ 2530 K).
+- Steady-state current at 6.0 V between 120 and 180 A (tested: ~174 A at T_fil ~ 2566 K).
 - Replay current tracking: RMS current error <= 15% of peak current across field runs.
-- Replay TC tracking: RMS TC error <= 50 K across active field runs (2026-03-26 through 2026-03-30).
+- Replay TC tracking: RMS TC error <= 50 K across all field runs (tested: 36.1 to 46.7 K).
 - Filament-TC thermal lag: at peak current on 2026-04-15_ramp_hold_down, T_filament - T_TC >= 500 K.
 """
 from __future__ import annotations
@@ -49,13 +49,13 @@ class TungstenSim:
     R_COLD = 0.0050          # Ohms at 300 K (March 2026 logs: 0.0093 V -> 2.17 A at 27 C)
     ALPHA = 0.0026           # /K linear TCR fitted against Field runs 2026-03-26..2026-03-30
     C_FIL = 0.5              # J/K filament thermal capacity (rapid response)
-    AREA_FIL = 0.0012        # m^2 effective radiating surface area of filament
+    AREA_FIL = 0.0011        # m^2 effective radiating surface area of filament (fitted ticket 41)
     EMISSIVITY_FIL = 0.35    # emissivity of tungsten filament at high temperature
     K_COND_FIL = 0.005       # W/K lead conduction loss
 
     # Coupling and TC node parameters -- calibrated to reproduce thermal lag and TC traces:
-    G_COUPLE = 0.12          # W/K thermal conductance coupling between filament and TC
-    C_TC = 15.0              # J/K specimen and thermocouple thermal capacity (thermal lag)
+    G_COUPLE = 0.13          # W/K thermal conductance coupling between filament and TC (fitted ticket 41)
+    C_TC = 22.0              # J/K specimen and thermocouple thermal capacity (thermal lag, fitted ticket 41)
     AREA_TC = 0.0003         # m^2 specimen radiating surface area
     EMISSIVITY_TC = 0.25     # emissivity of specimen
     K_COND_TC = 0.02         # W/K specimen mount conduction loss

@@ -46,12 +46,16 @@ SOURCES = [
     {
         "name": "2026-04-15_ramp_hold_down",
         "source_file": "data_log_H_and_D_Chamber_Background_Check_-_Temp_Ramp_Up_and_Hold_and_Down_20260415_094625.csv",
+        # Active experiment completed at t=7875 s; subsequent data in raw log is post-run
+        # floating monitor readings after the Keysight power supply was turned off.
+        "max_t_s": 7875.0,
     },
 ]
 
 
 def process_source_file(
     source_path: pathlib.Path,
+    max_t_s: float | None = None,
 ) -> tuple[list[tuple[float, float, float, float]], dict[str, Any]]:
     """
     Read a lab CSV file, extract columns, downsample after 300 s, and return rows + manifest entry.
@@ -95,6 +99,8 @@ def process_source_file(
             if t0 is None:
                 t0 = ts_dt
             t_s = (ts_dt - t0).total_seconds()
+            if max_t_s is not None and t_s > max_t_s:
+                break
             parsed_rows.append((t_s, fil_val, v_val, i_val))
 
     # Downsample:
@@ -139,7 +145,7 @@ def generate_field_runs(logs_dir: pathlib.Path, output_dir: pathlib.Path) -> Non
             raise FileNotFoundError(f"Source file not found: {source_path}")
 
         print(f"Processing {name} from {source_file}...")
-        rows, stats = process_source_file(source_path)
+        rows, stats = process_source_file(source_path, max_t_s=source.get("max_t_s"))
 
         csv_path = output_dir / f"{name}.csv"
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
