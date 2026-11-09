@@ -179,5 +179,5 @@ def test_current_at_6v_steady_state_is_within_rated_range():
     """At 6.0 V steady state the supply delivers 120-180 A."""
     sim = TungstenSim()
     sim.steady_state_temp(6.0)
-    current = 6.0 / sim._resistance(sim.get_state()['temperature_k'])
+    current = 6.0 / sim._resistance(sim.get_state()["filament_temperature_k"])
     assert 120.0 <= current <= 180.0

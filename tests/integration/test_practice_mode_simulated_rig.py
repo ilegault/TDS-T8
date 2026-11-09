@@ -128,7 +128,8 @@ def test_simulated_tc_primary_only_and_others_room_temperature():
         readings = sim.read()
 
     assert readings.tc_c["TC_1"] is not None
-    assert readings.tc_c["TC_1"] > 200.0, f"Primary TC should be heated, got {readings.tc_c['TC_1']}"
+    # With calibrated two-node thermal lag, specimen TC heats to >100 C after 10 s at 4.0 V
+    assert readings.tc_c["TC_1"] > 100.0, f"Primary TC should be heated, got {readings.tc_c['TC_1']}"
     assert readings.tc_c["TC_2"] == pytest.approx(26.85), (
         f"Non-primary TC should remain at room temperature, got {readings.tc_c['TC_2']}"
     )

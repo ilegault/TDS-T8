@@ -90,8 +90,10 @@ class SimulatedRig(RigAdapter):
                 dt -= sub_dt
             self._last_time = now
 
-        sim_t_k = self._sim._T
-        sim_t_c = sim_t_k - 273.15
+        sim_state = self._sim.get_state()
+        sim_tc_k = sim_state["temperature_k"]
+        sim_tc_c = sim_tc_k - 273.15
+        sim_fil_k = sim_state["filament_temperature_k"]
         primary_tc = self._tc_names[0] if self._tc_names else None
 
         tc_c: dict[str, float | None] = {}
@@ -101,8 +103,8 @@ class SimulatedRig(RigAdapter):
                 tc_c[tc] = None
                 tc_raw_v[tc] = None
             elif tc == primary_tc:
-                tc_c[tc] = sim_t_c
-                tc_raw_v[tc] = sim_t_c * 41.276e-6
+                tc_c[tc] = sim_tc_c
+                tc_raw_v[tc] = sim_tc_c * 41.276e-6
             else:
                 tc_c[tc] = self._room_temp_c
                 tc_raw_v[tc] = self._room_temp_c * 41.276e-6
@@ -115,7 +117,7 @@ class SimulatedRig(RigAdapter):
 
         if self._output_enabled:
             ps_volts = self._voltage_setpoint
-            r = max(self._sim._resistance(sim_t_k), 1e-6)
+            r = max(self._sim._resistance(sim_fil_k), 1e-6)
             ps_amps = self._voltage_setpoint / r
             shutoff_readback = True
         else:
