@@ -365,36 +365,43 @@ the `tests-exempt` PR label.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-11-06 15:56. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-09 17:31. Implement this. If something in it is wrong, say so before changing course._
 
-## Active implementation plan — Field-realistic testing
+## Active implementation plan — Field-realistic testing, plus the engine handover
 
-This is a pointer, not the work.
+This is a pointer, not the work. Tickets are assigned by ticket-engine (hourly dispatch
+and the box). Never run a second orchestrator on this repo.
 
-- **Spec:** `.scratch/field-realistic-testing/spec.md`
-- **Tickets:** `.scratch/field-realistic-testing/issues/38`–`48`
-- **Binding ADRs:** `docs/adr/0001-tests-first-and-no-muted-failures.md` (binding on every ticket), `0005-practice-mode-is-a-rig-adapter.md`, `0006-soft-start-and-current-caps.md`, `0007-registry-is-the-single-source-of-settings.md`, `0008-diagnostic-log-and-build-id.md`, plus 0003 (trips).
-- **New glossary terms (`CONTEXT.md`, added by ticket 46):** Field run, Field case, Scenario test, Production settings; Run current cap changes with ticket 43's decision.
-- **Tracker conventions:** `docs/agents/issue-tracker.md`. Previous effort `.scratch/cold-start-and-traceability/` is done through 37; its bench ticket 36 is the developer's.
+- **Field-realistic testing:** spec `.scratch/field-realistic-testing/spec.md`, tickets
+  `.scratch/field-realistic-testing/issues/38`–`48` (38, 40, 41 done).
+- **Engine handover:** `.scratch/engine-handover/issues/49` (held: `Auto-merge: no`,
+  changes `AGENTS.md` and `docs/`). Independent of everything else.
+- **Binding ADRs:** `docs/adr/0001-tests-first-and-no-muted-failures.md` (every ticket),
+  `0005`, `0006`, `0007`, `0008`, plus `0003` (trips). Engine protocol:
+  `src/ticket_engine/resources/ticket_skill.md` in `ilegault/ticket-engine` (`v1`).
+- **Tracker conventions:** `docs/agents/issue-tracker.md`. Ticket numbers are unique
+  across the whole repo; the next new ticket is **50**.
 
-**Next:** 38 and 40 have no blockers. Start with **38** (Run settings come from one pure function) — it is the prefactor that lets ticket 39 put every test on Production settings. 40 (Field run fixtures) can run in parallel, but only on the developer's PC: it reads the gitignored `logs/` of the main clone. 47 (lab evidence) is the developer's and can start now.
+**Next:** 39 (re-planned 2026-11-09 so the Integrity Gate holds it instead of failing it)
+and 49 have no blockers. After 39: 42, then 44. 43, 47 and 48 are the developer's.
 
 Dependency graph:
 
     38 ─ 39 ─────────┐
                      ├─ 42 ─┬─ 43 [ready-for-developer: Run cap decision] ─┬─ 45 (also 47) ─┐
-    40 ─ 41 ─────────┘      │                                               │                ├─ 46 [held: Auto-merge no, docs/ADR/AGENTS.md]
+    40 ─ 41 ─────────┘      │                                               │                ├─ 46 [held]
                             └─ 44 ──────────────────────────────────────────┼────────────────┘
                                                                             └─ 48 [ready-for-developer: bench] (also 44)
     47 [ready-for-developer: lab evidence] ─ 45
+    49 [held] (independent)
 
 Requirements an implementer would treat as preferences — they are not:
-- Tests start from **Production settings** (`production_run_settings()`, built from `_DEFAULTS` only). Overriding a field needs `# not production: <why>` on that line, and a test may never override the field it is about.
+- Tests start from **Production settings** (`production_run_settings()`, built from `_DEFAULTS` only). Overriding a field needs `# not production: <why>` on that line. A test overrides the field it is about only to test that toggle's disabled state.
 - A test that goes red because the settings or the simulator became realistic is a **finding**: fix the code or escalate. No skip, xfail, loosened tolerance or narrowed input (ADR 0001).
-- The ticket 41 tolerances (current RMS ≤ 15 % of peak, TC RMS ≤ 50 K) are fixed. If no sensible constants meet them, escalate with the errors reached.
 - `test_field_case_2026_11_06_cold_start` asserts the lab trip in ticket 42 and is rewritten in place in ticket 43 to assert the fix; if ticket 42's simulator does not reproduce the trip, escalate.
 - `production_run_settings()`, `TungstenSim.replay`, `block_from_dict` and `build_id` are pure (no clock, hardware or Tk).
 - No test is deleted. A test whose behaviour changed is rewritten in place under the same name.
+- Claim branches (`claim/<effort>/<NN>`) belong to the engine. Never create or delete one by hand.
 
 Deliberately not done here: PID gain changes, any change to CV-only / DAC1, running the frozen exe headless, hardware-in-the-loop tests beyond bench ticket 48, remote trip alerts.
 <!-- ACTIVE-PLAN:END -->
