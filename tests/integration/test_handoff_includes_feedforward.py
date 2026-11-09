@@ -44,7 +44,7 @@ def _run(blocks, ff_volts: float, ticks: int = 40):
     fix.clock.advance(0.5)
     fix.rig.run_tick()
     fix.rig.submit(LoadProgram(blocks))
-    fix.rig.submit(StartProgram(settings=make_run_settings()))
+    fix.rig.submit(StartProgram(settings=make_run_settings(run_cap_enabled=False, windup_limit=30.0)))  # not production: cold-sim passes >120 A; synthetic flat Feedforward is 0.5 V from the held voltage, beyond the production 0.4 windup clamp that bumpless transfer rides on
     seen = []
     for _ in range(ticks):
         fix.clock.advance(0.5)

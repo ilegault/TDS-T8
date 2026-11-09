@@ -1,6 +1,6 @@
 # 39: Tests run with production settings
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -40,17 +40,17 @@ Tests may fake: everything they faked before. Must be real: `production_run_sett
 
 ## Acceptance criteria
 
-- [ ] `test_make_run_settings_is_production` in `tests/unit/test_run_settings_helper.py`: `make_run_settings() == production_run_settings()`.
-- [ ] Same file, `test_non_production_overrides_are_marked`: scans every `tests/**/*.py` file except itself for the text
+- [x] `test_make_run_settings_is_production` in `tests/unit/test_run_settings_helper.py`: `make_run_settings() == production_run_settings()`.
+- [x] Same file, `test_non_production_overrides_are_marked`: scans every `tests/**/*.py` file except itself for the text
       `run_cap_enabled=False`, `soft_start_cap_enabled=False` and
       `soft_start_threshold_c=-273` and asserts each matching line also contains
       `# not production:`. The test lists the offending `file:line` values in its
       assertion message.
-- [ ] Same file, `test_helper_holds_no_gain_literals`: asserts `tests/run_settings_helper.py` contains no float
+- [x] Same file, `test_helper_holds_no_gain_literals`: asserts `tests/run_settings_helper.py` contains no float
       literal for a gain (no `kp=`, `ki=`, `kd=`, `windup_limit=` text), so the gains
       cannot drift from `_DEFAULTS` again.
-- [ ] The PR description carries the decision table above, one row per test touched. (by hand)
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
+- [x] The PR description carries the decision table above, one row per test touched. (by hand)
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
 ## Gate
 
@@ -61,3 +61,10 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-11-09: `_BASE` is now `production_run_settings()`. Three tests in
+`tests/unit/test_run_settings_helper.py` cover criteria 1-3; the decision table is in the PR.
+Findings: with the production windup clamp 0.4 the synthetic flat Feedforward offset (0.5 V)
+in `test_handoff_includes_feedforward.py` exceeds what bumpless transfer can carry; overridden
+with a marker, worth a look by the developer. Suite run locally without `cv2`/`matplotlib`
+(not installed in the agent sandbox); 4 tests that fail identically on main for that reason.

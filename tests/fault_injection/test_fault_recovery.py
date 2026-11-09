@@ -126,7 +126,7 @@ def test_so_latched_executor_stops_gracefully():
         TempRampBlock(rate_k_per_min=60.0, end_temp_k=1000.0, tc_name="TC_1"),
     ]
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram(settings=make_run_settings()))
+    rig.submit(StartProgram(settings=make_run_settings(run_cap_enabled=False)))  # not production: cold-sim block transitions pass >120 A, cap is not under test
 
     # Run a few ticks into the program
     for _ in range(5):

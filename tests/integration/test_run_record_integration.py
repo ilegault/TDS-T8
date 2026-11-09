@@ -161,7 +161,7 @@ def test_three_block_run_one_row_per_tick(tmp_path):
     rig.submit_command(LoadProgram(program=blocks))
     # Run one tick to establish first readings before starting
     _advance(rig, clock, 1)
-    rig.submit_command(StartProgram(settings=make_run_settings()))
+    rig.submit_command(StartProgram(settings=make_run_settings(run_cap_enabled=False)))  # not production: cold-sim block transitions pass >120 A, cap is not under test
     # Run enough ticks to complete all three blocks (each block ~4 control steps) + extra
     N_TICKS = 30
     _advance(rig, clock, N_TICKS)

@@ -405,7 +405,12 @@ def _run_program_run(blocks, snap_fn, n_ticks=20):
     pr = make_program_run()
     pr.load(blocks)
     snap0 = snap_fn(0)
-    pr.start(snap0, 0.0, make_run_settings(), commanded_volts=0.0)
+    pr.start(
+        snap0,
+        0.0,
+        make_run_settings(kp=0.02, ki=0.0013, kd=0.005, windup_limit=30.0),  # not production: the pinned voltage sequences were characterised with these gains; the tests are about block mechanics, not gains
+        commanded_volts=0.0,
+    )
     voltages = []
     for i in range(n_ticks):
         now = (i + 1) * 0.5

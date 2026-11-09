@@ -1,29 +1,23 @@
-"""Shared RunSettings factory for tests that submit StartProgram or start a ProgramRun."""
+"""Shared RunSettings factory for tests that submit StartProgram or start a ProgramRun.
+
+WHY THIS EXISTS: every test starts from Production settings (what the operator
+runs, built from ``_DEFAULTS`` only), so a test cannot pass on settings the lab
+never uses (the 2026-11-06 trip). A test that needs another value passes it to
+``make_run_settings`` with a trailing ``# not production: <why>`` comment, and
+never overrides the field it is about.
+"""
 from __future__ import annotations
 
 from dataclasses import replace
 
 from t8_daq_system.rig.commands import RunSettings
+from t8_daq_system.settings.run_settings import production_run_settings
 
-# Gains match the values the old PIDController defaults gave these tests.
-_BASE = RunSettings(
-    kp=0.02,
-    ki=0.0013,
-    kd=0.005,
-    windup_limit=30.0,
-    soft_start_threshold_c=-273.0,  # tests of blocks skip Soft start; soft-start tests override
-    soft_start_ramp_v_per_s=0.02,
-    soft_start_handoff_current_a=35.0,
-    soft_start_cap_enabled=True,
-    soft_start_cap_a=40.0,
-    # Block/transition tests ramp the cold sim through >120 A; the cap tests enable it.
-    run_cap_enabled=False,
-    run_cap_a=120.0,
-)
+_BASE = production_run_settings()
 
 
 def make_run_settings(**overrides) -> RunSettings:
-    """Return a RunSettings with test defaults, overriding any named field."""
+    """Return Production settings, overriding any named field."""
     return replace(_BASE, **overrides)
 
 

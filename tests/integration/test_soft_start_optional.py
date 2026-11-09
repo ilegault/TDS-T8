@@ -115,7 +115,7 @@ def test_program_of_only_a_soft_start_block_completes_at_handoff(tmp_path):
 
 def test_soft_start_cap_off_warning_only_when_the_program_has_a_soft_start(tmp_path, caplog):
     caplog.set_level("WARNING", logger="t8_daq_system.control.program_run")
-    rig, rr, logger_, clock, sim = _start(tmp_path, [RAMP], soft_start_cap_enabled=False)
+    rig, rr, logger_, clock, sim = _start(tmp_path, [RAMP], soft_start_cap_enabled=False)  # not production: this test is about the disabled-Soft-start-cap warning
     _stop(rr, logger_)
 
     assert "Soft-start current cap is OFF" not in caplog.text
