@@ -84,11 +84,44 @@ def test_new_soft_start_and_cap_defaults(registry):
     assert s.soft_start_cap_enabled is True
     assert s.soft_start_cap_a == 40.0
     assert s.run_cap_enabled is True
-    assert s.run_cap_a == 120.0
+    assert s.run_cap_a == 175.0
     assert s.heartbeat_interval_s == 30
     assert s.show_console is False
     assert s.diagnostic_log_keep == 30
     assert s.soft_start_threshold_c == 200.0
+
+
+def test_retired_run_cap_in_registry_loads_as_175(registry):
+    registry({"run_cap_a": "120.0"})
+    s = AppSettings().load()
+    assert s.run_cap_a == 175.0
+    assert s.sources["run_cap_a"] == "migrated"
+
+
+def test_custom_run_cap_in_registry_is_kept(registry):
+    assert _DEFAULTS["run_cap_a"][1] == 175.0
+    registry({"run_cap_a": "150.0"})
+    s = AppSettings().load()
+    assert s.run_cap_a == 150.0
+    assert s.sources["run_cap_a"] == "registry"
+
+
+def test_migrated_run_cap_is_written_on_next_save(registry):
+    fake = registry({"run_cap_a": "120.0"})
+    s = AppSettings().load()
+    assert s.run_cap_a == 175.0
+    s.save()
+    assert fake.values["run_cap_a"] == "175.0"
+
+
+def test_check_run_cap_a_bounds():
+    from t8_daq_system.settings.app_settings import check_run_cap_a
+
+    assert check_run_cap_a(175.0) == 175.0
+    assert check_run_cap_a(180.0) == 180.0
+    for bad in (0.0, -5.0, 180.5):
+        with pytest.raises(ValueError, match="180 A"):
+            check_run_cap_a(bad)
 
 
 def test_deleted_keys_are_ignored_on_load_and_never_saved(registry):
@@ -207,3 +240,37 @@ def test_save_logs_one_info_record_per_changed_key(monkeypatch, caplog):
     with caplog.at_level(logging.INFO, logger=app_settings.logger.name):
         s.save()
     assert not [r for r in caplog.records if "changed" in r.getMessage()]
+
+
+def test_safety_tab_holds_both_caps_and_fixed_limits(dialog):
+    from t8_daq_system.settings.safety_limits import fixed_limit_lines
+
+    notebook = MagicMock()
+    dialog._build_safety_tab(notebook)
+    notebook.add.assert_called_once()
+    assert notebook.add.call_args[1].get("text") == "Safety limits"
+    texts = _texts(dialog._ttk)
+    assert "Run current cap (A):" in texts
+    assert "Enforce run current cap" in texts
+    assert "Soft-start current cap (A):" in texts
+    assert "Enforce soft-start current cap" in texts
+    for line in fixed_limit_lines():
+        assert line in texts
+
+
+def test_power_programmer_tab_has_no_cap_editors(dialog):
+    notebook = MagicMock()
+    dialog._build_power_programmer_tab(notebook)
+    texts = _texts(dialog._ttk)
+    assert "Run current cap (A):" not in texts
+    assert "Soft-start current cap (A):" not in texts
+    assert any("Soft start" in t for t in texts)
+
+
+def test_reset_run_cap_handler_restores_default(dialog):
+    notebook = MagicMock()
+    dialog._build_safety_tab(notebook)
+    dialog._run_cap_a_var.set("99")
+    dialog._reset_run_cap_to_default()
+    assert float(dialog._run_cap_a_var.get()) == _DEFAULTS["run_cap_a"][1]
+

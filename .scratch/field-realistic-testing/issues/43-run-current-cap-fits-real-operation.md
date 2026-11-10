@@ -1,6 +1,6 @@
 # 43: Run current cap fits real operation
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -113,32 +113,32 @@ fixture). Must be real: `AppSettings.load()`/`save()`, `evaluate_safety`,
 
 ## Acceptance criteria
 
-- [ ] `test_new_soft_start_and_cap_defaults` in `tests/unit/test_registry_single_source.py`
+- [x] `test_new_soft_start_and_cap_defaults` in `tests/unit/test_registry_single_source.py`
       is rewritten in place: its run-cap line asserts `s.run_cap_a == 175.0`.
-- [ ] `test_retired_run_cap_in_registry_loads_as_175` (same file): `registry({"run_cap_a": "120.0"})`,
+- [x] `test_retired_run_cap_in_registry_loads_as_175` (same file): `registry({"run_cap_a": "120.0"})`,
       then `AppSettings().load()` gives `run_cap_a == 175.0` and
       `sources["run_cap_a"] == "migrated"`.
-- [ ] `test_custom_run_cap_in_registry_is_kept` (same file): `registry({"run_cap_a": "150.0"})`
+- [x] `test_custom_run_cap_in_registry_is_kept` (same file): `registry({"run_cap_a": "150.0"})`
       loads `run_cap_a == 150.0` with source `"registry"`.
-- [ ] `test_migrated_run_cap_is_written_on_next_save` (same file): after loading a stored
+- [x] `test_migrated_run_cap_is_written_on_next_save` (same file): after loading a stored
       `"120.0"` and calling `save()`, the fake registry holds `run_cap_a == "175.0"`.
-- [ ] `test_check_run_cap_a_bounds` (same file): `check_run_cap_a(175.0) == 175.0`,
+- [x] `test_check_run_cap_a_bounds` (same file): `check_run_cap_a(175.0) == 175.0`,
       `check_run_cap_a(180.0) == 180.0`, and `0.0`, `-5.0` and `180.5` each raise
       `ValueError` whose message contains `"180 A"`.
-- [ ] `test_safety_tab_holds_both_caps_and_fixed_limits` (same file, `dialog` fixture):
+- [x] `test_safety_tab_holds_both_caps_and_fixed_limits` (same file, `dialog` fixture):
       `_build_safety_tab(notebook)` with a `MagicMock` notebook calls `notebook.add` with
       `text="Safety limits"`, and the recorded ttk texts include `"Run current cap (A):"`,
       `"Enforce run current cap"`, `"Soft-start current cap (A):"`,
       `"Enforce soft-start current cap"` and every string from `fixed_limit_lines()`.
-- [ ] `test_power_programmer_tab_has_no_cap_editors` (same file): after
+- [x] `test_power_programmer_tab_has_no_cap_editors` (same file): after
       `_build_power_programmer_tab`, neither `"Run current cap (A):"` nor
       `"Soft-start current cap (A):"` is among the recorded texts, and `"Soft start"` is.
-- [ ] `test_reset_run_cap_handler_restores_default` (same file): after building the
+- [x] `test_reset_run_cap_handler_restores_default` (same file): after building the
       Safety tab and setting the cap variable to `"99"`, `_reset_run_cap_to_default()`
       leaves `float(dialog._run_cap_a_var.get()) == _DEFAULTS["run_cap_a"][1]`.
-- [ ] `test_fixed_limit_lines_quote_the_constants` in `tests/unit/test_safety_limits_text.py` (new):
+- [x] `test_fixed_limit_lines_quote_the_constants` in `tests/unit/test_safety_limits_text.py` (new):
       the six lines contain `"2200 °C"`, `"1.0e-04 Torr"`, `"5 s"`, `"180 A"` and `"6 V"`.
-- [ ] `test_only_the_tc_loss_sample_trips_a_current_cap` in `tests/unit/test_limits_vs_field_runs.py` (new):
+- [x] `test_only_the_tc_loss_sample_trips_a_current_cap` in `tests/unit/test_limits_vs_field_runs.py` (new):
       every sample of every run in `all_field_runs()` becomes a Snapshot with
       `program=ProgramStatus(running=True, phase="block", block_type="temp_ramp", control_tc="TC_1")`,
       `tc_c={"TC_1": filament_c}`, `ps_volts`/`ps_amps` from the sample,
@@ -151,7 +151,7 @@ fixture). Must be real: `AppSettings.load()`/`save()`, `evaluate_safety`,
       lists every tripping run, `t_s` and amps. The docstring states why that one
       sample must trip (the TC-loss runaway, developer-confirmed 2026-11-10) and that
       this test is the guard against a cap that stops a normal run hours in.
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
 ## Gate
 
@@ -170,5 +170,12 @@ hard-coded `max_temperature: 2300` in `gui/main_window.py`; `AGENTS.md`, `CONTEX
 
 ## Comments
 
-2026-11-10 (planner): re-planned in place. Decision recorded above. Decoupled from 42;
-the cap is checked against the real recorded Field runs instead of the simulator.
+2026-11-10: Complete.
+- Raised Run current cap default to 175.0 A (`_DEFAULTS["run_cap_a"] = ("float", 175.0)` and `AppSettings.__init__`).
+- Implemented migration in `AppSettings.load()`: converts stored `120.0` A to `175.0` A with `sources["run_cap_a"] = "migrated"` and logs at INFO.
+- Added pure function `check_run_cap_a(value: float) -> float` bounded by `(0, 180]`.
+- Added `fixed_limit_lines() -> list[str]` in `safety_limits.py` quoting canonical constants.
+- Added "Safety limits" tab in `SettingsDialog` holding Run cap, Soft-start cap, and fixed limits, with reset button. Removed duplicate cap editors from Power Programmer tab.
+- Integrated `check_run_cap_a` into `SettingsDialog._save_settings_from_gui`.
+- Updated `README.md` to reference the Soft-start current cap.
+- Unit and contract tests: `tests/unit/test_safety_limits_text.py`, `tests/unit/test_limits_vs_field_runs.py`, and updated `tests/unit/test_registry_single_source.py`. All 636 tests pass.

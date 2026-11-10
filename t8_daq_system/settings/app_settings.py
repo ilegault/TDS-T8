@@ -17,6 +17,11 @@ soft_start_current_limit_a, pid_output_max, and the qms_auto_click_* keys remove
 with pyautogui) may linger in an old registry; they are never read and never
 written back.
 
+When a default changes, a machine that previously pressed Save would hold the
+old default in its registry forever. To prevent nuisance trips in real runs,
+load() migrates stored run_cap_a = 120.0 (the retired default) to 175.0 and marks
+its source as "migrated", while preserving any user-customized cap (ticket 43).
+
 save() logs one INFO line per key whose value differs from what was last loaded
 or saved (old and new value), so the Diagnostic log shows what an operator
 changed in Settings (ADR 0008).
@@ -26,11 +31,15 @@ import copy
 import logging
 import winreg
 
+from t8_daq_system.settings.safety_limits import PS_CURRENT_CEILING_A
+
 logger = logging.getLogger(__name__)
 
 # Registry key path under HKCU
 
 _REG_KEY = r"Software\T8_DAQ_System"
+
+_RETIRED_RUN_CAP_A = 120.0  # Run current cap default until 2026-11-10 (ticket 43)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Defaults (used on first launch / missing keys)
@@ -113,7 +122,7 @@ _DEFAULTS = {
     "soft_start_cap_enabled":    ("bool",  True),
     "soft_start_cap_a":          ("float", 40.0),    # A — Soft-start current cap
     "run_cap_enabled":           ("bool",  True),
-    "run_cap_a":                 ("float", 120.0),   # A — Run current cap
+    "run_cap_a":                 ("float", 175.0),   # A — Run current cap
     "pid_kp":               ("float", 0.014),
     "pid_ki":               ("float", 0.00078),
     "pid_kd":               ("float", 0.00845),
@@ -218,7 +227,7 @@ class AppSettings:
         self.soft_start_cap_enabled: bool = True
         self.soft_start_cap_a: float = 40.0
         self.run_cap_enabled: bool = True
-        self.run_cap_a: float = 120.0
+        self.run_cap_a: float = 175.0
         self.pid_kp: float = 0.014
         self.pid_ki: float = 0.00078
         self.pid_kd: float = 0.00845
@@ -274,6 +283,16 @@ class AppSettings:
         # Migrate unsupported temperature unit: F is no longer selectable
         if getattr(self, 'tc_unit', 'C') == 'F':
             self.tc_unit = 'C'
+
+        # Migrate retired run current cap default (ticket 43)
+        if self.sources.get("run_cap_a") == "registry" and self.run_cap_a == _RETIRED_RUN_CAP_A:
+            logger.info(
+                "Setting run_cap_a migrated: stored %.1f A is the retired default; using %.1f A",
+                self.run_cap_a,
+                _DEFAULTS["run_cap_a"][1],
+            )
+            self.run_cap_a = _DEFAULTS["run_cap_a"][1]
+            self.sources["run_cap_a"] = "migrated"
 
         self._persisted = {f: copy.deepcopy(getattr(self, f, d)) for f, (_k, d) in _DEFAULTS.items()}
         return self
@@ -440,4 +459,14 @@ def _write_value(key, name: str, value, kind: str) -> None:
     except (OSError, TypeError) as e:
         # Failed to persist individual registry value; logged and skipped
         logger.warning("Failed to write registry value %s=%r (%s)", name, value, e)
+
+
+def check_run_cap_a(value: float) -> float:
+    """Validate run current cap in amperes."""
+    if 0.0 < value <= PS_CURRENT_CEILING_A:
+        return value
+    raise ValueError(
+        f"Run current cap must be above 0 A and at most {PS_CURRENT_CEILING_A:.0f} A (the supply ceiling)."
+    )
+
 
