@@ -37,3 +37,11 @@ and raise Kd. `logs/pid_runs.json` in the dev tree holds only pytest records bec
    ignores error crossings inside a ±2 K noise band. Only live runs (not Simulated rig)
    feed it. Each Run history record carries build ID, run ID and adapter. Tests inject
    the history path; nothing under test writes the real file.
+
+## Amendment — 2026-11-10: retired defaults migrate
+
+A stored value exactly equal to a retired default loads as the current default,
+with source `migrated` in `AppSettings.sources` and the startup dump, and is
+written on the next Save. The only case so far is `run_cap_a` 120 → 175
+(`_RETIRED_RUN_CAP_A`); any other stored value still wins (Decision 1).
+

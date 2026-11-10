@@ -106,7 +106,7 @@ intended shape, not the current code.
 - **Soft-start current cap** — measured current above which a trip fires during Soft
   start. Default 40 A, editable, toggleable. ADR 0006.
 - **Run current cap** — measured current above which a trip fires after handoff, or
-  from the first tick of a program with no Soft start. Default 120 A, editable,
+  from the first tick of a program with no Soft start. Default 175 A, editable on the Settings → Safety limits tab (above 0 A, at most 180 A),
   toggleable. ADR 0006.
 - **Latch** — after a trip, Operator and Program requests are ignored until the
   operator explicitly *resets*. A reset is refused while the tripping condition is

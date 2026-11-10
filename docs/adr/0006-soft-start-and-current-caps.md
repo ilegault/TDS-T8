@@ -92,3 +92,13 @@ those tests impossible: it always ramps the voltage gently up to the threshold f
 **Consequences.** A cold run with no Soft-start block can draw a large inrush current
 (the Simulated rig draws > 40 A at 0.29 V cold). That is intended for transient tests.
 For a normal TDS run the operator adds the block. Bench ticket 36 must add the block.
+
+## Amendment — 2026-11-10: Run current cap default is 175 A
+
+The default is 175 A, editable on the Settings → Safety limits tab, valid above
+0 A and at most 180 A.
+
+Why: across the five Field runs, including two 33 h TDS runs, normal operation peaks
+at 143–151 A, and 175 A still trips the TC-loss runaway at the end of the 2026-03-28 run
+(179.9 A at 5.97 V); `tests/unit/test_limits_vs_field_runs.py` guards it.
+
