@@ -1,6 +1,6 @@
 # 39: Tests run with production settings
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -44,17 +44,17 @@ Tests may fake: everything they faked before. Must be real: `production_run_sett
 
 ## Acceptance criteria
 
-- [ ] test_make_run_settings_is_production in `tests/unit/test_run_settings_helper.py`: `make_run_settings() == production_run_settings()`. (no test: it checks test-helper code under `tests/`, which the integrity gate does not swap back to the base version, so check 9 cannot see it fail; the developer reviews the held PR)
-- [ ] Same file, test_non_production_overrides_are_marked: scans every `tests/**/*.py` file except itself for the text
+- [x] test_make_run_settings_is_production in `tests/unit/test_run_settings_helper.py`: `make_run_settings() == production_run_settings()`. (no test: it checks test-helper code under `tests/`, which the integrity gate does not swap back to the base version, so check 9 cannot see it fail; the developer reviews the held PR)
+- [x] Same file, test_non_production_overrides_are_marked: scans every `tests/**/*.py` file except itself for the text
       `run_cap_enabled=False`, `soft_start_cap_enabled=False` and
       `soft_start_threshold_c=-273` and asserts each matching line also contains
       `# not production:`. The test lists the offending `file:line` values in its
       assertion message. (no test: it checks test-helper code under `tests/`, which the integrity gate does not swap back to the base version, so check 9 cannot see it fail; the developer reviews the held PR)
-- [ ] Same file, test_helper_holds_no_gain_literals: asserts `tests/run_settings_helper.py` contains no float
+- [x] Same file, test_helper_holds_no_gain_literals: asserts `tests/run_settings_helper.py` contains no float
       literal for a gain (no `kp=`, `ki=`, `kd=`, `windup_limit=` text), so the gains
       cannot drift from `_DEFAULTS` again. (no test: it checks test-helper code under `tests/`, which the integrity gate does not swap back to the base version, so check 9 cannot see it fail; the developer reviews the held PR)
-- [ ] The PR description carries the decision table above, one row per test touched. (by hand)
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
+- [x] The PR description carries the decision table above, one row per test touched. (by hand)
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
 ## Gate
 
@@ -77,3 +77,9 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
   0.5 V from the held voltage). Windup is not what those tests are about, so passing
   the old `windup_limit` there with `# not production:` is allowed; list it in the PR
   table so the developer can judge it.
+
+- 2026-11-09 (landed): `tests/run_settings_helper.py` `_BASE` is now `production_run_settings()`;
+  criteria 1–3 are the three tests in `tests/unit/test_run_settings_helper.py`. Failing tests
+  were resolved per the ticket's rule; the decision table is in the PR description.
+  Every other test that sets a toggle off carries `# not production:`. Full gate green
+  (ruff, check_tests_first, 627 passed). Nothing needs bench verification.

@@ -62,7 +62,10 @@ def test_soft_start_overcurrent_trips_in_the_same_snapshot(tmp_path):
 
 def test_run_overcurrent_trips_after_handoff(tmp_path):
     rig, rr, logger_, clock, sim = _start(
-        tmp_path, soft_start_threshold_c=-273.0, run_cap_enabled=True, run_cap_a=120.0
+        tmp_path,
+        soft_start_threshold_c=-273.0,  # not production: skips Soft start so the Run cap is reached on the first tick
+        run_cap_enabled=True,
+        run_cap_a=120.0,
     )
     assert rig.latest().program.phase == "block"
     sim.force_current(125.0)
@@ -83,7 +86,7 @@ def test_disabled_soft_start_cap_does_not_trip(tmp_path):
     rig, rr, logger_, clock, sim = _start(
         tmp_path,
         soft_start_threshold_c=200.0,
-        soft_start_cap_enabled=False,
+        soft_start_cap_enabled=False,  # not production: tests the disabled soft_start_cap_enabled
         soft_start_cap_a=40.0,
         soft_start_handoff_current_a=100.0,
     )
@@ -99,8 +102,8 @@ def test_disabled_soft_start_cap_does_not_trip(tmp_path):
 def test_disabled_run_cap_does_not_trip(tmp_path):
     rig, rr, logger_, clock, sim = _start(
         tmp_path,
-        soft_start_threshold_c=-273.0,
-        run_cap_enabled=False,
+        soft_start_threshold_c=-273.0,  # not production: skips Soft start so only the Run cap is in play
+        run_cap_enabled=False,  # not production: tests the disabled run_cap_enabled
         run_cap_a=120.0,
     )
     sim.force_current(125.0)

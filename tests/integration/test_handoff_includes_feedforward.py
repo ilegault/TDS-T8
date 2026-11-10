@@ -44,7 +44,10 @@ def _run(blocks, ff_volts: float, ticks: int = 40):
     fix.clock.advance(0.5)
     fix.rig.run_tick()
     fix.rig.submit(LoadProgram(blocks))
-    fix.rig.submit(StartProgram(settings=make_run_settings()))
+    fix.rig.submit(StartProgram(settings=make_run_settings(
+        run_cap_enabled=False,  # not production: cold sim ramps through >120 A; run cap is not what this test is about
+        windup_limit=30.0,  # not production: flat Feedforward sits 0.5 V from the held voltage, beyond the 0.4 windup limit
+    )))
     seen = []
     for _ in range(ticks):
         fix.clock.advance(0.5)

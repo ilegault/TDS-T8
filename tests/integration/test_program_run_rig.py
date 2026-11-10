@@ -395,7 +395,7 @@ def test_nudge_with_output_disabled_leaves_output_disabled():
 # ---------------------------------------------------------------------------
 
 
-def _run_program_run(blocks, snap_fn, n_ticks=20):
+def _run_program_run(blocks, snap_fn, n_ticks=20, **settings_overrides):
     """
     Drive ProgramRun directly with synthetic snapshots.
 
@@ -405,7 +405,7 @@ def _run_program_run(blocks, snap_fn, n_ticks=20):
     pr = make_program_run()
     pr.load(blocks)
     snap0 = snap_fn(0)
-    pr.start(snap0, 0.0, make_run_settings(), commanded_volts=0.0)
+    pr.start(snap0, 0.0, make_run_settings(**settings_overrides), commanded_volts=0.0)
     voltages = []
     for i in range(n_ticks):
         now = (i + 1) * 0.5
@@ -444,18 +444,19 @@ def test_program_run_temp_ramp_matches_characterisation():
     for TempRampBlock(60 K/min, 303 K, constant 300 K feedback), except that
     300 K (26.85 degC) is below the Feedforward map's lowest point, so ADR 0006
     point 6 makes Feedforward 0 V instead of 0.29 V:
-    [0.010325, 0.020975, 0.031950, 0.043250, 0.054875].
+    [0.007195, 0.014585, 0.022170, 0.029950, 0.037925] with the
+    Production gains (Kp 0.014, Ki 0.00078, Kd 0.00845; ticket 39).
     """
     block = TempRampBlock(rate_k_per_min=60.0, end_temp_k=303.0, tc_name="TC_1")
     snap = make_snapshot(tc_c={"TC_1": 26.85})
     voltages = _run_program_run([block], lambda _: snap, n_ticks=10)
 
     expected = [
-        0.010325000,
-        0.020975000,
-        0.031950000,
-        0.043250000,
-        0.054875000,
+        0.007195000,
+        0.014585000,
+        0.022170000,
+        0.029950000,
+        0.037925000,
     ]
     assert len(voltages) == len(expected), f"Expected {len(expected)} ticks, got {len(voltages)}: {voltages}"
     for actual, exp in zip(voltages, expected):
@@ -466,7 +467,8 @@ def test_program_run_stable_hold_matches_characterisation():
     """
     ProgramRun produces the same per-tick voltage sequence as ProgramExecutor
     for StableHoldBlock(320 K, tol 1 K, hold 1 s) with scripted temperature:
-    [0.041300, 0.016950, 0.008942].
+    [0.028780, 0.006720, 0.002732] with the Production gains
+    (ticket 39; the sequence was 0.041300, 0.016950, 0.008942 under the old test gains).
     """
     # The characterisation test consumes 3 readings before the first while-loop tick
     # (run_loop setup ×2, execute_block start_temp ×1). Those see [317,317,317].
@@ -484,9 +486,9 @@ def test_program_run_stable_hold_matches_characterisation():
     voltages = _run_program_run([block], snap_fn, n_ticks=12)
 
     expected = [
-        0.041300000000,
-        0.016950000000,
-        0.008941666667,
+        0.028780000000,
+        0.006720000000,
+        0.002731666667,
     ]
     assert len(voltages) == len(expected), f"Expected {len(expected)} ticks, got {len(voltages)}: {voltages}"
     for actual, exp in zip(voltages, expected):
@@ -502,7 +504,10 @@ def test_program_run_two_block_boundary_matches_characterisation():
     b0 = VoltageRampBlock(start_voltage=0.0, end_voltage=1.0, duration_sec=1.0)
     b1 = TempRampBlock(rate_k_per_min=-60.0, end_temp_k=300.0, tc_name="TC_1")
     snap = make_snapshot(tc_c={"TC_1": 26.85})
-    voltages = _run_program_run([b0, b1], lambda _: snap, n_ticks=15)
+    voltages = _run_program_run(
+        [b0, b1], lambda _: snap, n_ticks=15,
+        windup_limit=30.0,  # not production: flat Feedforward sits 1.0 V from the held voltage, beyond the 0.4 windup limit
+    )
 
     expected = [
         0.500000000,
