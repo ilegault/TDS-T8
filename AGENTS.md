@@ -365,9 +365,27 @@ the `tests-exempt` PR label.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-11-09 17:31. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-10 05:58. Implement this. If something in it is wrong, say so before changing course._
 
-## Active implementation plan — Field-realistic testing, plus the engine handover
+# Active work: tests-first gate fix (50, waiting on ticket-engine 87), plus the work below
+
+This is a pointer, not the work.
+
+## Tests-first gate fix (new)
+
+- **Spec:** `.scratch/tests-first-gate-holes/spec.md` in `ilegault/ticket-engine`.
+- **Binding:** `docs/adr/0001-tests-first-and-no-muted-failures.md`. Glossary: no change.
+- **Ticket:** `.scratch/tests-first-gate-holes/issues/50-take-the-fixed-tests-first-check-and-rerun-on-pr-edits.md`.
+  `ready-for-developer` until ticket 87 in `ilegault/ticket-engine` is merged; the
+  developer then sets it to `ready-for-agent`. Held (`Auto-merge: no`), a leaf, blocks
+  nothing, touches no application code or tests.
+- **Next:** nothing new is claimable yet; carry on with the sets below.
+
+Requirements an implementer might treat as preferences: `scripts/check_tests_first.py`
+is the canonical file byte for byte and is never edited here, not even for lint; `source_paths = ["t8_daq_system"]` in `.ticket-engine.toml` stays.
+If it cannot land as is, the ticket is escalated (`Status: blocked`).
+
+---
 
 This is a pointer, not the work. Tickets are assigned by ticket-engine (hourly dispatch
 and the box). Never run a second orchestrator on this repo.
@@ -380,7 +398,7 @@ and the box). Never run a second orchestrator on this repo.
   `0005`, `0006`, `0007`, `0008`, plus `0003` (trips). Engine protocol:
   `src/ticket_engine/resources/ticket_skill.md` in `ilegault/ticket-engine` (`v1`).
 - **Tracker conventions:** `docs/agents/issue-tracker.md`. Ticket numbers are unique
-  across the whole repo; the next new ticket is **50**.
+  across the whole repo; the next new ticket is **51**.
 
 **Next:** 39 (re-planned 2026-11-09 so the Integrity Gate holds it instead of failing it)
 and 49 have no blockers. After 39: 42, then 44. 43, 47 and 48 are the developer's.
