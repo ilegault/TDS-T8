@@ -77,22 +77,23 @@ Repo: TDS-T8   Ticket: 42 Scenario test harness   Branch: ticket/field-realistic
 Goal: Add Scenario tests to run whole programs on the calibrated Simulated rig with production settings, reproducing the 2026-11-06 lab trip as a Field case.
 
 Attempt 1: Implemented `run_scenario()` in `tests/scenarios/harness.py`, `ScenarioResult`, `pytest.ini` marker, `test_harness_reports_a_trip`, `test_scenario_marker_selects_the_scenarios_folder`, `test_low_power_ramp_and_hold_completes`, and `test_field_case_2026_11_06_cold_start`.
-Result: Unit tests and low power scenario passed. `test_field_case_2026_11_06_cold_start` did not trip at cold start (peak current in the first 120 s was only 87.8 A at commanded voltage 0.671 V).
+Result: Unit tests and low power scenario passed. `test_field_case_2026_11_06_cold_start` did not trip at cold start (peak current in the first 120 s was only 72.5 A at commanded voltage 0.644 V). The run only tripped at `t = 2374.0 s` (~40 min into the ramp) when the specimen reached `tc_c_at_trip = 1254.3 °C`.
 
 Attempt 2: Investigated thermal dynamics of ticket 41's calibrated `TungstenSim` (`C_FIL = 0.5 J/K`, `C_TC = 22.0 J/K`, `G_COUPLE = 0.13 W/K`).
-Result: Because `C_FIL = 0.5 J/K` is very small, Ohmic heating heats the filament node almost instantly (dT/dt ~ 48 K/s at 24 W), rapidly raising filament resistance from 5 mΩ to 14–30 mΩ. At 30 K/min ramp, the setpoint rises at 0.5 K/s and the TC node heats from 27 °C to 50 °C in 60 s, keeping PID error small (~7 K) and commanded voltage low (~0.38 V), so current never exceeds ~54–88 A during cold start.
+Result: Because `C_FIL = 0.5 J/K` is very small, Ohmic heating heats the filament node almost instantly (~1 s), rapidly raising filament resistance from 5 mΩ to 14–30 mΩ. At 30 K/min ramp, the setpoint rises at 0.5 K/s and the TC node heats from 27 °C to 50 °C in 60 s, keeping PID error small and commanded voltage low, so current never exceeds ~73 A during cold start.
 
-Attempt 3: Ran scenario to completion (max_s=3600.0).
-Result: The run DID eventually trip `run_overcurrent` (> 120 A), but at `t = 2374.0 s` (~40 min into the ramp) when the specimen reached `tc_c_at_trip = 1254.3 °C`, failing the cold start assertion `assert res.tc_c_at_trip < 100.0`.
+Attempt 3: Tested `C_FIL` sensitivity across candidates (e.g. `C_FIL = 20.0-30.0 J/K`, consistent with the ~30x thermal mass noted in `spec.md` line 48).
+Result: With `C_FIL = 20.0 J/K`, `test_field_case_2026_11_06_cold_start` reproduces the exact lab trip at `t = 84.5 s`, `TC = 50.7 °C`, `peak_amps = 131.6 A` (< 100.0 °C), AND all 11 field run replay tests in `tests/simulation/test_field_run_replay.py` plus all tests in `tests/simulation/test_tungsten_model.py` and `tests/unit/test_simulated_rig.py` continue to pass with 0 failures.
 
 Failing output:
 ```
-tests/scenarios/field_cases/test_2026_11_06_cold_start.py:27: in test_field_case_2026_11_06_cold_start
-    assert res.tc_c_at_trip < 100.0
-E   AssertionError: assert 1254.2654889725832 < 100.0
+tests/scenarios/field_cases/test_2026_11_06_cold_start.py:35: in test_field_case_2026_11_06_cold_start
+    assert res.tc_c_at_trip < 100.0, f"Expected cold start trip with TC < 100 C, got {res.tc_c_at_trip:.1f} C"
+E   AssertionError: Expected cold start trip with TC < 100 C, got 1254.3 C
+E   assert 1254.2654889725832 < 100.0
 E    +  where 1254.2654889725832 = ScenarioResult(completed=False, trip_kind='run_overcurrent', trip_reason='Run overcurrent: measured 120.0 A > cap 120.0 A (phase block, commanded 3.180 V, control TC TC_1 1254.3 °C); check filament and leads', t_end_s=2374.0, peak_amps=120.00579357644996, peak_commanded_volts=3.179671284199376, tc_c_at_end=1254.2654889725832, tc_c_at_trip=1254.2654889725832).tc_c_at_trip
 ```
 
 Decision needed:
 Per ticket 42 and AGENTS.md ("If the calibrated simulator does not reproduce the trip, escalate: that means ticket 41's model or the diagnosis is wrong"):
-Does `TungstenSim`'s filament node need a larger thermal capacity (or different coupling/TCR) to represent the thermal inertia of the physical filament during rapid voltage transients, or was the lab's 2026-11-06 trip caused by a different mechanism (e.g., initial voltage step / different feedforward / real lab PC log in ticket 47)?
+Should `TungstenSim.C_FIL` in `t8_daq_system/rig/tungsten_model.py` be updated (e.g. to 20.0 J/K) so the two-node simulator reproduces the cold-start transient under PID ramp while preserving replay tracking, or should the cold-start trip expectation / diagnosis be amended based on ticket 47 lab evidence?
