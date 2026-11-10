@@ -1,6 +1,6 @@
 # 43: Run current cap fits real operation
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
