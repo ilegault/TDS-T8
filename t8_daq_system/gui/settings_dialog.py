@@ -4,6 +4,7 @@ PURPOSE: Settings dialog window for configuring persistent application settings.
 
 Opened via the Settings button in the main control panel.  Features a tabbed
 interface with sensor configuration, hardware settings, and axis scales.
+The Safety limits tab holds every limit that can stop a run.
 All fields map directly to AppSettings attributes.
 """
 
@@ -11,7 +12,8 @@ import logging
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 
-from t8_daq_system.settings.app_settings import _DEFAULTS
+from t8_daq_system.settings.app_settings import _DEFAULTS, check_run_cap_a
+from t8_daq_system.settings.safety_limits import PS_CURRENT_CEILING_A, fixed_limit_lines
 
 # Mirrors data/timelapse_video.VIDEO_FORMATS; that module imports cv2, which the dialog must not need.
 VIDEO_FORMAT_CHOICES = ("mp4", "avi")
@@ -73,6 +75,7 @@ class SettingsDialog(tk.Toplevel):
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
+        self._build_safety_tab(notebook)
         self._build_sensor_tab(notebook)
         self._build_hardware_tab(notebook)
         self._build_scales_tab(notebook)
@@ -81,6 +84,44 @@ class SettingsDialog(tk.Toplevel):
         self._build_camera_tab(notebook)
 
         self._build_button_frame()
+
+    def _build_safety_tab(self, notebook):
+        """Tab for safety limits and current caps."""
+        tab = ttk.Frame(notebook, padding=10)
+        notebook.add(tab, text="Safety limits")
+
+        # Run current cap
+        run_frame = ttk.LabelFrame(tab, text="Run current cap — trips and cuts the heater", padding=10)
+        run_frame.pack(fill=tk.X, pady=5)
+        self._create_entry_row(run_frame, "Run current cap (A):", "run_cap_a", width=12, row=0)
+        self._create_bool_row(run_frame, "Enforce run current cap", "run_cap_enabled", row=1)
+        btn = ttk.Button(run_frame, text="Reset cap to default", command=self._reset_run_cap_to_default)
+        btn.grid(row=2, column=0, columnspan=2, sticky='w', padx=5, pady=(5, 0))
+        lbl_text = (
+            f"Default {_DEFAULTS['run_cap_a'][1]:.0f} A. Normal runs peak at 143–151 A; "
+            f"the supply cannot exceed {PS_CURRENT_CEILING_A:.0f} A. Active from the first tick "
+            "of a program, or from Handoff after a Soft start block, to program end."
+        )
+        ttk.Label(run_frame, text=lbl_text, wraplength=420).grid(
+            row=3, column=0, columnspan=2, sticky='w', padx=5, pady=(5, 0)
+        )
+
+        # Soft-start current cap
+        ss_frame = ttk.LabelFrame(tab, text="Soft-start current cap — only during a Soft start block", padding=10)
+        ss_frame.pack(fill=tk.X, pady=5)
+        self._create_entry_row(ss_frame, "Soft-start current cap (A):", "soft_start_cap_a", width=12, row=0)
+        self._create_bool_row(ss_frame, "Enforce soft-start current cap", "soft_start_cap_enabled", row=1)
+
+        # Fixed limits
+        fixed_frame = ttk.LabelFrame(tab, text="Fixed limits (set in code, not editable)", padding=10)
+        fixed_frame.pack(fill=tk.X, pady=5)
+        for line in fixed_limit_lines():
+            ttk.Label(fixed_frame, text=line).pack(anchor="w")
+
+    def _reset_run_cap_to_default(self):
+        """Put the _DEFAULTS run cap in the fields; the operator still presses Save."""
+        self._run_cap_a_var.set(str(_DEFAULTS["run_cap_a"][1]))
+        self._run_cap_enabled_var.set(_DEFAULTS["run_cap_enabled"][1])
 
     def _build_power_programmer_tab(self, notebook):
         """Tab for Power Programmer settings."""
@@ -131,17 +172,13 @@ class SettingsDialog(tk.Toplevel):
                    command=self._reset_pid_to_defaults).grid(
             row=4, column=0, columnspan=2, sticky='w', padx=5, pady=(5, 0))
 
-        # Soft start & current caps (ADR 0006 / 0007)
-        cap_frame = ttk.LabelFrame(tab, text="Soft start & current caps", padding=10)
+        # Soft start (ADR 0006 / 0007)
+        cap_frame = ttk.LabelFrame(tab, text="Soft start", padding=10)
         cap_frame.pack(fill=tk.X, pady=5)
 
         self._create_entry_row(cap_frame, "Soft-start threshold (°C):", "soft_start_threshold_c", width=12, row=0)
         self._create_entry_row(cap_frame, "Soft-start ramp (V/s):", "soft_start_ramp_v_per_s", width=12, row=1)
         self._create_entry_row(cap_frame, "Handoff current (A):", "soft_start_handoff_current_a", width=12, row=2)
-        self._create_entry_row(cap_frame, "Soft-start current cap (A):", "soft_start_cap_a", width=12, row=3)
-        self._create_bool_row(cap_frame, "Enforce soft-start current cap", "soft_start_cap_enabled", row=4)
-        self._create_entry_row(cap_frame, "Run current cap (A):", "run_cap_a", width=12, row=5)
-        self._create_bool_row(cap_frame, "Enforce run current cap", "run_cap_enabled", row=6)
 
     def _apply_gain_prefill(self, gains):
         """Put suggested (kp, ki, kd) in the gain fields; the operator still presses Save."""
@@ -1050,7 +1087,7 @@ class SettingsDialog(tk.Toplevel):
             s.soft_start_handoff_current_a = float(self._soft_start_handoff_current_a_var.get())
             s.soft_start_cap_a = float(self._soft_start_cap_a_var.get())
             s.soft_start_cap_enabled = self._soft_start_cap_enabled_var.get()
-            s.run_cap_a = float(self._run_cap_a_var.get())
+            s.run_cap_a = check_run_cap_a(float(self._run_cap_a_var.get()))
             s.run_cap_enabled = self._run_cap_enabled_var.get()
             # Camera
             s.camera_index = int(self._camera_index_var.get())

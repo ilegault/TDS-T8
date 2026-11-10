@@ -35,3 +35,16 @@ PS_CURRENT_CEILING_A: float = 180.0
 
 # Interval between hardware reconnection attempts in seconds
 RECONNECT_INTERVAL_S: float = 30.0
+
+
+def fixed_limit_lines() -> list[str]:
+    """Return descriptive strings for all fixed system safety limits."""
+    return [
+        f"Temperature override: any thermocouple at or above {TEMP_OVERRIDE_C:.0f} °C trips",
+        f"Pressure interlock: any gauge above {PRESSURE_INTERLOCK_TORR:.1e} Torr trips",
+        f"Pressure gauge silent for more than {STALE_ALLOWANCE_S:.0f} s trips",
+        f"Control thermocouple silent for more than {STALE_ALLOWANCE_S:.0f} s during a closed-loop block trips",
+        f"Supply current ceiling: {PS_CURRENT_CEILING_A:.0f} A (hardware limit, not a trip)",
+        f"Output voltage ceiling: {DAC0_MAX_V:.0f} V (clamp, not a trip)",
+    ]
+

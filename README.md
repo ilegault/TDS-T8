@@ -148,7 +148,7 @@ Blocks are validated against the 6 V / 180 A hardware limits before execution. P
 Before any PID-controlled block runs, `ProgramExecutor` executes a **soft-start phase** to protect cold tungsten from overcurrent:
 
 - Ramps `DAC0` at 0.010 V/tick until the specimen reaches ~150 °C
-- Pauses voltage increases if current exceeds 120 A
+- Trips if current exceeds the Soft-start current cap (Settings → Safety limits)
 - Aborts soft-start if heating rate exceeds 3 K/min
 - Then hands control to `PIDController` (max 0.050 V slew per tick)
 
