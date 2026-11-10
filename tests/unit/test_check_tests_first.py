@@ -27,6 +27,9 @@ from scripts.check_tests_first import (
 )
 
 
+_SRC = ("t8_daq_system/",)
+
+
 def test_normalize_path():
     assert normalize_path("t8_daq_system\\gui\\app.py") == "t8_daq_system/gui/app.py"
     assert normalize_path("./tests/test_app.py") == "tests/test_app.py"
@@ -42,7 +45,7 @@ def test_categorize_files():
         "scripts/check_layers.py",
         ".github/workflows/tests.yml",
     ]
-    srcs, tests, others = categorize_files(files)
+    srcs, tests, others = categorize_files(files, source_paths=_SRC)
     assert srcs == ["t8_daq_system/config/theme.py", "t8_daq_system/state/beamline.py"]
     assert tests == ["tests/test_theme.py"]
     assert len(others) == 3
@@ -55,14 +58,14 @@ def test_no_src_changes_passes():
         ".github/workflows/tests.yml",
         "pyproject.toml",
     ]
-    passed, msg = evaluate_tests_first(files)
+    passed, msg = evaluate_tests_first(files, source_paths=_SRC)
     assert passed is True
     assert "No application source files ('t8_daq_system/') modified" in msg
 
 
 def test_test_only_changes_passes():
     files = ["tests/test_raster_model.py", "tests/conftest.py"]
-    passed, msg = evaluate_tests_first(files)
+    passed, msg = evaluate_tests_first(files, source_paths=_SRC)
     assert passed is True
     assert "No application source files ('t8_daq_system/') modified" in msg
 
@@ -72,7 +75,7 @@ def test_src_and_test_changes_passes():
         "t8_daq_system/hardware/raster_model.py",
         "tests/test_raster_model.py",
     ]
-    passed, msg = evaluate_tests_first(files)
+    passed, msg = evaluate_tests_first(files, source_paths=_SRC)
     assert passed is True
     assert "Application source changes (1 file(s)) accompanied by test changes (1 file(s))" in msg
 
@@ -82,7 +85,7 @@ def test_src_changes_without_test_fails():
         "t8_daq_system/hardware/raster_model.py",
         "docs/spec.md",
     ]
-    passed, msg = evaluate_tests_first(files)
+    passed, msg = evaluate_tests_first(files, source_paths=_SRC)
     assert passed is False
     assert (
         "FAIL: Application source files modified under 't8_daq_system/' without corresponding test changes "
@@ -94,7 +97,7 @@ def test_src_changes_without_test_fails():
 def test_escape_via_explicit_reason():
     files = ["t8_daq_system/gui/widgets/inputs.py"]
     reasons = ["Explicit exemption: Refactoring UI layout styling without behavioural change"]
-    passed, msg = evaluate_tests_first(files, escape_reasons=reasons)
+    passed, msg = evaluate_tests_first(files, escape_reasons=reasons, source_paths=_SRC)
     assert passed is True
     assert "OK (EXEMPT)" in msg
     assert "Refactoring UI layout styling" in msg
