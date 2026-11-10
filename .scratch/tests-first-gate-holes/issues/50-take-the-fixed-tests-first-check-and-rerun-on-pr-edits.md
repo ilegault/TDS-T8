@@ -1,6 +1,6 @@
 # 50: Take ticket-engine's fixed tests-first check, and re-run CI on PR edits and labels
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -50,18 +50,18 @@ The canonical file's own tests live in ticket-engine. Here, prove the copy and t
 wiring with the commands below on the PR branch; paste their output under
 `## Comments`.
 
-- [ ] `scripts/check_tests_first.py` is byte-identical to the canonical file: the
+- [x] `scripts/check_tests_first.py` is byte-identical to the canonical file: the
   SHA-256 of the local file equals the SHA-256 of a fresh download of the URL in step 1
   (`python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" <file>`
   on each). (no test: the two hashes, pasted under Comments)
-- [ ] `python scripts/check_tests_first.py --files t8_daq_system/main.py` exits 1 and its output
+- [x] `python scripts/check_tests_first.py --files t8_daq_system/main.py` exits 1 and its output
   names `t8_daq_system/main.py`; adding `tests/test_x.py` to `--files` exits 0. (no test: the command output, pasted under Comments)
-- [ ] `.ticket-engine.toml` still has `source_paths = ["t8_daq_system"]` (the canonical file reads it; without it the check would look for `src/`). (no test: config line, checked by reading it)
-- [ ] `.github/workflows/tests.yml` has the step-2 `types:` line under `pull_request:`,
+- [x] `.ticket-engine.toml` still has `source_paths = ["t8_daq_system"]` (the canonical file reads it; without it the check would look for `src/`). (no test: config line, checked by reading it)
+- [x] `.github/workflows/tests.yml` has the step-2 `types:` line under `pull_request:`,
   and its `branches:` line is unchanged. (no test: workflow file)
-- [ ] ADR 0001 and `AGENTS.md` carry the step-3 text in place of the passages named in
+- [x] ADR 0001 and `AGENTS.md` carry the step-3 text in place of the passages named in
   steps 3 and 4. (no test: documentation)
-- [ ] The gate below passes on the PR branch (this PR changes `scripts/`, `.github/`,
+- [x] The gate below passes on the PR branch (this PR changes `scripts/`, `.github/`,
   `docs/` and `AGENTS.md` only, so the tests-first check passes with no tag). (no test: the gate itself)
 
 ## Gate
@@ -75,3 +75,47 @@ pytest --tb=short -q
 ```
 
 ## Comments
+
+### Verification Summary — 2026-11-10
+
+1. **Criterion 1 (SHA-256 hash comparison):**
+   - Local `scripts/check_tests_first.py`: `ab072943baad008881a06373b4d8b632dc05c7efee2513adc0773b850b18e2c8`
+   - Canonical fresh download: `ab072943baad008881a06373b4d8b632dc05c7efee2513adc0773b850b18e2c8`
+   - Both match byte for byte.
+
+2. **Criterion 2 (CLI behavior on modified files):**
+   - Command: `python scripts/check_tests_first.py --files t8_daq_system/main.py`
+     - Output:
+       ```
+       FAIL: Application source files modified under 't8_daq_system/' without corresponding test changes under 'tests/':
+         - t8_daq_system/main.py
+
+       Tests-first rule violation (see ADR 0001 under docs/adr/):
+       1. Write tests under 'tests/' covering the application changes.
+       2. If this change is genuinely exempt from test updates, provide an explicit escape reason:
+          - PR Label: 'tests-exempt' or 'skip-test-gate'
+          - Commit message or PR body: [no-test-needed: <reason>], [tests-exempt: <reason>], or [skip-test-gate]
+            (a commit tag covers only the files that commit changed)
+       ```
+     - Exit code: 1
+   - Command: `python scripts/check_tests_first.py --files t8_daq_system/main.py tests/test_x.py`
+     - Output:
+       ```
+       OK: Application source changes (1 file(s)) accompanied by test changes (1 file(s)).
+       ```
+     - Exit code: 0
+
+3. **Criterion 3 (.ticket-engine.toml):**
+   - Line 8 retains `source_paths = ["t8_daq_system"]`.
+
+4. **Criterion 4 (.github/workflows/tests.yml):**
+   - Added `types: [opened, synchronize, reopened, edited, labeled, unlabeled]` under `pull_request:`.
+   - `branches: [main]` remains unchanged.
+
+5. **Criterion 5 (ADR 0001 & AGENTS.md):**
+   - Step 3 replacement text applied to ADR 0001 decision 1 and AGENTS.md §12.3.
+
+6. **Criterion 6 (Full Gate):**
+   - `ruff check .`: passed (All checks passed!)
+   - `python scripts/check_tests_first.py`: passed (`OK: No code changes under 't8_daq_system/'.`)
+   - `pytest --tb=short -q`: 636 passed in 16.65s (updated direct test calls in `tests/unit/test_check_tests_first.py` to supply `source_paths=_SRC`).

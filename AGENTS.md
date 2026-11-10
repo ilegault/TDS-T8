@@ -338,9 +338,15 @@ error the test exists to surface.
 
 CI runs, in order, on a Windows runner: `ruff check .`,
 `python scripts/check_tests_first.py`, `pytest --tb=short -q`. A change under
-`t8_daq_system/` must also touch `tests/`, unless it carries a visible escape tag
-(`[no-test-needed: <reason>]`, `[tests-exempt: <reason>]`, `[skip-test-gate]`) or
-the `tests-exempt` PR label.
+`t8_daq_system/` must also touch `tests/`. A `.py` file whose code is
+unchanged once docstrings and comments are removed does not count as a change.
+Otherwise the escape is explicit and visible, and its reach depends on where it is
+written: a tag (`[no-test-needed: <reason>]`, `[tests-exempt: <reason>]` or
+`[skip-test-gate]`) in a commit message covers only the files that commit changed,
+and a file is exempt only when every commit that changed it is tagged; the same tag
+in the PR title or body, or the `tests-exempt` / `skip-test-gate` label, covers the
+whole PR, and CI re-runs when the PR text or labels change. The check fails, never
+passes, when it cannot work out what changed.
 
 ### 12.4 Implementing a ticket — the protocol
 
