@@ -185,7 +185,7 @@ Files in `control/` and `utils/` must **never import from `gui/`** or `tkinter`.
 Practice mode is the `Rig` module running the `SimulatedRig` adapter (ADR 0005). No `practice_mode` branch exists in control, safety, or record code. Commanded voltage drives a physical tungsten thermal simulation (`TungstenSim`), producing realistic temperature and current. The real PID, feedforward, safety evaluator, Heater output and Run record run identically in practice as on live hardware.
 
 ### 5.6 AppSettings
-User settings persist across launches. **The registry wins** (ADR 0007): `_DEFAULTS` only seeds a key the registry lacks, and no other module holds a default for a setting. `load()` records in `AppSettings.sources` whether each key came from the `registry` or a `default`; the startup dump logs that at INFO. The Settings dialog is the only editor; nothing writes the registry silently. Gains and Soft-start/cap settings are frozen per run: they travel with Start. When adding a new user-configurable field:
+User settings persist across launches. **The registry wins** (ADR 0007): `_DEFAULTS` only seeds a key the registry lacks, and no other module holds a default for a setting. `load()` records in `AppSettings.sources` whether each key came from the `registry` or a `default`; the startup dump logs that at INFO. A stored value equal to a retired default loads as the new default with source `migrated` (ADR 0007 amendment). The Settings dialog is the only editor; nothing writes the registry silently. Gains and Soft-start/cap settings are frozen per run: they travel with Start. When adding a new user-configurable field:
 1. Add the key and default to `_DEFAULTS` dict in `app_settings.py`.
 2. Add it as a property on `AppSettings`.
 3. Add registry read/write in `load()` / `save()`.
@@ -322,7 +322,7 @@ and the ticket that changes the code updates the section.
    Handoff and block boundaries are bumpless, including Feedforward; Feedforward below
    its lowest map point is 0 V. (ADR 0006)
 8. **Two current caps, each with its own toggle.** The Soft-start current cap (default
-   40 A) is active only during Soft start; the Run current cap (default 120 A) from
+   40 A) is active only during Soft start; the Run current cap (default 175 A) from
    Handoff to program end. Exceeding an enabled cap is a latched trip
    (`soft_start_overcurrent`, `run_overcurrent`). The caps are trips, not a current
    setpoint: DAC1 stays pinned (§2). A disabled cap is logged at WARNING. (ADR 0006)

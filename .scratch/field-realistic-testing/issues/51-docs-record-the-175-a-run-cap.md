@@ -1,6 +1,6 @@
 # 51: Docs record the 175 A Run cap and the retired-default migration
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Runner:** any
 
@@ -44,14 +44,14 @@ Tests may fake: nothing. Must be real: the files above.
 
 ## Acceptance criteria
 
-- [ ] ADR 0006 and ADR 0007 each end with the new amendment section; `git diff` on both
+- [x] ADR 0006 and ADR 0007 each end with the new amendment section; `git diff` on both
       shows only added lines. (no test: documentation)
-- [ ] `CONTEXT.md` and `AGENTS.md` contain `175 A` for the Run current cap and no longer
+- [x] `CONTEXT.md` and `AGENTS.md` contain `175 A` for the Run current cap and no longer
       contain `Run current cap (default 120 A)` or `Default 120 A, editable`. (no test: documentation)
-- [ ] `AGENTS.md` §5.6 contains `` `migrated` ``. (no test: documentation)
-- [ ] The text between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->` is
+- [x] `AGENTS.md` §5.6 contains `` `migrated` ``. (no test: documentation)
+- [x] The text between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->` is
       unchanged. (no test: documentation)
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
 ## Gate
 
@@ -62,3 +62,12 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     pytest --tb=short -q
 
 ## Comments
+
+### Completed — 2026-11-10
+- Appended amendment section to `docs/adr/0006-soft-start-and-current-caps.md` documenting the 175 A Run cap default, editable on Safety limits tab (0–180 A), field-run peak current justification, and the test guard. `git diff` shows only added lines.
+- Appended amendment section to `docs/adr/0007-registry-is-the-single-source-of-settings.md` documenting retired default migration (120 -> 175) with source `migrated`. `git diff` shows only added lines.
+- Updated `CONTEXT.md` Run current cap entry to note default 175 A and Safety limits tab.
+- Updated `AGENTS.md` §12.1 point 8 to default 175 A, and §5.6 to note retired default loads as new default with source `migrated`.
+- Preserved `ACTIVE-PLAN` section untouched.
+- Full gate passed: ruff clean, check_tests_first clean, all 636 tests passed.
+- Bench verification: none needed (docs only).
