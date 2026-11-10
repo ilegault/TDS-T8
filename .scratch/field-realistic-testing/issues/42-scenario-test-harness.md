@@ -1,6 +1,6 @@
 # 42: Scenario test harness
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
