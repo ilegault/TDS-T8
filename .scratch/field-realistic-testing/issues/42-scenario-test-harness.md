@@ -1,6 +1,6 @@
 # 42: Scenario test harness
 
-**Status:** ready-for-agent
+**Status:** blocked
 
 **Runner:** any
 
@@ -71,3 +71,13 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-11-10 (planner): parked. An agent ran this ticket and escalated on branch
+`ticket/field-realistic-testing-42-scenario-test-harness` (draft PR): the calibrated
+two-node simulator only trips 40 min in, at 1254 °C. Its suggested fix (`C_FIL = 20.0`)
+does not hold: with it, `test_replay_tc_tracks_field_run[2026-04-15_ramp_hold_down]`
+(63 K > 50 K) and `test_output_false_gives_zero_current_and_cools` fail. The heat path is
+filament → tungsten filament plate → tungsten sample, three stages in series, so the
+two-node model may be the wrong shape. Waits for: what the plate is, whether the TC
+sits on the sample, and the 2026-11-06 Diagnostic log (ticket 47); then a design grill.
+The Run cap fix no longer depends on this ticket (43 was decoupled on 2026-11-10).

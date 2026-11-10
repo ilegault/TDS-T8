@@ -365,9 +365,9 @@ the `tests-exempt` PR label.
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan
 
-_Written by the planning model on 2026-11-10 05:58. Implement this. If something in it is wrong, say so before changing course._
+_Written by the planning model on 2026-11-10 07:20. Implement this. If something in it is wrong, say so before changing course._
 
-# Active work: tests-first gate fix (50, waiting on ticket-engine 87), plus the work below
+# Active work: Run cap fix (43, then held 51) and tests-first gate fix (50); simulator work parked
 
 This is a pointer, not the work.
 
@@ -376,10 +376,10 @@ This is a pointer, not the work.
 - **Spec:** `.scratch/tests-first-gate-holes/spec.md` in `ilegault/ticket-engine`.
 - **Binding:** `docs/adr/0001-tests-first-and-no-muted-failures.md`. Glossary: no change.
 - **Ticket:** `.scratch/tests-first-gate-holes/issues/50-take-the-fixed-tests-first-check-and-rerun-on-pr-edits.md`.
-  `ready-for-developer` until ticket 87 in `ilegault/ticket-engine` is merged; the
-  developer then sets it to `ready-for-agent`. Held (`Auto-merge: no`), a leaf, blocks
+  `ready-for-agent` (ticket-engine 87 is merged). Held (`Auto-merge: no`), a leaf, blocks
   nothing, touches no application code or tests.
-- **Next:** nothing new is claimable yet; carry on with the sets below.
+- **Next:** this ticket is unblocked and can run alongside the sets below. It edits
+  `AGENTS.md` and ADR 0001, so a PR open on those files may need a rebase first.
 
 Requirements an implementer might treat as preferences: `scripts/check_tests_first.py`
 is the canonical file byte for byte and is never edited here, not even for lint; `source_paths = ["t8_daq_system"]` in `.ticket-engine.toml` stays.
@@ -391,32 +391,35 @@ This is a pointer, not the work. Tickets are assigned by ticket-engine (hourly d
 and the box). Never run a second orchestrator on this repo.
 
 - **Field-realistic testing:** spec `.scratch/field-realistic-testing/spec.md`, tickets
-  `.scratch/field-realistic-testing/issues/38`–`48` (38, 40, 41 done).
+  `.scratch/field-realistic-testing/issues/38`–`48` and `51` (38–41 done).
 - **Engine handover:** `.scratch/engine-handover/issues/49` (held: `Auto-merge: no`,
   changes `AGENTS.md` and `docs/`). Independent of everything else.
 - **Binding ADRs:** `docs/adr/0001-tests-first-and-no-muted-failures.md` (every ticket),
   `0005`, `0006`, `0007`, `0008`, plus `0003` (trips). Engine protocol:
   `src/ticket_engine/resources/ticket_skill.md` in `ilegault/ticket-engine` (`v1`).
 - **Tracker conventions:** `docs/agents/issue-tracker.md`. Ticket numbers are unique
-  across the whole repo; the next new ticket is **51**.
+  across the whole repo; the next new ticket is **52**.
 
-**Next:** 39 (re-planned 2026-11-09 so the Integrity Gate holds it instead of failing it)
-and 49 have no blockers. After 39: 42, then 44. 43, 47 and 48 are the developer's.
+**Next:** 43 (Run current cap default 175 A, Safety limits tab, 120 → 175 migration;
+re-planned 2026-11-10, no blockers), then 51 (held, docs). 49 and 50 have no blockers.
+42 is `blocked` (parked): the simulator may need a three-stage heat path; 44 and 45 wait
+on it. 47 and 48 are the developer's.
 
 Dependency graph:
 
     38 ─ 39 ─────────┐
-                     ├─ 42 ─┬─ 43 [ready-for-developer: Run cap decision] ─┬─ 45 (also 47) ─┐
-    40 ─ 41 ─────────┘      │                                               │                ├─ 46 [held]
-                            └─ 44 ──────────────────────────────────────────┼────────────────┘
-                                                                            └─ 48 [ready-for-developer: bench] (also 44)
+                     ├─ 42 [blocked: three-stage model] ─┬─ 44 ─┬─ 48 [ready-for-developer: bench] (also 43)
+    40 ─ 41 ─────────┘                                   │      └─────────────────────┐
+                                                         └─ 45 (also 43, 47) ─────────┼─ 46 [held] (also 51)
+    43 ─ 51 [held] ───────────────────────────────────────────────────────────────────┘
     47 [ready-for-developer: lab evidence] ─ 45
-    49 [held] (independent)
+    49 [held] (independent)    50 [held] (independent)
 
 Requirements an implementer would treat as preferences — they are not:
 - Tests start from **Production settings** (`production_run_settings()`, built from `_DEFAULTS` only). Overriding a field needs `# not production: <why>` on that line. A test overrides the field it is about only to test that toggle's disabled state.
 - A test that goes red because the settings or the simulator became realistic is a **finding**: fix the code or escalate. No skip, xfail, loosened tolerance or narrowed input (ADR 0001).
-- `test_field_case_2026_11_06_cold_start` asserts the lab trip in ticket 42 and is rewritten in place in ticket 43 to assert the fix; if ticket 42's simulator does not reproduce the trip, escalate.
+- Ticket 43's `test_only_the_tc_loss_sample_trips_a_current_cap` must find exactly one tripping Field run sample (the end of 2026-03-28). Never filter samples to make it pass.
+- A stored `run_cap_a` of exactly 120.0 loads as 175.0 with source `migrated`; any other stored value wins (ADR 0007, amended in 51).
 - `production_run_settings()`, `TungstenSim.replay`, `block_from_dict` and `build_id` are pure (no clock, hardware or Tk).
 - No test is deleted. A test whose behaviour changed is rewritten in place under the same name.
 - Claim branches (`claim/<effort>/<NN>`) belong to the engine. Never create or delete one by hand.
