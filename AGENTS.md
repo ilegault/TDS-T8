@@ -10,8 +10,10 @@ This file tells coding agents (Claude Code, Copilot, Cursor, etc.) everything th
   one ticket per file in `issues/NN-<slug>.md`. See `docs/agents/issue-tracker.md`.
 - **Domain docs:** `CONTEXT.md` (glossary) at the repo root, decisions in
   `docs/adr/`. See `docs/agents/domain.md`. ADRs are binding in the areas they cover.
-- **Implementing a ticket:** the `tds-ticket` skill (`.claude/skills/` and
-  `.agents/skills/`), or §12 below for tools without skills.
+- **Implementing a ticket:** ticket-engine's runner-agnostic skill,
+  `src/ticket_engine/resources/ticket_skill.md` in `ilegault/ticket-engine`
+  (summarised in §12.4). The engine's dispatcher and the box assign tickets; never
+  run a second orchestrator on this repo.
 - `CLAUDE.md` is a one-line `@AGENTS.md` import. This file is the only conventions
   file. See `docs/agents/multi-tool-setup.md`.
 
@@ -213,9 +215,9 @@ Work on these carefully — they involve the live hardware path:
 
 ## 7. How to Implement Changes
 
-Isaac (the project owner) uses a **two-phase workflow**:
+The developer (the project owner) uses a **two-phase workflow**:
 
-1. **Analysis first**: Claude / the agent presents its diagnosis and proposed approach. Isaac confirms or corrects it.
+1. **Analysis first**: Claude / the agent presents its diagnosis and proposed approach. The developer confirms or corrects it.
 2. **Implementation second**: Only after confirmation, provide explicit, numbered, step-by-step instructions — including exact file names, method signatures, and find/replace code blocks.
 
 **Instructions must be:**
@@ -226,7 +228,7 @@ Isaac (the project owner) uses a **two-phase workflow**:
 - Include the exact old code block and the replacement code block
 - Not require the user to make judgment calls
 
-Isaac delegates all coding to an agent and does not write code directly.
+The developer delegates all coding to an agent and does not write code directly.
 
 ---
 
@@ -342,25 +344,24 @@ the `tests-exempt` PR label.
 
 ### 12.4 Implementing a ticket — the protocol
 
-1. Read the `ACTIVE-PLAN` block below, the ticket file, its effort's `spec.md`, and
-   every ADR the ticket references.
-2. **Work the frontier.** Never start a ticket whose `Blocked by:` names one that is
-   not `done`. Never claim a `ready-for-developer` ticket.
-3. Set `Status: in-progress` when you start and `Status: done` when it lands —
-   exactly those words (vocabulary in `docs/agents/issue-tracker.md`).
-4. One ticket per branch (`ticket/<effort>-NN-<slug>`), one PR per ticket, based on
-   `main`. Never commit to `main`.
-5. Test first: write the test, watch it fail, then write the code.
-6. Run all three gates locally with 0 failures before pushing.
-7. After pushing, watch CI (`gh pr checks --watch --fail-fast`) and fix what it
-   finds — at most two fix-and-push cycles, then escalate.
-8. **Escalate in four steps:** commit the finished work; set `Status: blocked`;
-   append under the ticket's `## Comments` what was tried, what failed (quoted), and
-   what decision is needed; open or convert the PR to a **draft**.
-9. The escalation report goes in the ticket file under `.scratch/` (committed) —
-   never only under `.claude/` or in chat.
-10. Update the module docstring's reasoning (`WHY THIS EXISTS`) when behaviour
-    changes. A stale *why* is worse than none.
+1. Read the `ACTIVE-PLAN` block, the ticket, its effort's `spec.md` if there is one,
+   every ADR it names, and the engine's `ticket_skill.md`.
+2. Work the frontier. Never start a ticket whose `Blocked by:` names one that is not
+   `done`. Never claim a `ready-for-developer` ticket.
+3. Claims belong to the engine: a ticket is claimed by a `claim/<effort>/<NN>` branch.
+   Never create, move or delete a claim branch by hand; the dispatcher releases stale
+   ones.
+4. One ticket, one branch, one PR, based on `main`. Never commit to `main`.
+5. Tests first, from the acceptance criteria. Every backticked `test_...` name in a
+   criterion must exist and must fail on the base code (Integrity Gate check 9).
+6. Run the three gates in §12.3 locally with 0 failures before pushing.
+7. Red CI gets at most three fix attempts (the engine counts them), then escalate.
+8. Done: `Status: done`, every criterion ticked `- [x]`, a dated summary under
+   `## Comments`, all in the same PR.
+9. Cannot finish honestly: `Status: blocked` and the escalation brief from
+   `ticket_skill.md` under the ticket's `## Comments`, committed on the branch. Never
+   only under `.claude/` or in chat.
+10. Update the module docstring's reasoning (`WHY THIS EXISTS`) when behaviour changes.
 
 <!-- ACTIVE-PLAN:START -->
 ## Active implementation plan

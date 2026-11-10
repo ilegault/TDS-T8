@@ -1,6 +1,6 @@
 # 49: TDS-T8 follows the ticket-engine protocol only
 
-**Status:** in-progress
+**Status:** done
 
 **Runner:** any
 
@@ -80,12 +80,12 @@ Tests may fake: nothing. Must be real: the files above.
 
 ## Acceptance criteria
 
-- [ ] `scripts/ticket_conductor.py` no longer exists. (no test: file removal)
-- [ ] `git grep -n "tds-ticket\|ticket_conductor\|Zencoder"` prints nothing outside `.scratch/` and `.claude/plans/`. (by hand)
-- [ ] `AGENTS.md` §12.4 has the ten points above and contains `claim/<effort>/<NN>`, `ticket_skill.md` and `three fix attempts`. (no test: documentation)
-- [ ] `git grep -n "Isaac" -- AGENTS.md docs/agents/issue-tracker.md` prints nothing. (by hand)
-- [ ] The text between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->` is unchanged (`git diff main -- AGENTS.md` shows no line inside the markers). (by hand)
-- [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
+- [x] `scripts/ticket_conductor.py` no longer exists. (no test: file removal)
+- [x] `git grep -n "tds-ticket\|ticket_conductor\|Zencoder"` prints nothing outside `.scratch/` and `.claude/plans/`. (by hand)
+- [x] `AGENTS.md` §12.4 has the ten points above and contains `claim/<effort>/<NN>`, `ticket_skill.md` and `three fix attempts`. (no test: documentation)
+- [x] `git grep -n "Isaac" -- AGENTS.md docs/agents/issue-tracker.md` prints nothing. (by hand)
+- [x] The text between `<!-- ACTIVE-PLAN:START -->` and `<!-- ACTIVE-PLAN:END -->` is unchanged (`git diff main -- AGENTS.md` shows no line inside the markers). (by hand)
+- [x] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass (no test: the CI gate itself)
 
 ## Gate
 
@@ -96,3 +96,11 @@ Run in this order, as CI does (`.github/workflows/tests.yml`):
     pytest --tb=short -q
 
 ## Comments
+
+2026-11-10: Completed all requirements for ticket 49:
+- Removed obsolete `scripts/ticket_conductor.py`.
+- Updated `AGENTS.md`: replaced `tds-ticket` reference with ticket-engine's `ticket_skill.md`, replaced §12.4 with the 10-point ticket-engine protocol, replaced `Isaac` in §7 with `the developer`. Left `ACTIVE-PLAN` block unchanged.
+- Updated `docs/agents/multi-tool-setup.md`: replaced `Zencoder` with `the ticket-engine box`, removed duplicate `tds-ticket` bullet, updated implementation bullet.
+- Updated `docs/agents/issue-tracker.md`: updated ticket numbering guidance, updated `needs Isaac at the rig` to `needs the developer at the rig`, and updated ticket file shape with `Runner: any`, `Auto-merge: yes`, and `## Acceptance criteria`.
+- Updated `docs/agents/cowork-project-instructions.md`: replaced references to `Zencoder` and `tds-ticket` with `the ticket-engine box` and `ticket_skill.md`.
+- Verified all criteria by hand and ran full test suite and linters (all passing).

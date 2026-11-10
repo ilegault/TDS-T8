@@ -6,7 +6,7 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 
 - One feature per directory: `.scratch/<feature-slug>/`
 - The spec is `.scratch/<feature-slug>/spec.md`
-- Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`, never a single combined tickets file
+- Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from the highest ticket number anywhere under `.scratch/` plus one (numbers are unique across the whole repo; the engine keys claims and blockers by number alone), never a single combined tickets file
 - Triage state is recorded as a `Status:` line near the top of each issue file
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
@@ -29,9 +29,15 @@ Read the file at the referenced path. The user will normally pass the path or th
 
 **Status:** ready-for-agent
 
+**Runner:** any
+
+**Auto-merge:** yes
+
 **Read** <ADRs> **first.** `docs/adr/0001-tests-first-and-no-muted-failures.md` is binding.
 
 <structural requirements, stated as requirements>
+
+## Acceptance criteria
 
 - [ ] acceptance criterion
 - [ ] `ruff check .`, `python scripts/check_tests_first.py` and `pytest --tb=short -q` all pass
@@ -42,7 +48,7 @@ Read the file at the referenced path. The user will normally pass the path or th
 ## Status vocabulary — exactly these words
 
 - `ready-for-agent` — available to be claimed
-- `ready-for-developer` — needs Isaac at the rig or making a judgement call; an agent must not claim it
+- `ready-for-developer` — needs the developer at the rig or making a judgement call; an agent must not claim it
 - `in-progress`
 - `blocked` — escalated, reason under `## Comments`
 - `done`
