@@ -118,7 +118,7 @@ def _add(panel: ProgramPanel, label: str) -> None:
 class TestGainsAndCapsReadout:
 
     def test_idle_readout_comes_from_run_settings(self):
-        panel = _panel(_run_settings(kp=2.0, ki=0.1, kd=0.2, soft_start_cap_enabled=False))
+        panel = _panel(_run_settings(kp=2.0, ki=0.1, kd=0.2, soft_start_cap_enabled=False))  # not production: tests the disabled soft_start_cap_enabled
 
         panel.refresh_run_labels(None)
 
@@ -127,7 +127,7 @@ class TestGainsAndCapsReadout:
         assert "Run cap: 120 A" in panel.get_caps_text()
 
     def test_run_cap_off_when_disabled(self):
-        panel = _panel(_run_settings(run_cap_enabled=False))
+        panel = _panel(_run_settings(run_cap_enabled=False))  # not production: tests the disabled run_cap_enabled
 
         panel.refresh_run_labels(None)
 

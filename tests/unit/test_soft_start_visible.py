@@ -153,7 +153,7 @@ class TestLockedSoftStartRow:
 class TestCapAndGainsLabels:
 
     def test_run_cap_off_label_when_disabled(self):
-        panel = _panel(_app_settings(run_cap_enabled=False))
+        panel = _panel(_app_settings(run_cap_enabled=False))  # not production: tests the disabled run_cap_enabled
 
         panel.refresh_run_labels(None)
 
@@ -162,7 +162,7 @@ class TestCapAndGainsLabels:
         assert "Soft-start cap: 40" in text
 
     def test_idle_labels_come_from_app_settings(self):
-        panel = _panel(_app_settings(pid_kp=2.0, pid_ki=0.1, pid_kd=0.2, soft_start_cap_enabled=False))
+        panel = _panel(_app_settings(pid_kp=2.0, pid_ki=0.1, pid_kd=0.2, soft_start_cap_enabled=False))  # not production: tests the disabled soft_start_cap_enabled
 
         panel.refresh_run_labels(None)
 

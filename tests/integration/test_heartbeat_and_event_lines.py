@@ -161,7 +161,7 @@ def test_disabled_run_cap_warns_at_run_start(tmp_path):
     rig, rr, data_logger, clock, _ = _make_fixture(tmp_path)
     blocks = [TempRampBlock(rate_k_per_min=60.0, end_temp_k=900.0, tc_name="TC_1")]
     with _SessionLog(tmp_path / "session.log") as log:
-        _start(rig, clock, blocks, run_cap_enabled=False)
+        _start(rig, clock, blocks, run_cap_enabled=False)  # not production: tests the disabled run_cap_enabled
         _finish(rr, data_logger)
         lines = log.lines()
 
@@ -174,7 +174,7 @@ def test_disabled_soft_start_cap_warns_at_run_start(tmp_path):
     # Soft start is an optional block (ADR 0006, amended 2026-11-05).
     blocks = [SoftStartBlock(), TempRampBlock(rate_k_per_min=60.0, end_temp_k=900.0, tc_name="TC_1")]
     with _SessionLog(tmp_path / "session.log") as log:
-        _start(rig, clock, blocks, soft_start_cap_enabled=False)
+        _start(rig, clock, blocks, soft_start_cap_enabled=False)  # not production: tests the disabled soft_start_cap_enabled
         _finish(rr, data_logger)
         lines = log.lines()
 

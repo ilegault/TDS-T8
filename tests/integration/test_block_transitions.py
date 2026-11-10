@@ -133,7 +133,9 @@ def run_program_on_rig(fixture: SimpleNamespace, blocks: list, max_ticks: int = 
     rig.run_tick()
 
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram(settings=make_run_settings()))
+    rig.submit(StartProgram(settings=make_run_settings(
+        run_cap_enabled=False,  # not production: cold sim ramps through >120 A; run cap is not what this test is about
+    )))
 
     block_indices = []
     completed = False
@@ -314,7 +316,9 @@ def test_no_power_dropout_between_blocks():
     rig.run_tick()
 
     rig.submit(LoadProgram(blocks))
-    rig.submit(StartProgram(settings=make_run_settings()))
+    rig.submit(StartProgram(settings=make_run_settings(
+        run_cap_enabled=False,  # not production: cold sim ramps through >120 A; run cap is not what this test is about
+    )))
 
     ticks = []  # (block_index, commanded_volts)
 

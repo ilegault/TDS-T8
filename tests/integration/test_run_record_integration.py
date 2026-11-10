@@ -161,7 +161,9 @@ def test_three_block_run_one_row_per_tick(tmp_path):
     rig.submit_command(LoadProgram(program=blocks))
     # Run one tick to establish first readings before starting
     _advance(rig, clock, 1)
-    rig.submit_command(StartProgram(settings=make_run_settings()))
+    rig.submit_command(StartProgram(settings=make_run_settings(
+        run_cap_enabled=False,  # not production: cold sim ramps through >120 A; run cap is not what this test is about
+    )))
     # Run enough ticks to complete all three blocks (each block ~4 control steps) + extra
     N_TICKS = 30
     _advance(rig, clock, N_TICKS)
@@ -202,7 +204,9 @@ def test_trip_writes_event_and_trip_reason_on_rows(tmp_path):
     blocks = [VoltageRampBlock(start_voltage=0.0, end_voltage=2.0, duration_sec=10.0)]
     rig.submit_command(LoadProgram(program=blocks))
     _advance(rig, clock, 1)
-    rig.submit_command(StartProgram(settings=make_run_settings()))
+    rig.submit_command(StartProgram(settings=make_run_settings(
+        run_cap_enabled=False,  # not production: cold sim ramps through >120 A; run cap is not what this test is about
+    )))
     # Run a few ticks with normal pressure
     _advance(rig, clock, 4)
 
