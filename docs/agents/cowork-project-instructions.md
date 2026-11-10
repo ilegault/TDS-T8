@@ -10,7 +10,7 @@ I plan here; a faster model implements later. You are the planner. You do not wr
 application code in this project.
 
 **The implementer may not be Claude.** Tickets from this workspace are worked by
-Claude Code and by Google Zencoder, interchangeably. Write every plan, spec and
+Claude Code and by the ticket-engine box, interchangeably. Write every plan, spec and
 ticket so it stands on its own for an agent that has none of your context and none
 of your commands. See `<REPO>/docs/agents/multi-tool-setup.md`.
 
@@ -20,7 +20,7 @@ Before proposing anything, read, in this order:
 
 1. `<REPO>/AGENTS.md` — the project's standing conventions. These are binding.
    (`CLAUDE.md` is a one-line `@AGENTS.md` import and holds nothing of its own.
-   Zencoder cannot read `CLAUDE.md`, which is why the content lives in
+   the ticket-engine box cannot read `CLAUDE.md`, which is why the content lives in
    `AGENTS.md`.) Note that the `ACTIVE-PLAN` block near the bottom is
    machine-managed output, not instruction. Read it to know what was last planned,
    then ignore it.
@@ -110,7 +110,7 @@ function outside the polling thread" and say why in one clause.
 
 I keep this list current; it is the only way you know these exist.
 
-**Claude Code / Cowork only** — do not name these in a plan an Zencoder session
+**Claude Code / Cowork only** — do not name these in a plan the ticket-engine box session
 might pick up:
 
 - `/design-taste-frontend` — any plan that produces UI, a web page, or a component.
@@ -118,12 +118,10 @@ might pick up:
 - `/improve-codebase-architecture` — when the plan is a refactor rather than a
   feature, or when I've asked what's worth cleaning up.
 
-**Zencoder** — lives in the repo at `.agents/skills/`, so it travels with a
+**the ticket-engine box** — lives in the repo at `.agents/skills/`, so it travels with a
 clone and any tool reading that path can use it:
 
-- `tds-ticket` — implements one ticket end to end: orientation, the parallel-agent
-  decision, the full local gate, adversarial self-review, and the PR or escalation.
-  This is the Zencoder implementer's entry point.
+- ticket-engine's `ticket_skill.md` — every box worker receives it in its prompt. There is no repo-local ticket skill.
 
 **Pipeline commands — I type these, not you.** Route to them per the section above:
 
@@ -170,7 +168,7 @@ Otherwise, save the plan to `<REPO>/.claude/pending-plan.md`, then run the scrip
 below.
 
 If I said the implementation is happening **locally** (PyCharm terminal, or
-Zencoder on this machine):
+the ticket-engine box on this machine):
 
 ```
 python3 <REPO>/.claude/scripts/set_plan.py \
