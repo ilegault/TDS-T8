@@ -1,6 +1,6 @@
 # 50: Take ticket-engine's fixed tests-first check, and re-run CI on PR edits and labels
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 **Runner:** any
 
