@@ -360,7 +360,9 @@ passes, when it cannot work out what changed.
 4. One ticket, one branch, one PR, based on `main`. Never commit to `main`.
 5. Tests first, from the acceptance criteria. Every backticked `test_...` name in a
    criterion must exist and must fail on the base code (Integrity Gate check 9).
-6. Run the three gates in §12.3 locally with 0 failures before pushing.
+6. Run the three gates in §12.3 locally with 0 failures before pushing, with
+   `pytest` limited to the tests your change touches. CI runs the full suite on
+   the PR, merged with the latest `main`.
 7. Red CI gets at most three fix attempts (the engine counts them), then escalate.
 8. Done: `Status: done`, every criterion ticked `- [x]`, a dated summary under
    `## Comments`, all in the same PR.
