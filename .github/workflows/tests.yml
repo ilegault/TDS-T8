@@ -2,13 +2,16 @@ name: tests
 
 on:
   push:
+    branches: [ main ]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs only. Every push to the default branch keeps its
+  # own run, so a red default branch can be traced to the merge that broke it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
